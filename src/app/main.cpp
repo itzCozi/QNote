@@ -46,7 +46,13 @@ static bool CheckSingleInstance() {
 }
 
 //------------------------------------------------------------------------------
-// Parse command line to get the file to open
+// Parse command line to get the file to open.
+// Handles normal invocation and IFEO (Image File Execution Options) invocation.
+//
+// When QNote is registered as the Notepad replacement via IFEO, Windows passes
+// the original executable path as argv[1] followed by the original arguments:
+//   QNote.exe C:\Windows\System32\notepad.exe [file]
+// We detect this by checking whether argv[1] ends with ".exe" and skip it.
 //------------------------------------------------------------------------------
 static std::wstring ParseCommandLine() {
     int argc = 0;
@@ -55,29 +61,46 @@ static std::wstring ParseCommandLine() {
     std::wstring filePath;
     
     if (argv && argc > 1) {
-        // Get the first argument as the file path
-        filePath = argv[1];
-        
-        // Handle quoted paths
-        if (!filePath.empty() && filePath.front() == L'"') {
-            filePath = filePath.substr(1);
+        // Detect IFEO invocation: argv[1] ends with ".exe" (the intercepted executable).
+        // In that case the actual file argument, if any, is argv[2].
+        int fileArgIndex = 1;
+        {
+            std::wstring firstArg = argv[1];
+            if (firstArg.length() >= 4) {
+                const wchar_t* ext = firstArg.c_str() + firstArg.length() - 4;
+                if (_wcsicmp(ext, L".exe") == 0) {
+                    fileArgIndex = 2;  // skip the intercepted executable path
+                }
+            }
         }
-        if (!filePath.empty() && filePath.back() == L'"') {
-            filePath.pop_back();
-        }
         
-        // If it's a relative path, make it absolute
-        if (!filePath.empty() && filePath[0] != L'\\' && 
-            (filePath.length() < 2 || filePath[1] != L':')) {
-            wchar_t currentDir[MAX_PATH];
-            if (GetCurrentDirectoryW(MAX_PATH, currentDir)) {
-                std::wstring fullPath = currentDir;
-                fullPath += L"\\";
-                fullPath += filePath;
-                
-                wchar_t absolutePath[MAX_PATH];
-                if (GetFullPathNameW(fullPath.c_str(), MAX_PATH, absolutePath, nullptr)) {
-                    filePath = absolutePath;
+        // fileArgIndex may be beyond argc when IFEO is invoked without a file
+        // argument (e.g. bare "notepad" with no filename).  In that case open
+        // a new empty document.
+        if (fileArgIndex < argc) {
+            filePath = argv[fileArgIndex];
+            
+            // Handle quoted paths
+            if (!filePath.empty() && filePath.front() == L'"') {
+                filePath = filePath.substr(1);
+            }
+            if (!filePath.empty() && filePath.back() == L'"') {
+                filePath.pop_back();
+            }
+            
+            // If it's a relative path, make it absolute
+            if (!filePath.empty() && filePath[0] != L'\\' && 
+                (filePath.length() < 2 || filePath[1] != L':')) {
+                wchar_t currentDir[MAX_PATH];
+                if (GetCurrentDirectoryW(MAX_PATH, currentDir)) {
+                    std::wstring fullPath = currentDir;
+                    fullPath += L"\\";
+                    fullPath += filePath;
+                    
+                    wchar_t absolutePath[MAX_PATH];
+                    if (GetFullPathNameW(fullPath.c_str(), MAX_PATH, absolutePath, nullptr)) {
+                        filePath = absolutePath;
+                    }
                 }
             }
         }

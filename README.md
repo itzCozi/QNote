@@ -6,6 +6,30 @@ A lightweight, open-source Notepad replacement for Windows 10/11.
 ![Platform](https://img.shields.io/badge/platform-Windows%2010%2F11-blue.svg)
 ![C++](https://img.shields.io/badge/C%2B%2B-17-blue.svg)
 
+## How QNote Differs from Windows Notepad
+
+| Feature | Windows Notepad | QNote |
+|---------|-----------------|-------|
+| **Redo** (Ctrl+Y) | ❌ | ✅ Multi-level redo stack |
+| **Regex Find/Replace** | ❌ | ✅ Full `std::regex` support |
+| **Dark Mode** | ✅ (Win 11 only) | ✅ Windows 10 & 11, manual override |
+| **Encoding support** | Limited | ✅ Auto-detect UTF-8/16 LE/BE, ANSI, BOM |
+| **Line ending control** | ❌ | ✅ View & convert CRLF / LF / CR |
+| **Configurable tab size** | ❌ (always 8) | ✅ 1–16 spaces |
+| **Recent files list** | ❌ | ✅ Up to 10 entries |
+| **Zoom** | ✅ (Win 11) | ✅ Windows 10 & 11 (Ctrl +/-/0) |
+| **Status bar** | ✅ | ✅ Line, column, encoding, EOL, zoom |
+| **Drag-and-drop** | ✅ | ✅ |
+| **Print with margins** | ✅ | ✅ Page setup + word-wrap print |
+| **RTL reading order** | ✅ | ✅ |
+| **Default font** | Consolas 11pt | Consolas 11pt (customisable) |
+| **Open-source / portable** | ❌ | ✅ MIT license, single `.exe` |
+
+QNote fills the niche of a **developer-friendly plain-text editor** that stays as
+lightweight as Notepad while adding the small quality-of-life features (regex,
+encoding control, multi-level redo, dark mode on Windows 10) that writers of
+code and config files need every day.
+
 ## Features
 
 - **Lightweight**: Pure Win32 API, no frameworks, small binary size (~150KB)
@@ -73,6 +97,47 @@ Settings are stored in `%APPDATA%\QNote\config.ini` and include:
 - Zoom level
 - Recent files list
 - Search options
+
+## Replacing Windows Notepad
+
+QNote ships two PowerShell scripts that use the
+[Image File Execution Options](https://learn.microsoft.com/en-us/previous-versions/windows/desktop/xperf/image-file-execution-options)
+(IFEO) registry technique to intercept every `notepad.exe` launch and redirect
+it to QNote.  This covers context-menu "Edit", Win+R → `notepad`, and any
+program that hard-codes a call to `notepad.exe`.
+
+### Install
+
+Open an **elevated** (Administrator) PowerShell prompt and run:
+
+```powershell
+.\install-as-notepad.ps1
+```
+
+If QNote.exe is not in the same directory, pass its path:
+
+```powershell
+.\install-as-notepad.ps1 -QNotePath "C:\Tools\QNote\QNote.exe"
+```
+
+### Uninstall / Restore Notepad
+
+```powershell
+.\uninstall-as-notepad.ps1
+```
+
+### How it works
+
+The scripts write (or remove) a single `Debugger` value under:
+
+```
+HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Image File Execution Options\notepad.exe
+```
+
+When this value is present Windows passes the original executable path as the
+first argument to the debugger.  QNote detects this automatically — if `argv[1]`
+ends with `.exe` it is treated as the intercepted executable name and the actual
+file to open is read from `argv[2]` instead.
 
 ## Building
 
@@ -142,10 +207,12 @@ QNote/
 │   ├── resource.h        # Resource identifiers
 │   ├── resource.rc       # Menus, accelerators, dialogs
 │   └── QNote.exe.manifest  # DPI awareness, visual styles
-├── CMakeLists.txt        # CMake build configuration
-├── build.bat             # Quick build script for MSVC
-├── LICENSE               # MIT License
-└── README.md             # This file
+├── CMakeLists.txt              # CMake build configuration
+├── build.bat                   # Quick build script for MSVC
+├── install-as-notepad.ps1      # Register QNote as Notepad replacement (admin)
+├── uninstall-as-notepad.ps1    # Remove Notepad replacement registration (admin)
+├── LICENSE                     # MIT License
+└── README.md                   # This file
 ```
 
 ## Technical Details
