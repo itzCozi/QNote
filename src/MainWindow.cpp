@@ -53,7 +53,7 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& i
     m_hInstance = hInstance;
     
     // Load settings
-    (void)m_settingsManager->Load();
+    m_settingsManager->Load();
     
     // Initialize common controls
     INITCOMMONCONTROLSEX icc = {};
@@ -298,7 +298,7 @@ void MainWindow::OnDestroy() {
     }
     
     // Save settings
-    (void)m_settingsManager->Save();
+    m_settingsManager->Save();
     
     // Clean up
     m_editor->Destroy();

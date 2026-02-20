@@ -37,13 +37,13 @@ public:
     MainWindow& operator=(const MainWindow&) = delete;
     
     // Initialize and create the main window
-    [[nodiscard]] bool Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile = L"");
+    bool Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile = L"");
     
     // Run the message loop
-    [[nodiscard]] int Run();
+    int Run();
     
     // Get window handle
-    [[nodiscard]] HWND GetHandle() const noexcept { return m_hwnd; }
+    HWND GetHandle() const { return m_hwnd; }
     
 private:
     // Window procedure

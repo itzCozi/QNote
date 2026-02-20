@@ -13,7 +13,6 @@
 #endif
 #include <Windows.h>
 #include <string>
-#include <string_view>
 #include <vector>
 #include <memory>
 #include "Settings.h"
@@ -45,9 +44,9 @@ struct UndoAction {
 //------------------------------------------------------------------------------
 class FontGuard {
 public:
-    FontGuard() noexcept : m_font(nullptr) {}
-    explicit FontGuard(HFONT font) noexcept : m_font(font) {}
-    ~FontGuard() noexcept {
+    FontGuard() : m_font(nullptr) {}
+    explicit FontGuard(HFONT font) : m_font(font) {}
+    ~FontGuard() {
         if (m_font) {
             DeleteObject(m_font);
         }
@@ -69,12 +68,12 @@ public:
         return *this;
     }
     
-    [[nodiscard]] HFONT get() const noexcept { return m_font; }
-    void reset(HFONT font = nullptr) noexcept {
+    HFONT get() const { return m_font; }
+    void reset(HFONT font = nullptr) {
         if (m_font) DeleteObject(m_font);
         m_font = font;
     }
-    HFONT release() noexcept {
+    HFONT release() {
         HFONT f = m_font;
         m_font = nullptr;
         return f;
@@ -90,7 +89,7 @@ private:
 
 class Editor {
 public:
-    Editor() noexcept = default;
+    Editor();
     ~Editor();
     
     // Prevent copying
@@ -98,94 +97,94 @@ public:
     Editor& operator=(const Editor&) = delete;
     
     // Initialize the edit control
-    [[nodiscard]] bool Create(HWND parent, HINSTANCE hInstance, const AppSettings& settings);
+    bool Create(HWND parent, HINSTANCE hInstance, const AppSettings& settings);
     
     // Destroy the edit control
-    void Destroy() noexcept;
+    void Destroy();
     
     // Get the edit control handle
-    [[nodiscard]] HWND GetHandle() const noexcept { return m_hwndEdit; }
+    HWND GetHandle() const { return m_hwndEdit; }
     
     // Resize the edit control
-    void Resize(int x, int y, int width, int height) noexcept;
+    void Resize(int x, int y, int width, int height);
     
     // Focus the edit control
-    void SetFocus() noexcept;
+    void SetFocus();
     
     // Text operations
-    [[nodiscard]] std::wstring GetText() const;
-    void SetText(std::wstring_view text);
-    void Clear() noexcept;
+    std::wstring GetText() const;
+    void SetText(const std::wstring& text);
+    void Clear();
     
     // Selection
-    void GetSelection(DWORD& start, DWORD& end) const noexcept;
-    void SetSelection(DWORD start, DWORD end) noexcept;
-    void SelectAll() noexcept;
-    [[nodiscard]] std::wstring GetSelectedText() const;
-    void ReplaceSelection(std::wstring_view text);
+    void GetSelection(DWORD& start, DWORD& end) const;
+    void SetSelection(DWORD start, DWORD end);
+    void SelectAll();
+    std::wstring GetSelectedText() const;
+    void ReplaceSelection(const std::wstring& text);
     
     // Clipboard operations
-    [[nodiscard]] bool CanUndo() const noexcept;
-    [[nodiscard]] bool CanRedo() const noexcept;
-    void Undo() noexcept;
-    void Redo() noexcept;
-    void Cut() noexcept;
-    void Copy() noexcept;
-    void Paste() noexcept;
-    void Delete() noexcept;
+    bool CanUndo() const;
+    bool CanRedo() const;
+    void Undo();
+    void Redo();
+    void Cut();
+    void Copy();
+    void Paste();
+    void Delete();
     
     // Caret position
-    [[nodiscard]] int GetLineCount() const noexcept;
-    [[nodiscard]] int GetCurrentLine() const noexcept;
-    [[nodiscard]] int GetCurrentColumn() const noexcept;
-    [[nodiscard]] int GetLineFromChar(DWORD charIndex) const noexcept;
-    [[nodiscard]] int GetLineIndex(int line) const noexcept;
-    [[nodiscard]] int GetLineLength(int line) const noexcept;
+    int GetLineCount() const;
+    int GetCurrentLine() const;
+    int GetCurrentColumn() const;
+    int GetLineFromChar(DWORD charIndex) const;
+    int GetLineIndex(int line) const;
+    int GetLineLength(int line) const;
     
     // Navigation
-    void GoToLine(int line) noexcept;
+    void GoToLine(int line);
     
     // Font
-    void SetFont(std::wstring_view fontName, int fontSize, int fontWeight, bool italic);
-    void ApplyZoom(int zoomPercent) noexcept;
+    void SetFont(const std::wstring& fontName, int fontSize, int fontWeight, bool italic);
+    void ApplyZoom(int zoomPercent);
     
     // Word wrap
     void SetWordWrap(bool enable);
-    [[nodiscard]] bool IsWordWrapEnabled() const noexcept { return m_wordWrap; }
+    bool IsWordWrapEnabled() const { return m_wordWrap; }
     
     // Tab size
-    void SetTabSize(int tabSize) noexcept;
+    void SetTabSize(int tabSize);
     
     // Modification state
-    [[nodiscard]] bool IsModified() const noexcept;
-    void SetModified(bool modified) noexcept;
+    bool IsModified() const;
+    void SetModified(bool modified);
     
     // Find/Replace support
-    [[nodiscard]] bool SearchText(std::wstring_view searchText, bool matchCase, bool wrapAround, 
+    bool SearchText(const std::wstring& searchText, bool matchCase, bool wrapAround, 
                    bool searchUp, bool useRegex, bool selectMatch = true);
-    [[nodiscard]] int ReplaceAll(std::wstring_view searchText, std::wstring_view replaceText,
+    int ReplaceAll(const std::wstring& searchText, const std::wstring& replaceText,
                    bool matchCase, bool useRegex);
     
     // Line ending operations
-    void SetLineEnding(LineEnding lineEnding) noexcept;
-    [[nodiscard]] LineEnding GetLineEnding() const noexcept { return m_lineEnding; }
+    void SetLineEnding(LineEnding lineEnding);
+    LineEnding GetLineEnding() const { return m_lineEnding; }
     
     // Encoding (for display purposes)
-    void SetEncoding(TextEncoding encoding) noexcept;
-    [[nodiscard]] TextEncoding GetEncoding() const noexcept { return m_encoding; }
+    void SetEncoding(TextEncoding encoding);
+    TextEncoding GetEncoding() const { return m_encoding; }
     
     // Insert date/time at cursor
     void InsertDateTime();
     
     // Dark mode support
-    void SetDarkMode(bool darkMode) noexcept;
+    void SetDarkMode(bool darkMode);
     
     // RTL reading order support
-    void SetRTL(bool rtl) noexcept;
-    [[nodiscard]] bool IsRTL() const noexcept { return m_rtl; }
+    void SetRTL(bool rtl);
+    bool IsRTL() const { return m_rtl; }
     
     // Get character count
-    [[nodiscard]] int GetTextLength() const noexcept;
+    int GetTextLength() const;
     
 private:
     // Recreate edit control (needed for word wrap toggle)

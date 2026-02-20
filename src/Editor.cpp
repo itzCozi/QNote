@@ -20,6 +20,12 @@ namespace QNote {
 static constexpr UINT_PTR EDIT_SUBCLASS_ID = 1;
 
 //------------------------------------------------------------------------------
+// Constructor
+//------------------------------------------------------------------------------
+Editor::Editor() {
+}
+
+//------------------------------------------------------------------------------
 // Destructor
 //------------------------------------------------------------------------------
 Editor::~Editor() {
@@ -94,7 +100,7 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
 //------------------------------------------------------------------------------
 // Destroy the edit control  
 //------------------------------------------------------------------------------
-void Editor::Destroy() noexcept {
+void Editor::Destroy() {
     if (m_hwndEdit) {
         RemoveWindowSubclass(m_hwndEdit, EditSubclassProc, EDIT_SUBCLASS_ID);
         DestroyWindow(m_hwndEdit);
@@ -110,7 +116,7 @@ void Editor::Destroy() noexcept {
 //------------------------------------------------------------------------------
 // Resize the edit control
 //------------------------------------------------------------------------------
-void Editor::Resize(int x, int y, int width, int height) noexcept {
+void Editor::Resize(int x, int y, int width, int height) {
     if (m_hwndEdit) {
         SetWindowPos(m_hwndEdit, nullptr, x, y, width, height, SWP_NOZORDER);
     }
@@ -119,7 +125,7 @@ void Editor::Resize(int x, int y, int width, int height) noexcept {
 //------------------------------------------------------------------------------
 // Focus the edit control
 //------------------------------------------------------------------------------
-void Editor::SetFocus() noexcept {
+void Editor::SetFocus() {
     if (m_hwndEdit) {
         ::SetFocus(m_hwndEdit);
     }
@@ -144,9 +150,9 @@ std::wstring Editor::GetText() const {
 //------------------------------------------------------------------------------
 // Set text in edit control
 //------------------------------------------------------------------------------
-void Editor::SetText(std::wstring_view text) {
+void Editor::SetText(const std::wstring& text) {
     if (m_hwndEdit) {
-        SetWindowTextW(m_hwndEdit, std::wstring(text).c_str());
+        SetWindowTextW(m_hwndEdit, text.c_str());
         SetModified(false);
     }
 }
@@ -154,17 +160,14 @@ void Editor::SetText(std::wstring_view text) {
 //------------------------------------------------------------------------------
 // Clear text
 //------------------------------------------------------------------------------
-void Editor::Clear() noexcept {
-    if (m_hwndEdit) {
-        SetWindowTextW(m_hwndEdit, L"");
-        SetModified(false);
-    }
+void Editor::Clear() {
+    SetText(L"");
 }
 
 //------------------------------------------------------------------------------
 // Get selection range
 //------------------------------------------------------------------------------
-void Editor::GetSelection(DWORD& start, DWORD& end) const noexcept {
+void Editor::GetSelection(DWORD& start, DWORD& end) const {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, EM_GETSEL, reinterpret_cast<WPARAM>(&start), 
                      reinterpret_cast<LPARAM>(&end));
@@ -176,7 +179,7 @@ void Editor::GetSelection(DWORD& start, DWORD& end) const noexcept {
 //------------------------------------------------------------------------------
 // Set selection range
 //------------------------------------------------------------------------------
-void Editor::SetSelection(DWORD start, DWORD end) noexcept {
+void Editor::SetSelection(DWORD start, DWORD end) {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, EM_SETSEL, start, end);
         SendMessageW(m_hwndEdit, EM_SCROLLCARET, 0, 0);
@@ -186,8 +189,8 @@ void Editor::SetSelection(DWORD start, DWORD end) noexcept {
 //------------------------------------------------------------------------------
 // Select all text
 //------------------------------------------------------------------------------
-void Editor::SelectAll() noexcept {
-    SetSelection(0, static_cast<DWORD>(-1));
+void Editor::SelectAll() {
+    SetSelection(0, -1);
 }
 
 //------------------------------------------------------------------------------
@@ -209,16 +212,16 @@ std::wstring Editor::GetSelectedText() const {
 //------------------------------------------------------------------------------
 // Replace selection with text
 //------------------------------------------------------------------------------
-void Editor::ReplaceSelection(std::wstring_view text) {
+void Editor::ReplaceSelection(const std::wstring& text) {
     if (m_hwndEdit) {
-        SendMessageW(m_hwndEdit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(std::wstring(text).c_str()));
+        SendMessageW(m_hwndEdit, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(text.c_str()));
     }
 }
 
 //------------------------------------------------------------------------------
 // Can undo
 //------------------------------------------------------------------------------
-bool Editor::CanUndo() const noexcept {
+bool Editor::CanUndo() const {
     if (m_hwndEdit) {
         return SendMessageW(m_hwndEdit, EM_CANUNDO, 0, 0) != 0;
     }
@@ -228,7 +231,7 @@ bool Editor::CanUndo() const noexcept {
 //------------------------------------------------------------------------------
 // Can redo (Windows edit control has limited redo - single level)
 //------------------------------------------------------------------------------
-bool Editor::CanRedo() const noexcept {
+bool Editor::CanRedo() const {
     // Standard edit control doesn't support redo well
     // We would need RichEdit for proper redo support
     return false;
@@ -237,7 +240,7 @@ bool Editor::CanRedo() const noexcept {
 //------------------------------------------------------------------------------
 // Undo
 //------------------------------------------------------------------------------
-void Editor::Undo() noexcept {
+void Editor::Undo() {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, EM_UNDO, 0, 0);
     }
@@ -246,7 +249,7 @@ void Editor::Undo() noexcept {
 //------------------------------------------------------------------------------
 // Redo
 //------------------------------------------------------------------------------
-void Editor::Redo() noexcept {
+void Editor::Redo() {
     // Standard edit control doesn't support redo
     // Would need to use RichEdit control for this
 }
@@ -254,7 +257,7 @@ void Editor::Redo() noexcept {
 //------------------------------------------------------------------------------
 // Cut
 //------------------------------------------------------------------------------
-void Editor::Cut() noexcept {
+void Editor::Cut() {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, WM_CUT, 0, 0);
     }
@@ -263,7 +266,7 @@ void Editor::Cut() noexcept {
 //------------------------------------------------------------------------------
 // Copy
 //------------------------------------------------------------------------------
-void Editor::Copy() noexcept {
+void Editor::Copy() {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, WM_COPY, 0, 0);
     }
@@ -272,7 +275,7 @@ void Editor::Copy() noexcept {
 //------------------------------------------------------------------------------
 // Paste
 //------------------------------------------------------------------------------
-void Editor::Paste() noexcept {
+void Editor::Paste() {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, WM_PASTE, 0, 0);
     }
@@ -281,7 +284,7 @@ void Editor::Paste() noexcept {
 //------------------------------------------------------------------------------
 // Delete selection
 //------------------------------------------------------------------------------
-void Editor::Delete() noexcept {
+void Editor::Delete() {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, WM_CLEAR, 0, 0);
     }
@@ -290,7 +293,7 @@ void Editor::Delete() noexcept {
 //------------------------------------------------------------------------------
 // Get line count
 //------------------------------------------------------------------------------
-int Editor::GetLineCount() const noexcept {
+int Editor::GetLineCount() const {
     if (m_hwndEdit) {
         return static_cast<int>(SendMessageW(m_hwndEdit, EM_GETLINECOUNT, 0, 0));
     }
@@ -300,7 +303,7 @@ int Editor::GetLineCount() const noexcept {
 //------------------------------------------------------------------------------
 // Get current line (0-based)
 //------------------------------------------------------------------------------
-int Editor::GetCurrentLine() const noexcept {
+int Editor::GetCurrentLine() const {
     if (!m_hwndEdit) return 0;
     
     DWORD start, end;
@@ -311,7 +314,7 @@ int Editor::GetCurrentLine() const noexcept {
 //------------------------------------------------------------------------------
 // Get current column (0-based)
 //------------------------------------------------------------------------------
-int Editor::GetCurrentColumn() const noexcept {
+int Editor::GetCurrentColumn() const {
     if (!m_hwndEdit) return 0;
     
     DWORD start, end;
@@ -326,7 +329,7 @@ int Editor::GetCurrentColumn() const noexcept {
 //------------------------------------------------------------------------------
 // Get line from character index
 //------------------------------------------------------------------------------
-int Editor::GetLineFromChar(DWORD charIndex) const noexcept {
+int Editor::GetLineFromChar(DWORD charIndex) const {
     if (m_hwndEdit) {
         return static_cast<int>(SendMessageW(m_hwndEdit, EM_LINEFROMCHAR, charIndex, 0));
     }
@@ -336,7 +339,7 @@ int Editor::GetLineFromChar(DWORD charIndex) const noexcept {
 //------------------------------------------------------------------------------
 // Get character index of line start
 //------------------------------------------------------------------------------
-int Editor::GetLineIndex(int line) const noexcept {
+int Editor::GetLineIndex(int line) const {
     if (m_hwndEdit) {
         return static_cast<int>(SendMessageW(m_hwndEdit, EM_LINEINDEX, line, 0));
     }
@@ -346,7 +349,7 @@ int Editor::GetLineIndex(int line) const noexcept {
 //------------------------------------------------------------------------------
 // Get line length
 //------------------------------------------------------------------------------
-int Editor::GetLineLength(int line) const noexcept {
+int Editor::GetLineLength(int line) const {
     if (m_hwndEdit) {
         int lineIndex = GetLineIndex(line);
         return static_cast<int>(SendMessageW(m_hwndEdit, EM_LINELENGTH, lineIndex, 0));
@@ -357,7 +360,7 @@ int Editor::GetLineLength(int line) const noexcept {
 //------------------------------------------------------------------------------
 // Go to line
 //------------------------------------------------------------------------------
-void Editor::GoToLine(int line) noexcept {
+void Editor::GoToLine(int line) {
     if (!m_hwndEdit) return;
     
     // Validate line number
@@ -375,7 +378,7 @@ void Editor::GoToLine(int line) noexcept {
 //------------------------------------------------------------------------------
 // Set font
 //------------------------------------------------------------------------------
-void Editor::SetFont(std::wstring_view fontName, int fontSize, int fontWeight, bool italic) {
+void Editor::SetFont(const std::wstring& fontName, int fontSize, int fontWeight, bool italic) {
     m_fontName = fontName;
     m_baseFontSize = fontSize;
     m_fontWeight = fontWeight;
@@ -391,7 +394,7 @@ void Editor::SetFont(std::wstring_view fontName, int fontSize, int fontWeight, b
 //------------------------------------------------------------------------------
 // Apply zoom level
 //------------------------------------------------------------------------------
-void Editor::ApplyZoom(int zoomPercent) noexcept {
+void Editor::ApplyZoom(int zoomPercent) {
     if (zoomPercent < 25) zoomPercent = 25;
     if (zoomPercent > 500) zoomPercent = 500;
     
@@ -417,7 +420,7 @@ void Editor::SetWordWrap(bool enable) {
 //------------------------------------------------------------------------------
 // Set tab size
 //------------------------------------------------------------------------------
-void Editor::SetTabSize(int tabSize) noexcept {
+void Editor::SetTabSize(int tabSize) {
     if (tabSize < 1) tabSize = 1;
     if (tabSize > 16) tabSize = 16;
     
@@ -434,7 +437,7 @@ void Editor::SetTabSize(int tabSize) noexcept {
 //------------------------------------------------------------------------------
 // Check if modified
 //------------------------------------------------------------------------------
-bool Editor::IsModified() const noexcept {
+bool Editor::IsModified() const {
     if (m_hwndEdit) {
         return SendMessageW(m_hwndEdit, EM_GETMODIFY, 0, 0) != 0;
     }
@@ -444,7 +447,7 @@ bool Editor::IsModified() const noexcept {
 //------------------------------------------------------------------------------
 // Set modified state
 //------------------------------------------------------------------------------
-void Editor::SetModified(bool modified) noexcept {
+void Editor::SetModified(bool modified) {
     if (m_hwndEdit) {
         SendMessageW(m_hwndEdit, EM_SETMODIFY, modified, 0);
     }
@@ -453,7 +456,7 @@ void Editor::SetModified(bool modified) noexcept {
 //------------------------------------------------------------------------------
 // Find text
 //------------------------------------------------------------------------------
-bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapAround,
+bool Editor::SearchText(const std::wstring& searchText, bool matchCase, bool wrapAround,
                         bool searchUp, bool useRegex, bool selectMatch) {
     if (searchText.empty() || !m_hwndEdit) {
         return false;
@@ -473,15 +476,13 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
     size_t foundPos = std::wstring::npos;
     size_t foundLen = searchText.length();
     
-    const std::wstring searchStr(searchText);
-    
     if (useRegex) {
         try {
             std::wregex::flag_type flags = std::regex::ECMAScript;
             if (!matchCase) {
                 flags |= std::regex::icase;
             }
-            std::wregex regex(searchStr, flags);
+            std::wregex regex(searchText, flags);
             
             std::wsmatch match;
             if (searchUp) {
@@ -529,11 +530,11 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
         // Plain text search
         if (searchUp) {
             if (matchCase) {
-                foundPos = text.rfind(searchStr, searchStart > 0 ? searchStart - 1 : 0);
+                foundPos = text.rfind(searchText, searchStart > 0 ? searchStart - 1 : 0);
             } else {
                 // Case-insensitive search backwards
                 std::wstring lowerText = text;
-                std::wstring lowerSearch = searchStr;
+                std::wstring lowerSearch = searchText;
                 for (auto& c : lowerText) c = towlower(c);
                 for (auto& c : lowerSearch) c = towlower(c);
                 foundPos = lowerText.rfind(lowerSearch, searchStart > 0 ? searchStart - 1 : 0);
@@ -542,10 +543,10 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
             if (foundPos == std::wstring::npos && wrapAround) {
                 // Wrap to end
                 if (matchCase) {
-                    foundPos = text.rfind(searchStr);
+                    foundPos = text.rfind(searchText);
                 } else {
                     std::wstring lowerText = text;
-                    std::wstring lowerSearch = searchStr;
+                    std::wstring lowerSearch = searchText;
                     for (auto& c : lowerText) c = towlower(c);
                     for (auto& c : lowerSearch) c = towlower(c);
                     foundPos = lowerText.rfind(lowerSearch);
@@ -553,11 +554,11 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
             }
         } else {
             if (matchCase) {
-                foundPos = text.find(searchStr, searchStart);
+                foundPos = text.find(searchText, searchStart);
             } else {
                 // Case-insensitive search
                 std::wstring lowerText = text;
-                std::wstring lowerSearch = searchStr;
+                std::wstring lowerSearch = searchText;
                 for (auto& c : lowerText) c = towlower(c);
                 for (auto& c : lowerSearch) c = towlower(c);
                 foundPos = lowerText.find(lowerSearch, searchStart);
@@ -566,10 +567,10 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
             if (foundPos == std::wstring::npos && wrapAround) {
                 // Wrap to beginning
                 if (matchCase) {
-                    foundPos = text.find(searchStr, 0);
+                    foundPos = text.find(searchText, 0);
                 } else {
                     std::wstring lowerText = text;
-                    std::wstring lowerSearch = searchStr;
+                    std::wstring lowerSearch = searchText;
                     for (auto& c : lowerText) c = towlower(c);
                     for (auto& c : lowerSearch) c = towlower(c);
                     foundPos = lowerText.find(lowerSearch, 0);
@@ -589,7 +590,7 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
 //------------------------------------------------------------------------------
 // Replace all occurrences
 //------------------------------------------------------------------------------
-int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceText,
+int Editor::ReplaceAll(const std::wstring& searchText, const std::wstring& replaceText,
                        bool matchCase, bool useRegex) {
     if (searchText.empty() || !m_hwndEdit) {
         return 0;
@@ -600,9 +601,6 @@ int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceTe
         return 0;
     }
     
-    const std::wstring searchStr(searchText);
-    const std::wstring replaceStr(replaceText);
-    
     int count = 0;
     std::wstring result;
     
@@ -612,7 +610,7 @@ int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceTe
             if (!matchCase) {
                 flags |= std::regex::icase;
             }
-            std::wregex regex(searchStr, flags);
+            std::wregex regex(searchText, flags);
             
             // Count matches
             auto begin = std::wsregex_iterator(text.begin(), text.end(), regex);
@@ -620,19 +618,19 @@ int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceTe
             count = static_cast<int>(std::distance(begin, end));
             
             // Replace all
-            result = std::regex_replace(text, regex, replaceStr);
+            result = std::regex_replace(text, regex, replaceText);
         } catch (const std::regex_error&) {
             return 0;
         }
     } else {
         result.reserve(text.size());
         size_t pos = 0;
-        size_t searchLen = searchStr.length();
+        size_t searchLen = searchText.length();
         
         std::wstring searchLower;
         std::wstring textLower;
         if (!matchCase) {
-            searchLower = searchStr;
+            searchLower = searchText;
             textLower = text;
             for (auto& c : searchLower) c = towlower(c);
             for (auto& c : textLower) c = towlower(c);
@@ -641,7 +639,7 @@ int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceTe
         while (pos < text.size()) {
             size_t found;
             if (matchCase) {
-                found = text.find(searchStr, pos);
+                found = text.find(searchText, pos);
             } else {
                 found = textLower.find(searchLower, pos);
             }
@@ -652,7 +650,7 @@ int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceTe
             }
             
             result.append(text.substr(pos, found - pos));
-            result.append(replaceStr);
+            result.append(replaceText);
             pos = found + searchLen;
             count++;
         }
@@ -669,14 +667,14 @@ int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceTe
 //------------------------------------------------------------------------------
 // Set line ending type
 //------------------------------------------------------------------------------
-void Editor::SetLineEnding(LineEnding lineEnding) noexcept {
+void Editor::SetLineEnding(LineEnding lineEnding) {
     m_lineEnding = lineEnding;
 }
 
 //------------------------------------------------------------------------------
 // Set encoding
 //------------------------------------------------------------------------------
-void Editor::SetEncoding(TextEncoding encoding) noexcept {
+void Editor::SetEncoding(TextEncoding encoding) {
     m_encoding = encoding;
 }
 
@@ -703,7 +701,7 @@ void Editor::InsertDateTime() {
 //------------------------------------------------------------------------------
 // Set dark mode
 //------------------------------------------------------------------------------
-void Editor::SetDarkMode(bool darkMode) noexcept {
+void Editor::SetDarkMode(bool darkMode) {
     m_darkMode = darkMode;
     
     if (m_darkBrush) {
@@ -723,7 +721,7 @@ void Editor::SetDarkMode(bool darkMode) noexcept {
 //------------------------------------------------------------------------------
 // Set right-to-left reading order
 //------------------------------------------------------------------------------
-void Editor::SetRTL(bool rtl) noexcept {
+void Editor::SetRTL(bool rtl) {
     m_rtl = rtl;
     
     if (m_hwndEdit) {
@@ -741,7 +739,7 @@ void Editor::SetRTL(bool rtl) noexcept {
 //------------------------------------------------------------------------------
 // Get text length
 //------------------------------------------------------------------------------
-int Editor::GetTextLength() const noexcept {
+int Editor::GetTextLength() const {
     if (m_hwndEdit) {
         return GetWindowTextLengthW(m_hwndEdit);
     }

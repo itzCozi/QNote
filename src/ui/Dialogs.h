@@ -53,7 +53,7 @@ public:
     DialogManager& operator=(const DialogManager&) = delete;
     
     // Initialize with parent window and editor reference
-    void Initialize(HWND parent, HINSTANCE hInstance, Editor* editor, AppSettings* settings);
+    void Initialize(HWND parent, HINSTANCE hInstance, Editor* editor, AppSettings* settings) noexcept;
     
     // Show Find dialog (modeless)
     void ShowFindDialog();
@@ -62,33 +62,33 @@ public:
     void ShowReplaceDialog();
     
     // Show Go To Line dialog (modal)
-    bool ShowGoToDialog(int& lineNumber);
+    [[nodiscard]] bool ShowGoToDialog(int& lineNumber);
     
     // Show Tab Size dialog (modal)
-    bool ShowTabSizeDialog(int& tabSize);
+    [[nodiscard]] bool ShowTabSizeDialog(int& tabSize);
     
     // Show Font chooser dialog (modal)
-    bool ShowFontDialog(std::wstring& fontName, int& fontSize, int& fontWeight, bool& italic);
+    [[nodiscard]] bool ShowFontDialog(std::wstring& fontName, int& fontSize, int& fontWeight, bool& italic);
     
     // Show About dialog (modal)
     void ShowAboutDialog();
     
     // Close any open modeless dialogs
-    void CloseFindDialog();
-    void CloseReplaceDialog();
+    void CloseFindDialog() noexcept;
+    void CloseReplaceDialog() noexcept;
     
     // Check if a dialog is currently open
-    bool IsFindDialogOpen() const { return m_hwndFind != nullptr; }
-    bool IsReplaceDialogOpen() const { return m_hwndReplace != nullptr; }
+    [[nodiscard]] bool IsFindDialogOpen() const noexcept { return m_hwndFind != nullptr; }
+    [[nodiscard]] bool IsReplaceDialogOpen() const noexcept { return m_hwndReplace != nullptr; }
     
     // Execute Find Next (for F3 key)
     void FindNext();
     
     // Get find parameters (for settings persistence)
-    const FindParams& GetFindParams() const { return m_findParams; }
+    [[nodiscard]] const FindParams& GetFindParams() const noexcept { return m_findParams; }
     
     // Handle dialog messages in the main message loop
-    bool IsDialogMessage(MSG* pMsg);
+    [[nodiscard]] bool IsDialogMessage(MSG* pMsg) noexcept;
     
 private:
     // Dialog procedures

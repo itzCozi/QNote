@@ -31,7 +31,7 @@ DialogManager::~DialogManager() {
 //------------------------------------------------------------------------------
 // Initialize
 //------------------------------------------------------------------------------
-void DialogManager::Initialize(HWND parent, HINSTANCE hInstance, Editor* editor, AppSettings* settings) {
+void DialogManager::Initialize(HWND parent, HINSTANCE hInstance, Editor* editor, AppSettings* settings) noexcept {
     m_hwndParent = parent;
     m_hInstance = hInstance;
     m_editor = editor;
@@ -179,7 +179,7 @@ void DialogManager::ShowAboutDialog() {
 //------------------------------------------------------------------------------
 // Close Find dialog
 //------------------------------------------------------------------------------
-void DialogManager::CloseFindDialog() {
+void DialogManager::CloseFindDialog() noexcept {
     if (m_hwndFind) {
         DestroyWindow(m_hwndFind);
         m_hwndFind = nullptr;
@@ -189,7 +189,7 @@ void DialogManager::CloseFindDialog() {
 //------------------------------------------------------------------------------
 // Close Replace dialog
 //------------------------------------------------------------------------------
-void DialogManager::CloseReplaceDialog() {
+void DialogManager::CloseReplaceDialog() noexcept {
     if (m_hwndReplace) {
         DestroyWindow(m_hwndReplace);
         m_hwndReplace = nullptr;
@@ -225,7 +225,7 @@ void DialogManager::FindNext() {
 //------------------------------------------------------------------------------
 // Check if message is for a dialog
 //------------------------------------------------------------------------------
-bool DialogManager::IsDialogMessage(MSG* pMsg) {
+bool DialogManager::IsDialogMessage(MSG* pMsg) noexcept {
     if (m_hwndFind && ::IsDialogMessage(m_hwndFind, pMsg)) {
         return true;
     }

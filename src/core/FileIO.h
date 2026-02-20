@@ -44,34 +44,34 @@ struct FileWriteResult {
 class FileIO {
 public:
     // Read a file with automatic encoding detection
-    static FileReadResult ReadFile(const std::wstring& filePath);
+    [[nodiscard]] static FileReadResult ReadFile(const std::wstring& filePath);
     
     // Write a file with specified encoding and line endings
-    static FileWriteResult WriteFile(const std::wstring& filePath,
+    [[nodiscard]] static FileWriteResult WriteFile(const std::wstring& filePath,
                                      const std::wstring& content,
                                      TextEncoding encoding,
                                      LineEnding lineEnding);
     
     // Detect encoding from raw bytes
-    static TextEncoding DetectEncoding(const std::vector<uint8_t>& data);
+    [[nodiscard]] static TextEncoding DetectEncoding(const std::vector<uint8_t>& data);
     
     // Detect line ending type from text
-    static LineEnding DetectLineEnding(const std::wstring& text);
+    [[nodiscard]] static LineEnding DetectLineEnding(const std::wstring& text);
     
     // Convert line endings in text
-    static std::wstring ConvertLineEndings(const std::wstring& text, LineEnding targetEnding);
+    [[nodiscard]] static std::wstring ConvertLineEndings(const std::wstring& text, LineEnding targetEnding);
     
     // Normalize line endings to LF for internal use
-    static std::wstring NormalizeToLF(const std::wstring& text);
+    [[nodiscard]] static std::wstring NormalizeToLF(const std::wstring& text);
     
     // Get file name from path
-    static std::wstring GetFileName(const std::wstring& filePath);
+    [[nodiscard]] static std::wstring GetFileName(const std::wstring& filePath);
     
     // Show Open File dialog
-    static bool ShowOpenDialog(HWND parent, std::wstring& outPath);
+    [[nodiscard]] static bool ShowOpenDialog(HWND parent, std::wstring& outPath);
     
     // Show Save File dialog
-    static bool ShowSaveDialog(HWND parent, std::wstring& outPath, TextEncoding& outEncoding,
+    [[nodiscard]] static bool ShowSaveDialog(HWND parent, std::wstring& outPath, TextEncoding& outEncoding,
                                const std::wstring& currentPath = L"");
     
 private:
@@ -90,8 +90,8 @@ private:
 //------------------------------------------------------------------------------
 class HandleGuard {
 public:
-    explicit HandleGuard(HANDLE h = INVALID_HANDLE_VALUE) : m_handle(h) {}
-    ~HandleGuard() {
+    explicit HandleGuard(HANDLE h = INVALID_HANDLE_VALUE) noexcept : m_handle(h) {}
+    ~HandleGuard() noexcept {
         if (m_handle != INVALID_HANDLE_VALUE && m_handle != nullptr) {
             CloseHandle(m_handle);
         }
@@ -115,9 +115,9 @@ public:
         return *this;
     }
     
-    HANDLE get() const { return m_handle; }
-    bool valid() const { return m_handle != INVALID_HANDLE_VALUE && m_handle != nullptr; }
-    HANDLE release() {
+    [[nodiscard]] HANDLE get() const noexcept { return m_handle; }
+    [[nodiscard]] bool valid() const noexcept { return m_handle != INVALID_HANDLE_VALUE && m_handle != nullptr; }
+    HANDLE release() noexcept {
         HANDLE h = m_handle;
         m_handle = INVALID_HANDLE_VALUE;
         return h;

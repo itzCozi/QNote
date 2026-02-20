@@ -1,0 +1,254 @@
+//==============================================================================
+// QNote - A Lightweight Notepad Clone
+// resource.rc - Windows resources (menus, accelerators, dialogs, version info)
+//==============================================================================
+
+#include <windows.h>
+#include "resource.h"
+
+//------------------------------------------------------------------------------
+// Application Icon
+//------------------------------------------------------------------------------
+IDI_APP_ICON ICON "app.ico"
+
+//------------------------------------------------------------------------------
+// Main Menu
+//------------------------------------------------------------------------------
+IDR_MAIN_MENU MENU
+BEGIN
+    POPUP "&File"
+    BEGIN
+        MENUITEM "&New\tCtrl+N",                IDM_FILE_NEW
+        MENUITEM "New &Window\tCtrl+Shift+N",   IDM_FILE_NEWWINDOW
+        MENUITEM "&Open...\tCtrl+O",            IDM_FILE_OPEN
+        MENUITEM "&Save\tCtrl+S",               IDM_FILE_SAVE
+        MENUITEM "Save &As...\tCtrl+Shift+S",   IDM_FILE_SAVEAS
+        MENUITEM SEPARATOR
+        POPUP "Recent Files"
+        BEGIN
+            MENUITEM "(Empty)",                 IDM_FILE_RECENT_BASE, GRAYED
+        END
+        MENUITEM SEPARATOR
+        MENUITEM "Page Set&up...",              IDM_FILE_PAGESETUP
+        MENUITEM "&Print...\tCtrl+P",           IDM_FILE_PRINT
+        MENUITEM SEPARATOR
+        MENUITEM "E&xit\tAlt+F4",               IDM_FILE_EXIT
+    END
+    POPUP "&Edit"
+    BEGIN
+        MENUITEM "&Undo\tCtrl+Z",               IDM_EDIT_UNDO
+        MENUITEM "&Redo\tCtrl+Y",               IDM_EDIT_REDO
+        MENUITEM SEPARATOR
+        MENUITEM "Cu&t\tCtrl+X",                IDM_EDIT_CUT
+        MENUITEM "&Copy\tCtrl+C",               IDM_EDIT_COPY
+        MENUITEM "&Paste\tCtrl+V",              IDM_EDIT_PASTE
+        MENUITEM "De&lete\tDel",                IDM_EDIT_DELETE
+        MENUITEM SEPARATOR
+        MENUITEM "&Find...\tCtrl+F",            IDM_EDIT_FIND
+        MENUITEM "Find &Next\tF3",              IDM_EDIT_FINDNEXT
+        MENUITEM "&Replace...\tCtrl+H",         IDM_EDIT_REPLACE
+        MENUITEM "&Go To...\tCtrl+G",           IDM_EDIT_GOTO
+        MENUITEM SEPARATOR
+        MENUITEM "Select &All\tCtrl+A",         IDM_EDIT_SELECTALL
+        MENUITEM "Time/&Date\tF5",              IDM_EDIT_DATETIME
+    END
+    POPUP "F&ormat"
+    BEGIN
+        MENUITEM "&Word Wrap",                  IDM_FORMAT_WORDWRAP
+        MENUITEM "&Font...",                    IDM_FORMAT_FONT
+        MENUITEM "&Tab Size...",                IDM_FORMAT_TABSIZE
+        MENUITEM "&Right-to-Left Reading Order", IDM_FORMAT_RTL
+        MENUITEM SEPARATOR
+        POPUP "Line &Endings"
+        BEGIN
+            MENUITEM "Windows (CRLF)",          IDM_FORMAT_EOL_CRLF
+            MENUITEM "Unix (LF)",               IDM_FORMAT_EOL_LF
+            MENUITEM "Mac (CR)",                IDM_FORMAT_EOL_CR
+        END
+    END
+    POPUP "&View"
+    BEGIN
+        MENUITEM "&Status Bar",                 IDM_VIEW_STATUSBAR
+        MENUITEM SEPARATOR
+        POPUP "&Theme"
+        BEGIN
+            MENUITEM "System Default",          IDM_VIEW_THEME_SYSTEM
+            MENUITEM "Light",                   IDM_VIEW_THEME_LIGHT
+            MENUITEM "Dark",                    IDM_VIEW_THEME_DARK
+        END
+        MENUITEM SEPARATOR
+        MENUITEM "Zoom &In\tCtrl++",            IDM_VIEW_ZOOMIN
+        MENUITEM "Zoom &Out\tCtrl+-",           IDM_VIEW_ZOOMOUT
+        MENUITEM "&Reset Zoom\tCtrl+0",         IDM_VIEW_ZOOMRESET
+        MENUITEM SEPARATOR
+        POPUP "&Encoding"
+        BEGIN
+            MENUITEM "UTF-8",                   IDM_ENCODING_UTF8
+            MENUITEM "UTF-8 with BOM",          IDM_ENCODING_UTF8BOM
+            MENUITEM "UTF-16 LE",               IDM_ENCODING_UTF16LE
+            MENUITEM "UTF-16 BE",               IDM_ENCODING_UTF16BE
+            MENUITEM "ANSI",                    IDM_ENCODING_ANSI
+        END
+    END
+    POPUP "&Help"
+    BEGIN
+        MENUITEM "&About QNote",             IDM_HELP_ABOUT
+    END
+END
+
+//------------------------------------------------------------------------------
+// Accelerator Table
+//------------------------------------------------------------------------------
+IDR_ACCELERATORS ACCELERATORS
+BEGIN
+    "N",        IDM_FILE_NEW,       VIRTKEY, CONTROL
+    "N",        IDM_FILE_NEWWINDOW, VIRTKEY, CONTROL, SHIFT
+    "O",        IDM_FILE_OPEN,      VIRTKEY, CONTROL
+    "S",        IDM_FILE_SAVE,      VIRTKEY, CONTROL
+    "S",        IDM_FILE_SAVEAS,    VIRTKEY, CONTROL, SHIFT
+    "P",        IDM_FILE_PRINT,     VIRTKEY, CONTROL
+    
+    "Z",        IDM_EDIT_UNDO,      VIRTKEY, CONTROL
+    "Y",        IDM_EDIT_REDO,      VIRTKEY, CONTROL
+    "X",        IDM_EDIT_CUT,       VIRTKEY, CONTROL
+    "C",        IDM_EDIT_COPY,      VIRTKEY, CONTROL
+    "V",        IDM_EDIT_PASTE,     VIRTKEY, CONTROL
+    VK_DELETE,  IDM_EDIT_DELETE,    VIRTKEY
+    "A",        IDM_EDIT_SELECTALL, VIRTKEY, CONTROL
+    "F",        IDM_EDIT_FIND,      VIRTKEY, CONTROL
+    VK_F3,      IDM_EDIT_FINDNEXT,  VIRTKEY
+    "H",        IDM_EDIT_REPLACE,   VIRTKEY, CONTROL
+    "G",        IDM_EDIT_GOTO,      VIRTKEY, CONTROL
+    VK_F5,      IDM_EDIT_DATETIME,  VIRTKEY
+    
+    VK_OEM_PLUS,    IDM_VIEW_ZOOMIN,    VIRTKEY, CONTROL
+    VK_OEM_MINUS,   IDM_VIEW_ZOOMOUT,   VIRTKEY, CONTROL
+    "0",            IDM_VIEW_ZOOMRESET, VIRTKEY, CONTROL
+END
+
+//------------------------------------------------------------------------------
+// Find Dialog
+//------------------------------------------------------------------------------
+IDD_FIND DIALOGEX 0, 0, 260, 85
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Find"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Fi&nd what:",IDC_STATIC,7,9,40,8
+    EDITTEXT        IDC_FIND_EDIT,55,7,140,14,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "&Find Next",IDC_FIND_NEXT,200,7,53,14
+    PUSHBUTTON      "Cancel",IDCANCEL,200,24,53,14
+    
+    GROUPBOX        "Direction",IDC_STATIC,7,28,90,32
+    AUTORADIOBUTTON "&Up",IDC_DIRECTION_UP,14,40,35,10
+    AUTORADIOBUTTON "&Down",IDC_DIRECTION_DOWN,54,40,38,10
+    
+    AUTOCHECKBOX    "Match &case",IDC_MATCH_CASE,105,33,55,10
+    AUTOCHECKBOX    "Wrap ar&ound",IDC_WRAP_AROUND,105,46,60,10
+    AUTOCHECKBOX    "Regular e&xpression",IDC_USE_REGEX,7,65,85,10
+END
+
+//------------------------------------------------------------------------------
+// Replace Dialog
+//------------------------------------------------------------------------------
+IDD_REPLACE DIALOGEX 0, 0, 280, 100
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Replace"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Fi&nd what:",IDC_STATIC,7,9,45,8
+    EDITTEXT        IDC_FIND_EDIT,55,7,150,14,ES_AUTOHSCROLL
+    DEFPUSHBUTTON   "&Find Next",IDC_FIND_NEXT,215,7,58,14
+    
+    LTEXT           "Re&place with:",IDC_STATIC,7,27,48,8
+    EDITTEXT        IDC_REPLACE_EDIT,55,25,150,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "&Replace",IDC_REPLACE_BTN,215,24,58,14
+    
+    PUSHBUTTON      "Replace &All",IDC_REPLACE_ALL,215,41,58,14
+    PUSHBUTTON      "Cancel",IDCANCEL,215,58,58,14
+    
+    AUTOCHECKBOX    "Match &case",IDC_MATCH_CASE,7,48,55,10
+    AUTOCHECKBOX    "Wrap ar&ound",IDC_WRAP_AROUND,7,61,60,10
+    AUTOCHECKBOX    "Regular e&xpression",IDC_USE_REGEX,7,74,85,10
+END
+
+//------------------------------------------------------------------------------
+// Go To Line Dialog
+//------------------------------------------------------------------------------
+IDD_GOTO DIALOGEX 0, 0, 180, 65
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Go To Line"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Line number:",IDC_STATIC,7,9,50,8
+    EDITTEXT        IDC_GOTO_LINE,7,22,110,14,ES_AUTOHSCROLL | ES_NUMBER
+    DEFPUSHBUTTON   "&Go To",IDOK,123,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,123,24,50,14
+END
+
+//------------------------------------------------------------------------------
+// Tab Size Dialog
+//------------------------------------------------------------------------------
+IDD_TABSIZE DIALOGEX 0, 0, 150, 65
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Tab Size"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Tab size (1-16):",IDC_STATIC,7,9,60,8
+    EDITTEXT        IDC_TABSIZE_EDIT,7,22,60,14,ES_AUTOHSCROLL | ES_NUMBER
+    DEFPUSHBUTTON   "OK",IDOK,90,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,90,24,50,14
+END
+
+//------------------------------------------------------------------------------
+// About Dialog
+//------------------------------------------------------------------------------
+IDD_ABOUT DIALOGEX 0, 0, 200, 90
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "About QNote"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    ICON            IDI_APP_ICON,IDC_STATIC,14,14,21,20
+    LTEXT           "QNote",IDC_STATIC,45,14,114,8
+    LTEXT           "Version 1.0.0",IDC_STATIC,45,26,114,8
+    LTEXT           "A lightweight Notepad replacement",IDC_STATIC,45,38,140,8
+    LTEXT           "Copyright (c) 2026 - MIT License",IDC_STATIC,45,50,140,8
+    DEFPUSHBUTTON   "OK",IDOK,75,68,50,14,WS_GROUP
+END
+
+//------------------------------------------------------------------------------
+// Version Information
+//------------------------------------------------------------------------------
+VS_VERSION_INFO VERSIONINFO
+FILEVERSION     VER_MAJOR,VER_MINOR,VER_PATCH,VER_BUILD
+PRODUCTVERSION  VER_MAJOR,VER_MINOR,VER_PATCH,VER_BUILD
+FILEFLAGSMASK   VS_FFI_FILEFLAGSMASK
+FILEFLAGS       0
+FILEOS          VOS_NT_WINDOWS32
+FILETYPE        VFT_APP
+FILESUBTYPE     VFT2_UNKNOWN
+BEGIN
+    BLOCK "StringFileInfo"
+    BEGIN
+        BLOCK "040904B0"
+        BEGIN
+            VALUE "CompanyName",      "Open Source"
+            VALUE "FileDescription",  "QNote"
+            VALUE "FileVersion",      VER_STRING
+            VALUE "InternalName",     "QNote"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 - MIT License"
+            VALUE "OriginalFilename", "QNote.exe"
+            VALUE "ProductName",      "QNote"
+            VALUE "ProductVersion",   VER_STRING
+        END
+    END
+    BLOCK "VarFileInfo"
+    BEGIN
+        VALUE "Translation", 0x0409, 0x04B0
+    END
+END
+
+//------------------------------------------------------------------------------
+// Application Manifest
+//------------------------------------------------------------------------------
+CREATEPROCESS_MANIFEST_RESOURCE_ID RT_MANIFEST "QNote.exe.manifest"

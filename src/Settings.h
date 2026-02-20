@@ -101,17 +101,17 @@ public:
     SettingsManager& operator=(const SettingsManager&) = delete;
     
     // Load settings from INI file
-    [[nodiscard]] bool Load();
+    bool Load();
     
     // Save settings to INI file
-    [[nodiscard]] bool Save();
+    bool Save();
     
     // Get the settings path
-    [[nodiscard]] const std::wstring& GetSettingsPath() const noexcept { return m_settingsPath; }
+    const std::wstring& GetSettingsPath() const { return m_settingsPath; }
     
     // Access settings
-    [[nodiscard]] AppSettings& GetSettings() noexcept { return m_settings; }
-    [[nodiscard]] const AppSettings& GetSettings() const noexcept { return m_settings; }
+    AppSettings& GetSettings() { return m_settings; }
+    const AppSettings& GetSettings() const { return m_settings; }
     
     // Recent files management
     void AddRecentFile(const std::wstring& filePath);
