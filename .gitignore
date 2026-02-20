@@ -1,0 +1,52 @@
+# Build directories
+build/
+out/
+x64/
+x86/
+Debug/
+Release/
+
+# Visual Studio files
+.vs/
+*.suo
+*.user
+*.ncb
+*.aps
+*.sdf
+*.opensdf
+*.VC.db
+*.VC.opendb
+*.vcxproj.filters
+
+# CMake generated files
+CMakeCache.txt
+CMakeFiles/
+cmake_install.cmake
+Makefile
+*.cmake
+
+# Compiled files
+*.obj
+*.o
+*.exe
+*.dll
+*.lib
+*.exp
+*.pdb
+*.ilk
+*.res
+
+# IDE files
+.idea/
+*.swp
+*~
+
+# Package files
+*.zip
+*.7z
+*.tar.gz
+
+# OS files
+.DS_Store
+Thumbs.db
+desktop.ini
