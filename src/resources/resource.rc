@@ -70,13 +70,6 @@ BEGIN
     BEGIN
         MENUITEM "&Status Bar",                 IDM_VIEW_STATUSBAR
         MENUITEM SEPARATOR
-        POPUP "&Theme"
-        BEGIN
-            MENUITEM "System Default",          IDM_VIEW_THEME_SYSTEM
-            MENUITEM "Light",                   IDM_VIEW_THEME_LIGHT
-            MENUITEM "Dark",                    IDM_VIEW_THEME_DARK
-        END
-        MENUITEM SEPARATOR
         MENUITEM "Zoom &In\tCtrl++",            IDM_VIEW_ZOOMIN
         MENUITEM "Zoom &Out\tCtrl+-",           IDM_VIEW_ZOOMOUT
         MENUITEM "&Reset Zoom\tCtrl+0",         IDM_VIEW_ZOOMRESET
@@ -89,6 +82,21 @@ BEGIN
             MENUITEM "UTF-16 BE",               IDM_ENCODING_UTF16BE
             MENUITEM "ANSI",                    IDM_ENCODING_ANSI
         END
+    END
+    POPUP "&Notes"
+    BEGIN
+        MENUITEM "&New Note\tCtrl+Shift+N",     IDM_NOTES_NEW
+        MENUITEM "&Quick Capture\tCtrl+Shift+Q", IDM_NOTES_QUICKCAPTURE
+        MENUITEM SEPARATOR
+        MENUITEM "&All Notes...\tCtrl+Shift+A", IDM_NOTES_ALLNOTES
+        MENUITEM "&Pinned Notes...",            IDM_NOTES_PINNED
+        MENUITEM "&Timeline...",                IDM_NOTES_TIMELINE
+        MENUITEM SEPARATOR
+        MENUITEM "&Search Notes...\tCtrl+Shift+F", IDM_NOTES_SEARCH
+        MENUITEM SEPARATOR
+        MENUITEM "Pin/Unpin &Current Note",     IDM_NOTES_PINNOTE
+        MENUITEM "Save Note Now",               IDM_NOTES_SAVENOW
+        MENUITEM "&Delete Current Note",        IDM_NOTES_DELETENOTE
     END
     POPUP "&Help"
     BEGIN
@@ -124,6 +132,11 @@ BEGIN
     VK_OEM_PLUS,    IDM_VIEW_ZOOMIN,    VIRTKEY, CONTROL
     VK_OEM_MINUS,   IDM_VIEW_ZOOMOUT,   VIRTKEY, CONTROL
     "0",            IDM_VIEW_ZOOMRESET, VIRTKEY, CONTROL
+    
+    // Notes accelerators
+    "Q",        IDM_NOTES_QUICKCAPTURE, VIRTKEY, CONTROL, SHIFT
+    "A",        IDM_NOTES_ALLNOTES,     VIRTKEY, CONTROL, SHIFT
+    "F",        IDM_NOTES_SEARCH,       VIRTKEY, CONTROL, SHIFT
 END
 
 //------------------------------------------------------------------------------

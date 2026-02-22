@@ -89,16 +89,22 @@ set(SOURCES
     src/app/MainWindow.cpp
     src/ui/Editor.cpp
     src/ui/Dialogs.cpp
+    src/ui/CaptureWindow.cpp
+    src/ui/NoteListWindow.cpp
     src/core/Settings.cpp
     src/core/FileIO.cpp
+    src/core/NoteStore.cpp
 )
 
 set(HEADERS
     src/app/MainWindow.h
     src/ui/Editor.h
     src/ui/Dialogs.h
+    src/ui/CaptureWindow.h
+    src/ui/NoteListWindow.h
     src/core/Settings.h
     src/core/FileIO.h
+    src/core/NoteStore.h
     src/resources/resource.h
 )
 

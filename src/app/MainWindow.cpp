@@ -21,7 +21,7 @@
 namespace QNote {
 
 //------------------------------------------------------------------------------
-// DWM dark mode APIs (Windows 10 1809+)
+// DWM dark title bar (Windows 10 1809+)
 //------------------------------------------------------------------------------
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
@@ -34,6 +34,8 @@ MainWindow::MainWindow()
     : m_settingsManager(std::make_unique<SettingsManager>())
     , m_editor(std::make_unique<Editor>())
     , m_dialogManager(std::make_unique<DialogManager>())
+    , m_noteStore(std::make_unique<NoteStore>())
+    , m_hotkeyManager(std::make_unique<GlobalHotkeyManager>())
 {
 }
 
@@ -41,9 +43,6 @@ MainWindow::MainWindow()
 // Destructor
 //------------------------------------------------------------------------------
 MainWindow::~MainWindow() {
-    if (m_darkBgBrush) {
-        DeleteObject(m_darkBgBrush);
-    }
 }
 
 //------------------------------------------------------------------------------
@@ -232,6 +231,19 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_APP_UPDATESTATUS:
             UpdateStatusBar();
             return 0;
+            
+        case WM_HOTKEY:
+            OnHotkey(static_cast<int>(wParam));
+            return 0;
+            
+        case WM_APP_OPENNOTE:
+            // Open a note by ID passed via lParam (as allocated string)
+            if (lParam) {
+                std::wstring* noteId = reinterpret_cast<std::wstring*>(lParam);
+                OpenNoteFromId(*noteId);
+                delete noteId;
+            }
+            return 0;
     }
     
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
@@ -241,9 +253,9 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 // WM_CREATE handler
 //------------------------------------------------------------------------------
 void MainWindow::OnCreate() {
-    // Apply theme based on settings
-    m_darkMode = ShouldUseDarkMode();
-    ApplyDarkMode(m_darkMode);
+    // Apply dark title bar
+    BOOL useDarkTitleBar = TRUE;
+    DwmSetWindowAttribute(m_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkTitleBar, sizeof(useDarkTitleBar));
     
     // Create status bar
     CreateStatusBar();
@@ -258,14 +270,17 @@ void MainWindow::OnCreate() {
     m_dialogManager->Initialize(m_hwnd, m_hInstance, m_editor.get(), 
                                  &m_settingsManager->GetSettings());
     
-    // Apply dark mode to editor
-    m_editor->SetDarkMode(m_darkMode);
-    
     // Update recent files menu
     UpdateRecentFilesMenu();
     
+    // Initialize note store
+    InitializeNoteStore();
+    
     // Start status update timer
     SetTimer(m_hwnd, TIMER_STATUSUPDATE, 100, nullptr);
+    
+    // Start auto-save timer for notes
+    SetTimer(m_hwnd, TIMER_AUTOSAVE, AUTOSAVE_INTERVAL, nullptr);
     
     // Initial resize
     RECT rc;
@@ -277,8 +292,19 @@ void MainWindow::OnCreate() {
 // WM_DESTROY handler
 //------------------------------------------------------------------------------
 void MainWindow::OnDestroy() {
-    // Kill timer
+    // Kill timers
     KillTimer(m_hwnd, TIMER_STATUSUPDATE);
+    KillTimer(m_hwnd, TIMER_AUTOSAVE);
+    
+    // Auto-save current note if in note mode
+    if (m_isNoteMode && m_editor->IsModified()) {
+        AutoSaveCurrentNote();
+    }
+    
+    // Unregister global hotkey
+    if (m_hotkeyManager) {
+        m_hotkeyManager->Unregister();
+    }
     
     // Save window position
     WINDOWPLACEMENT wp = {};
@@ -310,6 +336,16 @@ void MainWindow::OnDestroy() {
 // WM_CLOSE handler
 //------------------------------------------------------------------------------
 void MainWindow::OnClose() {
+    // In note mode, auto-save and close without prompting
+    if (m_isNoteMode) {
+        if (m_editor->IsModified()) {
+            AutoSaveCurrentNote();
+        }
+        DestroyWindow(m_hwnd);
+        return;
+    }
+    
+    // In file mode, prompt for save as before
     if (PromptSaveChanges()) {
         DestroyWindow(m_hwnd);
     }
@@ -380,9 +416,6 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_VIEW_ZOOMIN:    OnViewZoomIn(); break;
         case IDM_VIEW_ZOOMOUT:   OnViewZoomOut(); break;
         case IDM_VIEW_ZOOMRESET: OnViewZoomReset(); break;
-        case IDM_VIEW_THEME_SYSTEM: OnViewTheme(ThemeMode::System); break;
-        case IDM_VIEW_THEME_LIGHT:  OnViewTheme(ThemeMode::Light); break;
-        case IDM_VIEW_THEME_DARK:   OnViewTheme(ThemeMode::Dark); break;
         
         // Encoding menu
         case IDM_ENCODING_UTF8:     OnEncodingChange(TextEncoding::UTF8); break;
@@ -393,6 +426,17 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         
         // Help menu
         case IDM_HELP_ABOUT: OnHelpAbout(); break;
+        
+        // Notes menu
+        case IDM_NOTES_NEW:          OnNotesNew(); break;
+        case IDM_NOTES_QUICKCAPTURE: OnNotesQuickCapture(); break;
+        case IDM_NOTES_ALLNOTES:     OnNotesAllNotes(); break;
+        case IDM_NOTES_PINNED:       OnNotesPinned(); break;
+        case IDM_NOTES_TIMELINE:     OnNotesTimeline(); break;
+        case IDM_NOTES_SEARCH:       OnNotesSearch(); break;
+        case IDM_NOTES_PINNOTE:      OnNotesPinCurrent(); break;
+        case IDM_NOTES_SAVENOW:      OnNotesSaveNow(); break;
+        case IDM_NOTES_DELETENOTE:   OnNotesDeleteCurrent(); break;
     }
     
     // Handle edit control notifications
@@ -436,23 +480,18 @@ void MainWindow::OnInitMenuPopup(HMENU hMenu, UINT index, BOOL sysMenu) {
 void MainWindow::OnTimer(UINT_PTR timerId) {
     if (timerId == TIMER_STATUSUPDATE) {
         UpdateStatusBar();
+    } else if (timerId == TIMER_AUTOSAVE) {
+        // Auto-save current note if in note mode and modified
+        if (m_isNoteMode && m_editor->IsModified()) {
+            AutoSaveCurrentNote();
+        }
     }
 }
 
 //------------------------------------------------------------------------------
-// WM_CTLCOLOREDIT handler (for dark mode)
+// WM_CTLCOLOREDIT handler
 //------------------------------------------------------------------------------
 LRESULT MainWindow::OnCtlColorEdit(HDC hdc, HWND hwndEdit) {
-    if (m_darkMode && hwndEdit == m_editor->GetHandle()) {
-        SetTextColor(hdc, RGB(220, 220, 220));
-        SetBkColor(hdc, RGB(30, 30, 30));
-        
-        if (!m_darkBgBrush) {
-            m_darkBgBrush = CreateSolidBrush(RGB(30, 30, 30));
-        }
-        return reinterpret_cast<LRESULT>(m_darkBgBrush);
-    }
-    
     return DefWindowProcW(m_hwnd, WM_CTLCOLOREDIT, reinterpret_cast<WPARAM>(hdc), 
                           reinterpret_cast<LPARAM>(hwndEdit));
 }
@@ -885,20 +924,6 @@ void MainWindow::OnViewZoomReset() {
 }
 
 //------------------------------------------------------------------------------
-// View -> Theme
-//------------------------------------------------------------------------------
-void MainWindow::OnViewTheme(ThemeMode mode) {
-    AppSettings& settings = m_settingsManager->GetSettings();
-    settings.themeMode = mode;
-    
-    // Apply the new theme immediately
-    bool newDarkMode = ShouldUseDarkMode();
-    if (newDarkMode != m_darkMode) {
-        ApplyDarkMode(newDarkMode);
-    }
-}
-
-//------------------------------------------------------------------------------
 // Encoding change handler
 //------------------------------------------------------------------------------
 void MainWindow::OnEncodingChange(TextEncoding encoding) {
@@ -926,14 +951,35 @@ void MainWindow::UpdateTitle() {
         title = L"*";
     }
     
-    // Add filename
-    if (m_isNewFile || m_currentFile.empty()) {
-        title += L"Untitled";
+    // Handle note mode vs file mode
+    if (m_isNoteMode) {
+        // Note mode - show note title
+        if (m_currentNoteId.empty()) {
+            title += L"New Note";
+        } else if (m_noteStore) {
+            auto note = m_noteStore->GetNote(m_currentNoteId);
+            if (note) {
+                std::wstring noteTitle = note->GetDisplayTitle();
+                if (note->isPinned) {
+                    title += L"\u2605 ";  // Star for pinned
+                }
+                title += noteTitle;
+            } else {
+                title += L"Note";
+            }
+        } else {
+            title += L"Note";
+        }
+        title += L" - QNote Notes";
     } else {
-        title += FileIO::GetFileName(m_currentFile);
+        // File mode - show filename
+        if (m_isNewFile || m_currentFile.empty()) {
+            title += L"Untitled";
+        } else {
+            title += FileIO::GetFileName(m_currentFile);
+        }
+        title += L" - QNote";
     }
-    
-    title += L" - QNote";
     
     SetWindowTextW(m_hwnd, title.c_str());
 }
@@ -1012,15 +1058,6 @@ void MainWindow::UpdateMenuState() {
     // View menu state
     CheckMenuItem(hMenu, IDM_VIEW_STATUSBAR,
                   MF_BYCOMMAND | (m_settingsManager->GetSettings().showStatusBar ? MF_CHECKED : MF_UNCHECKED));
-    
-    // Theme checkmarks
-    ThemeMode theme = m_settingsManager->GetSettings().themeMode;
-    CheckMenuItem(hMenu, IDM_VIEW_THEME_SYSTEM,
-                  MF_BYCOMMAND | (theme == ThemeMode::System ? MF_CHECKED : MF_UNCHECKED));
-    CheckMenuItem(hMenu, IDM_VIEW_THEME_LIGHT,
-                  MF_BYCOMMAND | (theme == ThemeMode::Light ? MF_CHECKED : MF_UNCHECKED));
-    CheckMenuItem(hMenu, IDM_VIEW_THEME_DARK,
-                  MF_BYCOMMAND | (theme == ThemeMode::Dark ? MF_CHECKED : MF_UNCHECKED));
     
     // Encoding checkmarks
     TextEncoding enc = m_editor->GetEncoding();
@@ -1201,70 +1238,6 @@ void MainWindow::NewDocument() {
 }
 
 //------------------------------------------------------------------------------
-// Check if system is in dark mode
-//------------------------------------------------------------------------------
-bool MainWindow::IsSystemDarkMode() {
-    // Check registry for dark mode setting
-    HKEY hKey;
-    if (RegOpenKeyExW(HKEY_CURRENT_USER, 
-                       L"Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize",
-                       0, KEY_READ, &hKey) == ERROR_SUCCESS) {
-        DWORD value = 0;
-        DWORD size = sizeof(value);
-        if (RegQueryValueExW(hKey, L"AppsUseLightTheme", nullptr, nullptr, 
-                             reinterpret_cast<LPBYTE>(&value), &size) == ERROR_SUCCESS) {
-            RegCloseKey(hKey);
-            return value == 0;  // 0 = dark mode, 1 = light mode
-        }
-        RegCloseKey(hKey);
-    }
-    
-    return false;
-}
-
-//------------------------------------------------------------------------------
-// Determine if dark mode should be used based on settings
-//------------------------------------------------------------------------------
-bool MainWindow::ShouldUseDarkMode() {
-    ThemeMode theme = m_settingsManager->GetSettings().themeMode;
-    switch (theme) {
-        case ThemeMode::Light: return false;
-        case ThemeMode::Dark:  return true;
-        case ThemeMode::System:
-        default:               return IsSystemDarkMode();
-    }
-}
-
-//------------------------------------------------------------------------------
-// Apply dark mode to window
-//------------------------------------------------------------------------------
-void MainWindow::ApplyDarkMode(bool darkMode) {
-    m_darkMode = darkMode;
-    
-    // Always use dark title bar regardless of content theme
-    BOOL useDarkTitleBar = TRUE;
-    DwmSetWindowAttribute(m_hwnd, DWMWA_USE_IMMERSIVE_DARK_MODE, &useDarkTitleBar, sizeof(useDarkTitleBar));
-    
-    // Update background brush
-    if (m_darkBgBrush) {
-        DeleteObject(m_darkBgBrush);
-        m_darkBgBrush = nullptr;
-    }
-    
-    if (darkMode) {
-        m_darkBgBrush = CreateSolidBrush(RGB(30, 30, 30));
-    }
-    
-    // Update editor
-    if (m_editor) {
-        m_editor->SetDarkMode(darkMode);
-    }
-    
-    // Redraw
-    InvalidateRect(m_hwnd, nullptr, TRUE);
-}
-
-//------------------------------------------------------------------------------
 // Create status bar
 //------------------------------------------------------------------------------
 void MainWindow::CreateStatusBar() {
@@ -1313,6 +1286,245 @@ void MainWindow::ResizeControls() {
     // Position editor
     if (m_editor) {
         m_editor->Resize(0, 0, rc.right, rc.bottom - statusHeight);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Initialize note store and related components
+//------------------------------------------------------------------------------
+void MainWindow::InitializeNoteStore() {
+    // Initialize the note store
+    if (m_noteStore) {
+        m_noteStore->Initialize();
+    }
+    
+    // Create capture window
+    m_captureWindow = std::make_unique<CaptureWindow>();
+    if (m_captureWindow->Create(m_hInstance, m_noteStore.get())) {
+        // Set callback for when user wants to edit in main window
+        m_captureWindow->SetEditCallback([this](const std::wstring& noteId) {
+            OpenNoteFromId(noteId);
+        });
+    }
+    
+    // Create note list window
+    m_noteListWindow = std::make_unique<NoteListWindow>();
+    if (m_noteListWindow->Create(m_hInstance, m_hwnd, m_noteStore.get())) {
+        // Set callback for opening notes
+        m_noteListWindow->SetOpenCallback([this](const Note& note) {
+            LoadNoteIntoEditor(note);
+        });
+    }
+    
+    // Register global hotkey (Ctrl+Shift+Q)
+    if (m_hotkeyManager) {
+        m_hotkeyManager->Register(m_hwnd, HOTKEY_QUICKCAPTURE);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Auto-save current note
+//------------------------------------------------------------------------------
+void MainWindow::AutoSaveCurrentNote() {
+    if (!m_isNoteMode || !m_noteStore || !m_editor) return;
+    
+    std::wstring content = m_editor->GetText();
+    
+    if (m_currentNoteId.empty()) {
+        // Create a new note
+        Note newNote = m_noteStore->CreateNote(content);
+        m_currentNoteId = newNote.id;
+    } else {
+        // Update existing note
+        auto existingNote = m_noteStore->GetNote(m_currentNoteId);
+        if (existingNote) {
+            Note updated = *existingNote;
+            updated.content = content;
+            m_noteStore->UpdateNote(updated);
+        }
+    }
+    
+    m_editor->SetModified(false);
+    UpdateTitle();
+}
+
+//------------------------------------------------------------------------------
+// Load a note into the editor
+//------------------------------------------------------------------------------
+void MainWindow::LoadNoteIntoEditor(const Note& note) {
+    // Save current note if in note mode
+    if (m_isNoteMode && m_editor->IsModified()) {
+        AutoSaveCurrentNote();
+    }
+    
+    // Switch to note mode
+    m_isNoteMode = true;
+    m_currentNoteId = note.id;
+    m_currentFile.clear();
+    m_isNewFile = true;
+    
+    // Load note content
+    m_editor->SetText(note.content);
+    m_editor->SetModified(false);
+    m_editor->SetSelection(0, 0);
+    m_editor->SetFocus();
+    
+    UpdateTitle();
+    UpdateStatusBar();
+    
+    // Bring window to front
+    SetForegroundWindow(m_hwnd);
+}
+
+//------------------------------------------------------------------------------
+// Open a note by ID
+//------------------------------------------------------------------------------
+void MainWindow::OpenNoteFromId(const std::wstring& noteId) {
+    if (!m_noteStore) return;
+    
+    auto note = m_noteStore->GetNote(noteId);
+    if (note) {
+        LoadNoteIntoEditor(*note);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Handle global hotkey
+//------------------------------------------------------------------------------
+void MainWindow::OnHotkey(int hotkeyId) {
+    if (hotkeyId == HOTKEY_QUICKCAPTURE) {
+        OnNotesQuickCapture();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> New Note
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesNew() {
+    // Save current note if in note mode
+    if (m_isNoteMode && m_editor->IsModified()) {
+        AutoSaveCurrentNote();
+    }
+    
+    // Switch to note mode with a new note
+    m_isNoteMode = true;
+    m_currentNoteId.clear();
+    m_currentFile.clear();
+    m_isNewFile = true;
+    
+    m_editor->Clear();
+    m_editor->SetModified(false);
+    m_editor->SetFocus();
+    
+    UpdateTitle();
+    UpdateStatusBar();
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Quick Capture
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesQuickCapture() {
+    if (m_captureWindow) {
+        m_captureWindow->Toggle();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> All Notes
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesAllNotes() {
+    if (m_noteListWindow) {
+        m_noteListWindow->SetViewMode(NoteListViewMode::AllNotes);
+        m_noteListWindow->Show();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Pinned Notes
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesPinned() {
+    if (m_noteListWindow) {
+        m_noteListWindow->SetViewMode(NoteListViewMode::Pinned);
+        m_noteListWindow->Show();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Timeline
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesTimeline() {
+    if (m_noteListWindow) {
+        m_noteListWindow->SetViewMode(NoteListViewMode::Timeline);
+        m_noteListWindow->Show();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Search
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesSearch() {
+    if (m_noteListWindow) {
+        m_noteListWindow->SetViewMode(NoteListViewMode::AllNotes);
+        m_noteListWindow->Show();
+        // Focus the search box (will need to add this method to NoteListWindow)
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Pin/Unpin Current Note
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesPinCurrent() {
+    if (!m_isNoteMode || m_currentNoteId.empty() || !m_noteStore) {
+        MessageBoxW(m_hwnd, L"No note is currently being edited.", L"QNote", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    
+    m_noteStore->TogglePin(m_currentNoteId);
+    
+    auto note = m_noteStore->GetNote(m_currentNoteId);
+    if (note) {
+        std::wstring msg = note->isPinned ? L"Note pinned." : L"Note unpinned.";
+        // Could show in status bar instead
+        UpdateTitle();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Save Note Now
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesSaveNow() {
+    if (m_isNoteMode) {
+        AutoSaveCurrentNote();
+        // Brief visual feedback could be added here
+    } else {
+        // In file mode, use regular save
+        OnFileSave();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Delete Current Note
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesDeleteCurrent() {
+    if (!m_isNoteMode || m_currentNoteId.empty() || !m_noteStore) {
+        MessageBoxW(m_hwnd, L"No note is currently being edited.", L"QNote", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    
+    auto note = m_noteStore->GetNote(m_currentNoteId);
+    std::wstring title = note ? note->GetDisplayTitle() : L"this note";
+    
+    std::wstring msg = L"Delete \"" + title + L"\"? This cannot be undone.";
+    if (MessageBoxW(m_hwnd, msg.c_str(), L"Delete Note", MB_YESNO | MB_ICONWARNING) == IDYES) {
+        m_noteStore->DeleteNote(m_currentNoteId);
+        
+        // Start a new note
+        OnNotesNew();
+        
+        // Refresh note list if visible
+        if (m_noteListWindow && m_noteListWindow->IsVisible()) {
+            m_noteListWindow->RefreshList();
+        }
     }
 }
 

@@ -21,6 +21,9 @@
 #include "Editor.h"
 #include "FileIO.h"
 #include "Dialogs.h"
+#include "NoteStore.h"
+#include "CaptureWindow.h"
+#include "NoteListWindow.h"
 
 namespace QNote {
 
@@ -98,13 +101,24 @@ private:
     void OnViewZoomIn();
     void OnViewZoomOut();
     void OnViewZoomReset();
-    void OnViewTheme(ThemeMode mode);
     
     // Encoding operations
     void OnEncodingChange(TextEncoding encoding);
     
     // Help operations
     void OnHelpAbout();
+    
+    // Notes operations
+    void OnNotesNew();
+    void OnNotesQuickCapture();
+    void OnNotesAllNotes();
+    void OnNotesPinned();
+    void OnNotesTimeline();
+    void OnNotesSearch();
+    void OnNotesPinCurrent();
+    void OnNotesSaveNow();
+    void OnNotesDeleteCurrent();
+    void OnHotkey(int hotkeyId);
     
     // Helper methods
     void UpdateTitle();
@@ -116,10 +130,11 @@ private:
     bool SaveFile(const std::wstring& filePath);
     void NewDocument();
     
-    // Dark mode support
-    bool IsSystemDarkMode();
-    void ApplyDarkMode(bool darkMode);
-    bool ShouldUseDarkMode();
+    // Note store operations
+    void InitializeNoteStore();
+    void AutoSaveCurrentNote();
+    void LoadNoteIntoEditor(const Note& note);
+    void OpenNoteFromId(const std::wstring& noteId);
     
     // Create child controls
     void CreateStatusBar();
@@ -136,6 +151,16 @@ private:
     std::unique_ptr<Editor> m_editor;
     std::unique_ptr<DialogManager> m_dialogManager;
     
+    // Note store and windows
+    std::unique_ptr<NoteStore> m_noteStore;
+    std::unique_ptr<CaptureWindow> m_captureWindow;
+    std::unique_ptr<NoteListWindow> m_noteListWindow;
+    std::unique_ptr<GlobalHotkeyManager> m_hotkeyManager;
+    
+    // Current note state
+    std::wstring m_currentNoteId;
+    bool m_isNoteMode = false;  // true = editing from note store, false = file mode
+    
     // Current file state
     std::wstring m_currentFile;
     bool m_isNewFile = true;
@@ -143,13 +168,12 @@ private:
     // Print settings
     PAGESETUPDLGW m_pageSetup = {};
     
-    // Dark mode
-    bool m_darkMode = false;
-    HBRUSH m_darkBgBrush = nullptr;
-    
     // Status bar parts widths
     static constexpr int STATUS_PARTS = 4;
     int m_statusPartWidths[STATUS_PARTS] = { 200, 100, 80, -1 };
+    
+    // Auto-save timer interval (ms)
+    static constexpr UINT AUTOSAVE_INTERVAL = 3000;
     
     // Window class name
     static constexpr wchar_t WINDOW_CLASS[] = L"QNoteMainWindow";

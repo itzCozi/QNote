@@ -177,9 +177,6 @@ public:
     // Insert date/time at cursor
     void InsertDateTime();
     
-    // Dark mode support
-    void SetDarkMode(bool darkMode) noexcept;
-    
     // RTL reading order support
     void SetRTL(bool rtl) noexcept;
     [[nodiscard]] bool IsRTL() const noexcept { return m_rtl; }
@@ -216,9 +213,6 @@ private:
     
     LineEnding m_lineEnding = LineEnding::CRLF;
     TextEncoding m_encoding = TextEncoding::UTF8;
-    
-    bool m_darkMode = false;
-    HBRUSH m_darkBrush = nullptr;
     
     bool m_rtl = false;
     

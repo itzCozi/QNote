@@ -28,15 +28,6 @@ enum class LineEnding {
 };
 
 //------------------------------------------------------------------------------
-// Theme mode types
-//------------------------------------------------------------------------------
-enum class ThemeMode {
-    System,  // Follow Windows system theme
-    Light,   // Always light
-    Dark     // Always dark
-};
-
-//------------------------------------------------------------------------------
 // Text encoding types
 //------------------------------------------------------------------------------
 enum class TextEncoding {
@@ -83,9 +74,6 @@ struct AppSettings {
     // Recent files list (max 10)
     static constexpr size_t MAX_RECENT_FILES = 10;
     std::vector<std::wstring> recentFiles;
-    
-    // Theme
-    ThemeMode themeMode = ThemeMode::System;  // System, Light, or Dark
 };
 
 //------------------------------------------------------------------------------

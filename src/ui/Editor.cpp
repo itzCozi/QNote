@@ -100,11 +100,6 @@ void Editor::Destroy() noexcept {
         DestroyWindow(m_hwndEdit);
         m_hwndEdit = nullptr;
     }
-    
-    if (m_darkBrush) {
-        DeleteObject(m_darkBrush);
-        m_darkBrush = nullptr;
-    }
 }
 
 //------------------------------------------------------------------------------
@@ -698,26 +693,6 @@ void Editor::InsertDateTime() {
     ss << std::put_time(&localTime, L"%H:%M %Y-%m-%d");
     
     ReplaceSelection(ss.str());
-}
-
-//------------------------------------------------------------------------------
-// Set dark mode
-//------------------------------------------------------------------------------
-void Editor::SetDarkMode(bool darkMode) noexcept {
-    m_darkMode = darkMode;
-    
-    if (m_darkBrush) {
-        DeleteObject(m_darkBrush);
-        m_darkBrush = nullptr;
-    }
-    
-    if (darkMode) {
-        m_darkBrush = CreateSolidBrush(RGB(30, 30, 30));
-    }
-    
-    if (m_hwndEdit) {
-        InvalidateRect(m_hwndEdit, nullptr, TRUE);
-    }
 }
 
 //------------------------------------------------------------------------------

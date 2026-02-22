@@ -124,16 +124,6 @@ bool SettingsManager::Load() {
     m_settings.searchWrapAround = ParseBool(L"Search", L"WrapAround", true);
     m_settings.searchUseRegex = ParseBool(L"Search", L"UseRegex", false);
     
-    // Theme section
-    std::wstring themeModeStr = ParseString(L"Theme", L"Mode", L"System");
-    if (themeModeStr == L"Light") {
-        m_settings.themeMode = ThemeMode::Light;
-    } else if (themeModeStr == L"Dark") {
-        m_settings.themeMode = ThemeMode::Dark;
-    } else {
-        m_settings.themeMode = ThemeMode::System;
-    }
-    
     // Recent files
     m_settings.recentFiles.clear();
     for (size_t i = 0; i < AppSettings::MAX_RECENT_FILES; ++i) {
@@ -188,15 +178,6 @@ bool SettingsManager::Save() {
     WriteBool(L"Search", L"MatchCase", m_settings.searchMatchCase);
     WriteBool(L"Search", L"WrapAround", m_settings.searchWrapAround);
     WriteBool(L"Search", L"UseRegex", m_settings.searchUseRegex);
-    
-    // Theme section
-    std::wstring themeModeStr;
-    switch (m_settings.themeMode) {
-        case ThemeMode::Light: themeModeStr = L"Light"; break;
-        case ThemeMode::Dark:  themeModeStr = L"Dark"; break;
-        default:               themeModeStr = L"System"; break;
-    }
-    WriteString(L"Theme", L"Mode", themeModeStr);
     
     // Recent files - clear old entries first
     for (size_t i = 0; i < AppSettings::MAX_RECENT_FILES; ++i) {

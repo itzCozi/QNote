@@ -56,10 +56,6 @@
 #define IDM_VIEW_ZOOMIN                 4002
 #define IDM_VIEW_ZOOMOUT                4003
 #define IDM_VIEW_ZOOMRESET              4004
-#define IDM_VIEW_DARKMODE               4005
-#define IDM_VIEW_THEME_SYSTEM           4006
-#define IDM_VIEW_THEME_LIGHT            4007
-#define IDM_VIEW_THEME_DARK             4008
 
 // Encoding submenu
 #define IDM_ENCODING_UTF8               5001
@@ -70,6 +66,17 @@
 
 // Help menu
 #define IDM_HELP_ABOUT                  6001
+
+// Notes menu (new features)
+#define IDM_NOTES_NEW                   7001
+#define IDM_NOTES_QUICKCAPTURE          7002
+#define IDM_NOTES_ALLNOTES              7003
+#define IDM_NOTES_PINNED                7004
+#define IDM_NOTES_TIMELINE              7005
+#define IDM_NOTES_SEARCH                7006
+#define IDM_NOTES_PINNOTE               7007
+#define IDM_NOTES_DELETENOTE            7008
+#define IDM_NOTES_SAVENOW               7009
 
 // Dialog controls
 #define IDD_FIND                        200
@@ -106,9 +113,14 @@
 #define WM_APP_UPDATETITLE              (WM_APP + 1)
 #define WM_APP_UPDATESTATUS             (WM_APP + 2)
 #define WM_APP_FILECHANGED              (WM_APP + 3)
+#define WM_APP_OPENNOTE                 (WM_APP + 4)
 
 // Timer IDs
 #define TIMER_STATUSUPDATE              1
+#define TIMER_AUTOSAVE                  2
+
+// Global hotkey ID
+#define HOTKEY_QUICKCAPTURE             1
 
 // Version info
 #define VER_MAJOR                       1
