@@ -8,6 +8,7 @@
 #include <dwmapi.h>
 
 #pragma comment(lib, "dwmapi.lib")
+#pragma comment(lib, "comctl32.lib")
 
 namespace QNote {
 
@@ -422,6 +423,13 @@ void CaptureWindow::CreateControls() {
         SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_hFont), TRUE);
     }
     
+    // Subclass edit control to intercept keyboard shortcuts
+    if (m_hwndEdit && !m_editSubclassed) {
+        if (SetWindowSubclass(m_hwndEdit, EditSubclassProc, 1, reinterpret_cast<DWORD_PTR>(this))) {
+            m_editSubclassed = true;
+        }
+    }
+    
     // Hint label
     m_hwndHintLabel = CreateWindowExW(
         0,
@@ -485,6 +493,45 @@ void CaptureWindow::CreateControls() {
         if (m_hwndPinBtn) SendMessageW(m_hwndPinBtn, WM_SETFONT, reinterpret_cast<WPARAM>(m_hFont), TRUE);
         if (m_hwndEditBtn) SendMessageW(m_hwndEditBtn, WM_SETFONT, reinterpret_cast<WPARAM>(m_hFont), TRUE);
     }
+}
+
+LRESULT CALLBACK CaptureWindow::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                                   UINT_PTR uIdSubclass, DWORD_PTR dwRefData) {
+    CaptureWindow* pThis = reinterpret_cast<CaptureWindow*>(dwRefData);
+    
+    if (msg == WM_KEYDOWN) {
+        switch (wParam) {
+            case VK_ESCAPE:
+                // Save and hide
+                if (pThis) {
+                    if (GetWindowTextLengthW(hwnd) > 0) {
+                        pThis->SaveNote();
+                    }
+                    pThis->Hide();
+                    return 0;
+                }
+                break;
+                
+            case VK_RETURN:
+                if (GetKeyState(VK_CONTROL) & 0x8000) {
+                    // Ctrl+Enter = Save and clear
+                    if (pThis) {
+                        pThis->SaveNote();
+                        pThis->ClearAndFocus();
+                        return 0;
+                    }
+                }
+                break;
+        }
+    } else if (msg == WM_NCDESTROY) {
+        // Clean up subclass
+        RemoveWindowSubclass(hwnd, EditSubclassProc, uIdSubclass);
+        if (pThis) {
+            pThis->m_editSubclassed = false;
+        }
+    }
+    
+    return DefSubclassProc(hwnd, msg, wParam, lParam);
 }
 
 //------------------------------------------------------------------------------

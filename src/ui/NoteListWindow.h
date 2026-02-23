@@ -101,6 +101,12 @@ private:
     void OnContextMenuDelete(int index);
     void OnContextMenuOpen(int index);
     
+    // Multi-selection operations
+    [[nodiscard]] std::vector<int> GetSelectedIndices() const;
+    void SelectAllItems();
+    void DeleteSelectedNotes();
+    void PinSelectedNotes();
+    
     // UI helpers
     void CreateControls();
     void UpdateViewModeUI();

@@ -347,9 +347,23 @@ void NoteListWindow::OnNotify(NMHDR* pnmh) {
                         OnListItemActivated(sel);
                     }
                 } else if (pnkd->wVKey == VK_DELETE) {
-                    int sel = ListView_GetNextItem(m_hwndList, -1, LVNI_SELECTED);
-                    if (sel >= 0) {
-                        OnContextMenuDelete(sel);
+                    DeleteSelectedNotes();
+                } else if (pnkd->wVKey == 'A' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                    // Ctrl+A: Select all items
+                    SelectAllItems();
+                } else if (pnkd->wVKey == 'P' && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                    // Ctrl+P: Pin/unpin selected items
+                    PinSelectedNotes();
+                }
+                break;
+            }
+            
+            case LVN_ITEMCHANGED: {
+                NMLISTVIEW* pnmlv = reinterpret_cast<NMLISTVIEW*>(pnmh);
+                // Update status when selection changes
+                if (pnmlv->uChanged & LVIF_STATE) {
+                    if ((pnmlv->uOldState ^ pnmlv->uNewState) & LVIS_SELECTED) {
+                        UpdateStatusText();
                     }
                 }
                 break;
@@ -455,12 +469,23 @@ void NoteListWindow::ShowContextMenu(int index, POINT pt) {
     HMENU hMenu = CreatePopupMenu();
     if (!hMenu) return;
     
-    const Note& note = m_displayedNotes[index];
+    std::vector<int> selected = GetSelectedIndices();
+    bool multiSelect = selected.size() > 1;
     
-    AppendMenuW(hMenu, MF_STRING, IDM_CTX_OPEN, L"&Open");
-    AppendMenuW(hMenu, MF_STRING, IDM_CTX_PIN, note.isPinned ? L"&Unpin" : L"&Pin");
-    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, IDM_CTX_DELETE, L"&Delete");
+    if (!multiSelect) {
+        const Note& note = m_displayedNotes[index];
+        AppendMenuW(hMenu, MF_STRING, IDM_CTX_OPEN, L"&Open");
+        AppendMenuW(hMenu, MF_STRING, IDM_CTX_PIN, note.isPinned ? L"&Unpin" : L"&Pin");
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(hMenu, MF_STRING, IDM_CTX_DELETE, L"&Delete");
+    } else {
+        // Multi-selection context menu
+        std::wstring pinText = L"&Pin/Unpin Selected (" + std::to_wstring(selected.size()) + L")";
+        std::wstring deleteText = L"&Delete Selected (" + std::to_wstring(selected.size()) + L")";
+        AppendMenuW(hMenu, MF_STRING, IDM_CTX_PIN, pinText.c_str());
+        AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+        AppendMenuW(hMenu, MF_STRING, IDM_CTX_DELETE, deleteText.c_str());
+    }
     
     int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, pt.x, pt.y, 0, m_hwnd, nullptr);
     
@@ -469,10 +494,18 @@ void NoteListWindow::ShowContextMenu(int index, POINT pt) {
             OnContextMenuOpen(index);
             break;
         case IDM_CTX_PIN:
-            OnContextMenuPin(index);
+            if (multiSelect) {
+                PinSelectedNotes();
+            } else {
+                OnContextMenuPin(index);
+            }
             break;
         case IDM_CTX_DELETE:
-            OnContextMenuDelete(index);
+            if (multiSelect) {
+                DeleteSelectedNotes();
+            } else {
+                OnContextMenuDelete(index);
+            }
             break;
     }
     
@@ -509,6 +542,77 @@ void NoteListWindow::OnContextMenuDelete(int index) {
 
 void NoteListWindow::OnContextMenuOpen(int index) {
     OnListItemActivated(index);
+}
+
+std::vector<int> NoteListWindow::GetSelectedIndices() const {
+    std::vector<int> indices;
+    if (!m_hwndList) return indices;
+    
+    int index = -1;
+    while ((index = ListView_GetNextItem(m_hwndList, index, LVNI_SELECTED)) != -1) {
+        indices.push_back(index);
+    }
+    return indices;
+}
+
+void NoteListWindow::SelectAllItems() {
+    if (!m_hwndList) return;
+    
+    int count = ListView_GetItemCount(m_hwndList);
+    for (int i = 0; i < count; ++i) {
+        ListView_SetItemState(m_hwndList, i, LVIS_SELECTED, LVIS_SELECTED);
+    }
+}
+
+void NoteListWindow::DeleteSelectedNotes() {
+    if (!m_hwndList || !m_noteStore) return;
+    
+    std::vector<int> selected = GetSelectedIndices();
+    if (selected.empty()) return;
+    
+    // Confirm deletion
+    std::wstring msg;
+    if (selected.size() == 1) {
+        msg = L"Delete \"" + m_displayedNotes[selected[0]].GetDisplayTitle() + L"\"?";
+    } else {
+        msg = L"Delete " + std::to_wstring(selected.size()) + L" selected notes?";
+    }
+    
+    if (MessageBoxW(m_hwnd, msg.c_str(), L"Delete Notes", MB_YESNO | MB_ICONQUESTION) == IDYES) {
+        // Collect IDs first (indices will become invalid during deletion)
+        std::vector<std::wstring> idsToDelete;
+        for (int idx : selected) {
+            if (idx >= 0 && idx < static_cast<int>(m_displayedNotes.size())) {
+                idsToDelete.push_back(m_displayedNotes[idx].id);
+            }
+        }
+        
+        // Delete notes
+        for (const auto& id : idsToDelete) {
+            if (m_deleteCallback) {
+                m_deleteCallback(id);
+            }
+            m_noteStore->DeleteNote(id);
+        }
+        
+        RefreshList();
+    }
+}
+
+void NoteListWindow::PinSelectedNotes() {
+    if (!m_hwndList || !m_noteStore) return;
+    
+    std::vector<int> selected = GetSelectedIndices();
+    if (selected.empty()) return;
+    
+    // Toggle pin state for all selected notes
+    for (int idx : selected) {
+        if (idx >= 0 && idx < static_cast<int>(m_displayedNotes.size())) {
+            m_noteStore->TogglePin(m_displayedNotes[idx].id);
+        }
+    }
+    
+    RefreshList();
 }
 
 void NoteListWindow::CreateControls() {
@@ -563,7 +667,7 @@ void NoteListWindow::CreateControls() {
     m_hwndList = CreateWindowExW(
         WS_EX_CLIENTEDGE,
         WC_LISTVIEWW, L"",
-        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SINGLESEL | LVS_SHOWSELALWAYS,
+        WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS,
         0, 0, 400, 300,
         m_hwnd, reinterpret_cast<HMENU>(IDC_NOTE_LIST), m_hInstance, nullptr
     );
@@ -632,11 +736,19 @@ void NoteListWindow::UpdateStatusText() {
     if (!m_hwndStatus) return;
     
     std::wstringstream ss;
+    
+    std::vector<int> selected = GetSelectedIndices();
+    if (selected.size() > 1) {
+        ss << selected.size() << L" selected | ";
+    }
+    
     ss << m_displayedNotes.size() << L" note(s)";
     
     if (!m_currentSearch.empty()) {
         ss << L" matching \"" << m_currentSearch << L"\"";
     }
+    
+    ss << L" | Ctrl+A: Select All, Ctrl+P: Pin, Del: Delete";
     
     SetWindowTextW(m_hwndStatus, ss.str().c_str());
 }

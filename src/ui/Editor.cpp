@@ -49,8 +49,8 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
         style |= ES_AUTOHSCROLL | WS_HSCROLL;
     }
     
-    // Determine extended style (RTL support)
-    DWORD exStyle = WS_EX_CLIENTEDGE;
+    // Determine extended style (RTL support, no border)
+    DWORD exStyle = 0;
     if (m_rtl) {
         exStyle |= WS_EX_RTLREADING | WS_EX_RIGHT;
     }
@@ -750,8 +750,8 @@ void Editor::RecreateControl() {
         style |= ES_AUTOHSCROLL | WS_HSCROLL;
     }
     
-    // Determine extended style (RTL support)
-    DWORD exStyle = WS_EX_CLIENTEDGE;
+    // Determine extended style (RTL support, no border)
+    DWORD exStyle = 0;
     if (m_rtl) {
         exStyle |= WS_EX_RTLREADING | WS_EX_RIGHT;
     }

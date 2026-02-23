@@ -59,6 +59,10 @@ private:
     static LRESULT CALLBACK WindowProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     LRESULT HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam);
     
+    // Edit control subclass procedure (for keyboard shortcuts)
+    static LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam,
+                                              UINT_PTR uIdSubclass, DWORD_PTR dwRefData);
+    
     // Message handlers
     void OnCreate();
     void OnDestroy();
@@ -100,6 +104,7 @@ private:
     
     CaptureCallback m_captureCallback;
     CaptureEditCallback m_editCallback;
+    bool m_editSubclassed = false;
     
     // Window dimensions
     static constexpr int WINDOW_WIDTH = 400;
