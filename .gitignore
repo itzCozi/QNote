@@ -28,7 +28,6 @@ Makefile
 # Compiled files
 *.obj
 *.o
-*.exe
 *.dll
 *.lib
 *.exp
