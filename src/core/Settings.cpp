@@ -102,6 +102,8 @@ bool SettingsManager::Load() {
     m_settings.tabSize = ParseInt(L"Editor", L"TabSize", 4);
     m_settings.zoomLevel = ParseInt(L"Editor", L"ZoomLevel", 100);
     m_settings.showStatusBar = ParseBool(L"Editor", L"StatusBar", true);
+    m_settings.showLineNumbers = ParseBool(L"Editor", L"LineNumbers", false);
+    m_settings.fileAutoSave = ParseBool(L"Editor", L"FileAutoSave", true);
     m_settings.rightToLeft = ParseBool(L"Editor", L"RightToLeft", false);
     
     // Validate zoom level (25-500%)
@@ -168,6 +170,8 @@ bool SettingsManager::Save() {
     WriteInt(L"Editor", L"TabSize", m_settings.tabSize);
     WriteInt(L"Editor", L"ZoomLevel", m_settings.zoomLevel);
     WriteBool(L"Editor", L"StatusBar", m_settings.showStatusBar);
+    WriteBool(L"Editor", L"LineNumbers", m_settings.showLineNumbers);
+    WriteBool(L"Editor", L"FileAutoSave", m_settings.fileAutoSave);
     WriteBool(L"Editor", L"RightToLeft", m_settings.rightToLeft);
     
     // Encoding section

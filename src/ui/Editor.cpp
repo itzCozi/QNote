@@ -1,11 +1,12 @@
 //==============================================================================
 // QNote - A Lightweight Notepad Clone
-// Editor.cpp - Edit control wrapper and text operations implementation
+// Editor.cpp - RichEdit control wrapper and text operations implementation
 //==============================================================================
 
 #include "Editor.h"
 #include "resource.h"
 #include <CommCtrl.h>
+#include <Richedit.h>
 #include <regex>
 #include <chrono>
 #include <ctime>
@@ -18,6 +19,37 @@ namespace QNote {
 
 // Subclass ID for edit control
 static constexpr UINT_PTR EDIT_SUBCLASS_ID = 1;
+
+// Static member initialization
+HMODULE Editor::s_hRichEditLib = nullptr;
+
+//------------------------------------------------------------------------------
+// Initialize RichEdit library
+//------------------------------------------------------------------------------
+bool Editor::InitializeRichEdit() {
+    if (s_hRichEditLib) {
+        return true;  // Already loaded
+    }
+    
+    // Load RichEdit 4.1 (Msftedit.dll) for best compatibility
+    s_hRichEditLib = LoadLibraryW(L"Msftedit.dll");
+    if (!s_hRichEditLib) {
+        // Fallback to older RichEdit
+        s_hRichEditLib = LoadLibraryW(L"Riched20.dll");
+    }
+    
+    return s_hRichEditLib != nullptr;
+}
+
+//------------------------------------------------------------------------------
+// Uninitialize RichEdit library
+//------------------------------------------------------------------------------
+void Editor::UninitializeRichEdit() {
+    if (s_hRichEditLib) {
+        FreeLibrary(s_hRichEditLib);
+        s_hRichEditLib = nullptr;
+    }
+}
 
 //------------------------------------------------------------------------------
 // Destructor
@@ -55,10 +87,10 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
         exStyle |= WS_EX_RTLREADING | WS_EX_RIGHT;
     }
     
-    // Create the edit control
+    // Create the RichEdit control
     m_hwndEdit = CreateWindowExW(
         exStyle,
-        L"EDIT",
+        MSFTEDIT_CLASS,  // RichEdit 4.1 class
         L"",
         style,
         0, 0, 100, 100,  // Will be resized later
@@ -72,8 +104,11 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
         return false;
     }
     
-    // Set text limit to maximum
-    SendMessageW(m_hwndEdit, EM_SETLIMITTEXT, 0, 0);
+    // Set text limit to maximum (RichEdit uses different message)
+    SendMessageW(m_hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+    
+    // Set undo limit to 100 levels
+    SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, UNDO_LIMIT, 0);
     
     // Create and set font
     m_font.reset(CreateEditorFont());
@@ -221,11 +256,12 @@ bool Editor::CanUndo() const noexcept {
 }
 
 //------------------------------------------------------------------------------
-// Can redo (Windows edit control has limited redo - single level)
+// Can redo (RichEdit supports full redo)
 //------------------------------------------------------------------------------
 bool Editor::CanRedo() const noexcept {
-    // Standard edit control doesn't support redo well
-    // We would need RichEdit for proper redo support
+    if (m_hwndEdit) {
+        return SendMessageW(m_hwndEdit, EM_CANREDO, 0, 0) != 0;
+    }
     return false;
 }
 
@@ -239,11 +275,12 @@ void Editor::Undo() noexcept {
 }
 
 //------------------------------------------------------------------------------
-// Redo
+// Redo (RichEdit supports full redo)
 //------------------------------------------------------------------------------
 void Editor::Redo() noexcept {
-    // Standard edit control doesn't support redo
-    // Would need to use RichEdit control for this
+    if (m_hwndEdit) {
+        SendMessageW(m_hwndEdit, EM_REDO, 0, 0);
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -724,6 +761,24 @@ int Editor::GetTextLength() const noexcept {
 }
 
 //------------------------------------------------------------------------------
+// Get first visible line
+//------------------------------------------------------------------------------
+int Editor::GetFirstVisibleLine() const noexcept {
+    if (m_hwndEdit) {
+        return static_cast<int>(SendMessageW(m_hwndEdit, EM_GETFIRSTVISIBLELINE, 0, 0));
+    }
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+// Set scroll notification callback
+//------------------------------------------------------------------------------
+void Editor::SetScrollCallback(ScrollCallback callback, void* userData) noexcept {
+    m_scrollCallback = callback;
+    m_scrollCallbackData = userData;
+}
+
+//------------------------------------------------------------------------------
 // Recreate edit control (for word wrap toggle)
 //------------------------------------------------------------------------------
 void Editor::RecreateControl() {
@@ -758,7 +813,7 @@ void Editor::RecreateControl() {
     
     m_hwndEdit = CreateWindowExW(
         exStyle,
-        L"EDIT",
+        MSFTEDIT_CLASS,  // RichEdit 4.1 class
         L"",
         style,
         rect.left, rect.top, rect.right - rect.left, rect.bottom - rect.top,
@@ -769,8 +824,11 @@ void Editor::RecreateControl() {
     );
     
     if (m_hwndEdit) {
-        // Set unlimited text
-        SendMessageW(m_hwndEdit, EM_SETLIMITTEXT, 0, 0);
+        // Set unlimited text (RichEdit uses different message)
+        SendMessageW(m_hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
+        
+        // Set undo limit to 100 levels
+        SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, UNDO_LIMIT, 0);
         
         // Apply font
         if (m_font.get()) {
@@ -850,12 +908,45 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 PostMessageW(GetParent(hwnd), WM_APP_UPDATESTATUS, 0, 0);
                 return 0;
             }
-            break;
+            // Fall through to default handler, then notify scroll
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (editor->m_scrollCallback) {
+                editor->m_scrollCallback(editor->m_scrollCallbackData);
+            }
+            return result;
+        }
+        
+        case WM_VSCROLL:
+        case WM_HSCROLL: {
+            // Handle scroll, then notify callback
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (editor->m_scrollCallback) {
+                editor->m_scrollCallback(editor->m_scrollCallbackData);
+            }
+            return result;
         }
         
         case WM_KEYDOWN: {
-            // Additional key handling if needed
-            break;
+            // Handle key, then notify for potential scroll
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            // Arrow keys, Page Up/Down, Home/End can cause scrolling
+            if (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_PRIOR || 
+                wParam == VK_NEXT || wParam == VK_HOME || wParam == VK_END) {
+                if (editor->m_scrollCallback) {
+                    editor->m_scrollCallback(editor->m_scrollCallbackData);
+                }
+            }
+            return result;
+        }
+        
+        case EN_CHANGE:
+        case WM_CHAR: {
+            // Content change may affect line numbers
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (editor->m_scrollCallback) {
+                editor->m_scrollCallback(editor->m_scrollCallbackData);
+            }
+            return result;
         }
     }
     

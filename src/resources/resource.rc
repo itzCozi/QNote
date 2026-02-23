@@ -69,6 +69,7 @@ BEGIN
     POPUP "&View"
     BEGIN
         MENUITEM "&Status Bar",                 IDM_VIEW_STATUSBAR
+        MENUITEM "&Line Numbers",               IDM_VIEW_LINENUMBERS
         MENUITEM SEPARATOR
         MENUITEM "Zoom &In\tCtrl++",            IDM_VIEW_ZOOMIN
         MENUITEM "Zoom &Out\tCtrl+-",           IDM_VIEW_ZOOMOUT

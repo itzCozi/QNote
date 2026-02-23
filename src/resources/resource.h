@@ -53,6 +53,7 @@
 
 // View menu
 #define IDM_VIEW_STATUSBAR              4001
+#define IDM_VIEW_LINENUMBERS            4005
 #define IDM_VIEW_ZOOMIN                 4002
 #define IDM_VIEW_ZOOMOUT                4003
 #define IDM_VIEW_ZOOMRESET              4004
@@ -118,6 +119,7 @@
 // Timer IDs
 #define TIMER_STATUSUPDATE              1
 #define TIMER_AUTOSAVE                  2
+#define TIMER_FILEAUTOSAVE              3
 
 // Global hotkey ID
 #define HOTKEY_QUICKCAPTURE             1

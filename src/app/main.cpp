@@ -22,6 +22,7 @@
 #include <shellapi.h>
 #include <objbase.h>
 #include "MainWindow.h"
+#include "Editor.h"
 
 // Enable visual styles
 #pragma comment(linker,"\"/manifestdependency:type='win32' \
@@ -149,6 +150,13 @@ int WINAPI wWinMain(
         // COM init failed, but we can continue without it
     }
     
+    // Initialize RichEdit library for multi-level undo/redo
+    if (!QNote::Editor::InitializeRichEdit()) {
+        MessageBoxW(nullptr, L"Failed to initialize RichEdit library.", L"Error", MB_OK | MB_ICONERROR);
+        CoUninitialize();
+        return 1;
+    }
+    
     // Parse command line for initial file
     std::wstring initialFile = ParseCommandLine();
     
@@ -163,6 +171,7 @@ int WINAPI wWinMain(
     int result = mainWindow.Run();
     
     // Cleanup
+    QNote::Editor::UninitializeRichEdit();
     CoUninitialize();
     
     return result;

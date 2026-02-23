@@ -82,6 +82,13 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "C
 endif()
 
 #-------------------------------------------------------------------------------
+# Output directories - place exe in project root
+#-------------------------------------------------------------------------------
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY ${CMAKE_SOURCE_DIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_DEBUG ${CMAKE_SOURCE_DIR})
+set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_SOURCE_DIR})
+
+#-------------------------------------------------------------------------------
 # Source files
 #-------------------------------------------------------------------------------
 set(SOURCES
@@ -89,8 +96,10 @@ set(SOURCES
     src/app/MainWindow.cpp
     src/ui/Editor.cpp
     src/ui/Dialogs.cpp
+    src/ui/FindBar.cpp
     src/ui/CaptureWindow.cpp
     src/ui/NoteListWindow.cpp
+    src/ui/LineNumbersGutter.cpp
     src/core/Settings.cpp
     src/core/FileIO.cpp
     src/core/NoteStore.cpp
@@ -100,8 +109,10 @@ set(HEADERS
     src/app/MainWindow.h
     src/ui/Editor.h
     src/ui/Dialogs.h
+    src/ui/FindBar.h
     src/ui/CaptureWindow.h
     src/ui/NoteListWindow.h
+    src/ui/LineNumbersGutter.h
     src/core/Settings.h
     src/core/FileIO.h
     src/core/NoteStore.h

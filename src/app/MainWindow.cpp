@@ -34,6 +34,8 @@ MainWindow::MainWindow()
     : m_settingsManager(std::make_unique<SettingsManager>())
     , m_editor(std::make_unique<Editor>())
     , m_dialogManager(std::make_unique<DialogManager>())
+    , m_findBar(std::make_unique<FindBar>())
+    , m_lineNumbersGutter(std::make_unique<LineNumbersGutter>())
     , m_noteStore(std::make_unique<NoteStore>())
     , m_hotkeyManager(std::make_unique<GlobalHotkeyManager>())
 {
@@ -140,7 +142,12 @@ int MainWindow::Run() {
     MSG msg = {};
     
     while (GetMessageW(&msg, nullptr, 0, 0)) {
-        // Check for dialog messages first
+        // Check for FindBar messages first
+        if (m_findBar && m_findBar->IsDialogMessage(&msg)) {
+            continue;
+        }
+        
+        // Check for dialog messages
         if (m_dialogManager->IsDialogMessage(&msg)) {
             continue;
         }
@@ -266,6 +273,25 @@ void MainWindow::OnCreate() {
         MessageBoxW(m_hwnd, L"Failed to create editor control.", L"Error", MB_OK | MB_ICONERROR);
     }
     
+    // Create line numbers gutter
+    if (!m_lineNumbersGutter->Create(m_hwnd, m_hInstance, m_editor.get())) {
+        MessageBoxW(m_hwnd, L"Failed to create line numbers gutter.", L"Error", MB_OK | MB_ICONERROR);
+    }
+    
+    // Set up scroll callback for line numbers sync
+    m_editor->SetScrollCallback(OnEditorScroll, this);
+    
+    // Apply line numbers setting
+    if (settings.showLineNumbers) {
+        m_lineNumbersGutter->SetFont(m_editor->GetFont());
+        m_lineNumbersGutter->Show(true);
+    }
+    
+    // Create find bar
+    if (!m_findBar->Create(m_hwnd, m_hInstance, m_editor.get())) {
+        MessageBoxW(m_hwnd, L"Failed to create find bar.", L"Error", MB_OK | MB_ICONERROR);
+    }
+    
     // Initialize dialog manager
     m_dialogManager->Initialize(m_hwnd, m_hInstance, m_editor.get(), 
                                  &m_settingsManager->GetSettings());
@@ -282,6 +308,9 @@ void MainWindow::OnCreate() {
     // Start auto-save timer for notes
     SetTimer(m_hwnd, TIMER_AUTOSAVE, AUTOSAVE_INTERVAL, nullptr);
     
+    // Start file auto-save timer
+    SetTimer(m_hwnd, TIMER_FILEAUTOSAVE, FILEAUTOSAVE_INTERVAL, nullptr);
+    
     // Initial resize
     RECT rc;
     GetClientRect(m_hwnd, &rc);
@@ -295,6 +324,12 @@ void MainWindow::OnDestroy() {
     // Kill timers
     KillTimer(m_hwnd, TIMER_STATUSUPDATE);
     KillTimer(m_hwnd, TIMER_AUTOSAVE);
+    KillTimer(m_hwnd, TIMER_FILEAUTOSAVE);
+    
+    // Delete auto-save backup if file was saved successfully
+    if (!m_isNoteMode && !m_isNewFile && !m_currentFile.empty() && !m_editor->IsModified()) {
+        DeleteAutoSaveBackup();
+    }
     
     // Auto-save current note if in note mode
     if (m_isNoteMode && m_editor->IsModified()) {
@@ -412,10 +447,11 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_FORMAT_EOL_CR:     OnFormatLineEnding(LineEnding::CR); break;
         
         // View menu
-        case IDM_VIEW_STATUSBAR: OnViewStatusBar(); break;
-        case IDM_VIEW_ZOOMIN:    OnViewZoomIn(); break;
-        case IDM_VIEW_ZOOMOUT:   OnViewZoomOut(); break;
-        case IDM_VIEW_ZOOMRESET: OnViewZoomReset(); break;
+        case IDM_VIEW_STATUSBAR:    OnViewStatusBar(); break;
+        case IDM_VIEW_LINENUMBERS:  OnViewLineNumbers(); break;
+        case IDM_VIEW_ZOOMIN:       OnViewZoomIn(); break;
+        case IDM_VIEW_ZOOMOUT:      OnViewZoomOut(); break;
+        case IDM_VIEW_ZOOMRESET:    OnViewZoomReset(); break;
         
         // Encoding menu
         case IDM_ENCODING_UTF8:     OnEncodingChange(TextEncoding::UTF8); break;
@@ -485,6 +521,9 @@ void MainWindow::OnTimer(UINT_PTR timerId) {
         if (m_isNoteMode && m_editor->IsModified()) {
             AutoSaveCurrentNote();
         }
+    } else if (timerId == TIMER_FILEAUTOSAVE) {
+        // Auto-save file backup if in file mode and modified
+        AutoSaveFileBackup();
     }
 }
 
@@ -611,15 +650,24 @@ void MainWindow::OnEditSelectAll() {
 }
 
 void MainWindow::OnEditFind() {
-    m_dialogManager->ShowFindDialog();
+    if (m_findBar) {
+        m_findBar->Show(FindBarMode::Find);
+    }
 }
 
 void MainWindow::OnEditFindNext() {
-    m_dialogManager->FindNext();
+    if (m_findBar && m_findBar->IsVisible()) {
+        m_findBar->FindNext();
+    } else if (m_findBar) {
+        // Show the find bar if not visible
+        m_findBar->Show(FindBarMode::Find);
+    }
 }
 
 void MainWindow::OnEditReplace() {
-    m_dialogManager->ShowReplaceDialog();
+    if (m_findBar) {
+        m_findBar->Show(FindBarMode::Replace);
+    }
 }
 
 void MainWindow::OnEditGoTo() {
@@ -902,6 +950,17 @@ void MainWindow::OnViewStatusBar() {
     ResizeControls();
 }
 
+void MainWindow::OnViewLineNumbers() {
+    AppSettings& settings = m_settingsManager->GetSettings();
+    settings.showLineNumbers = !settings.showLineNumbers;
+    
+    if (m_lineNumbersGutter) {
+        m_lineNumbersGutter->SetFont(m_editor->GetFont());
+        m_lineNumbersGutter->Show(settings.showLineNumbers);
+    }
+    ResizeControls();
+}
+
 void MainWindow::OnViewZoomIn() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.zoomLevel = (std::min)(500, settings.zoomLevel + 10);
@@ -1058,6 +1117,8 @@ void MainWindow::UpdateMenuState() {
     // View menu state
     CheckMenuItem(hMenu, IDM_VIEW_STATUSBAR,
                   MF_BYCOMMAND | (m_settingsManager->GetSettings().showStatusBar ? MF_CHECKED : MF_UNCHECKED));
+    CheckMenuItem(hMenu, IDM_VIEW_LINENUMBERS,
+                  MF_BYCOMMAND | (m_settingsManager->GetSettings().showLineNumbers ? MF_CHECKED : MF_UNCHECKED));
     
     // Encoding checkmarks
     TextEncoding enc = m_editor->GetEncoding();
@@ -1210,6 +1271,9 @@ bool MainWindow::SaveFile(const std::wstring& filePath) {
     
     m_editor->SetModified(false);
     
+    // Delete auto-save backup on successful save
+    DeleteAutoSaveBackup();
+    
     // Add to recent files
     m_settingsManager->AddRecentFile(filePath);
     UpdateRecentFilesMenu();
@@ -1273,6 +1337,9 @@ void MainWindow::ResizeControls() {
     GetClientRect(m_hwnd, &rc);
     
     int statusHeight = 0;
+    int findBarHeight = 0;
+    int gutterWidth = 0;
+    int topOffset = 0;  // No gap below menu
     
     // Position status bar
     if (m_hwndStatus && IsWindowVisible(m_hwndStatus)) {
@@ -1283,9 +1350,30 @@ void MainWindow::ResizeControls() {
         statusHeight = statusRect.bottom - statusRect.top;
     }
     
-    // Position editor
+    // Position find bar at top
+    if (m_findBar && m_findBar->IsVisible()) {
+        findBarHeight = m_findBar->GetHeight();
+        m_findBar->Resize(0, topOffset, rc.right);
+    }
+    
+    // Calculate content area top position
+    int contentTop = topOffset + findBarHeight;
+    int contentHeight = rc.bottom - statusHeight - contentTop;
+    
+    // Position line numbers gutter
+    if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+        gutterWidth = m_lineNumbersGutter->GetWidth();
+        m_lineNumbersGutter->Resize(0, contentTop, contentHeight);
+    }
+    
+    // Position editor next to gutter
     if (m_editor) {
-        m_editor->Resize(0, 0, rc.right, rc.bottom - statusHeight);
+        m_editor->Resize(gutterWidth, contentTop, rc.right - gutterWidth, contentHeight);
+    }
+    
+    // Update gutter display after editor resize
+    if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+        m_lineNumbersGutter->Update();
     }
 }
 
@@ -1525,6 +1613,62 @@ void MainWindow::OnNotesDeleteCurrent() {
         if (m_noteListWindow && m_noteListWindow->IsVisible()) {
             m_noteListWindow->RefreshList();
         }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Auto-save file backup (.autosave file)
+//------------------------------------------------------------------------------
+void MainWindow::AutoSaveFileBackup() {
+    // Only auto-save in file mode with a real file
+    if (m_isNoteMode || m_isNewFile || m_currentFile.empty()) {
+        return;
+    }
+    
+    // Check if auto-save is enabled and file is modified
+    if (!m_settingsManager->GetSettings().fileAutoSave || !m_editor->IsModified()) {
+        return;
+    }
+    
+    // Create auto-save path
+    std::wstring autoSavePath = m_currentFile + L".autosave";
+    
+    // Write the backup file
+    std::wstring text = m_editor->GetText();
+    FileWriteResult result = FileIO::WriteFile(
+        autoSavePath,
+        text,
+        m_editor->GetEncoding(),
+        m_editor->GetLineEnding()
+    );
+    
+    // Silent failure - don't bother user with auto-save errors
+    (void)result;
+}
+
+//------------------------------------------------------------------------------
+// Delete auto-save backup file
+//------------------------------------------------------------------------------
+void MainWindow::DeleteAutoSaveBackup() {
+    if (m_currentFile.empty()) {
+        return;
+    }
+    
+    std::wstring autoSavePath = m_currentFile + L".autosave";
+    
+    // Delete the backup file if it exists
+    if (GetFileAttributesW(autoSavePath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        DeleteFileW(autoSavePath.c_str());
+    }
+}
+
+//------------------------------------------------------------------------------
+// Editor scroll callback for line numbers sync
+//------------------------------------------------------------------------------
+void MainWindow::OnEditorScroll(void* userData) {
+    MainWindow* self = static_cast<MainWindow*>(userData);
+    if (self && self->m_lineNumbersGutter && self->m_lineNumbersGutter->IsVisible()) {
+        self->m_lineNumbersGutter->OnEditorScroll();
     }
 }
 

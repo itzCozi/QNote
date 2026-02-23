@@ -66,12 +66,11 @@ if errorlevel 1 (
     exit /b 1
 )
 
-:: Create build directory
+:: Clean old build folder and root exe
 set "BUILD_DIR=build"
-if "%CLEAN%"=="1" (
-    echo Cleaning build directory...
-    if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
-)
+echo Cleaning old build...
+if exist "%BUILD_DIR%" rmdir /s /q "%BUILD_DIR%"
+if exist "QNote.exe" del /q "QNote.exe"
 
 if not exist "%BUILD_DIR%" mkdir "%BUILD_DIR%"
 cd "%BUILD_DIR%"
@@ -97,15 +96,19 @@ if errorlevel 1 (
 
 cd ..
 
+:: Copy exe to root folder
+echo Copying QNote.exe to root folder...
+copy /y "build\QNote.exe" "QNote.exe" >nul
+
 echo.
 echo ============================================================
 echo  Build completed successfully!
-echo  Output: build\QNote.exe
+echo  Output: QNote.exe
 echo ============================================================
 echo.
 
 :: Show file size
-for %%A in ("build\QNote.exe") do (
+for %%A in ("QNote.exe") do (
     set "SIZE=%%~zA"
     set /a "SIZE_KB=SIZE/1024"
     echo Executable size: !SIZE_KB! KB

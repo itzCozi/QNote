@@ -24,6 +24,8 @@
 #include "NoteStore.h"
 #include "CaptureWindow.h"
 #include "NoteListWindow.h"
+#include "FindBar.h"
+#include "LineNumbersGutter.h"
 
 namespace QNote {
 
@@ -98,6 +100,7 @@ private:
     
     // View operations
     void OnViewStatusBar();
+    void OnViewLineNumbers();
     void OnViewZoomIn();
     void OnViewZoomOut();
     void OnViewZoomReset();
@@ -136,6 +139,13 @@ private:
     void LoadNoteIntoEditor(const Note& note);
     void OpenNoteFromId(const std::wstring& noteId);
     
+    // File auto-save operations
+    void AutoSaveFileBackup();
+    void DeleteAutoSaveBackup();
+    
+    // Line numbers gutter callback
+    static void OnEditorScroll(void* userData);
+    
     // Create child controls
     void CreateStatusBar();
     void ResizeControls();
@@ -150,6 +160,8 @@ private:
     std::unique_ptr<SettingsManager> m_settingsManager;
     std::unique_ptr<Editor> m_editor;
     std::unique_ptr<DialogManager> m_dialogManager;
+    std::unique_ptr<FindBar> m_findBar;
+    std::unique_ptr<LineNumbersGutter> m_lineNumbersGutter;
     
     // Note store and windows
     std::unique_ptr<NoteStore> m_noteStore;
@@ -174,6 +186,9 @@ private:
     
     // Auto-save timer interval (ms)
     static constexpr UINT AUTOSAVE_INTERVAL = 3000;
+    
+    // File auto-save timer interval (ms) - every 30 seconds
+    static constexpr UINT FILEAUTOSAVE_INTERVAL = 30000;
     
     // Window class name
     static constexpr wchar_t WINDOW_CLASS[] = L"QNoteMainWindow";

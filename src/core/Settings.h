@@ -60,6 +60,8 @@ struct AppSettings {
     int tabSize = 4;
     int zoomLevel = 100;  // Percentage (25-500)
     bool showStatusBar = true;
+    bool showLineNumbers = false;  // Line numbers gutter
+    bool fileAutoSave = true;      // Auto-save backup files (.autosave)
     bool rightToLeft = false;  // Right-to-left reading order
     
     // Default encoding for new files

@@ -1,6 +1,6 @@
 //==============================================================================
 // QNote - A Lightweight Notepad Clone
-// Editor.h - Edit control wrapper and text operations
+// Editor.h - RichEdit control wrapper and text operations
 //==============================================================================
 
 #pragma once
@@ -12,6 +12,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <Richedit.h>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -19,26 +20,6 @@
 #include "Settings.h"
 
 namespace QNote {
-
-//------------------------------------------------------------------------------
-// Undo/Redo action types
-//------------------------------------------------------------------------------
-enum class UndoActionType {
-    Insert,
-    Delete,
-    Replace
-};
-
-//------------------------------------------------------------------------------
-// Undo/Redo action structure
-//------------------------------------------------------------------------------
-struct UndoAction {
-    UndoActionType type;
-    DWORD startPos;
-    DWORD endPos;
-    std::wstring oldText;
-    std::wstring newText;
-};
 
 //------------------------------------------------------------------------------
 // RAII wrapper for GDI fonts
@@ -85,7 +66,7 @@ private:
 };
 
 //------------------------------------------------------------------------------
-// Editor control wrapper class
+// Editor control wrapper class (uses RichEdit for multi-level undo/redo)
 //------------------------------------------------------------------------------
 
 class Editor {
@@ -96,6 +77,10 @@ public:
     // Prevent copying
     Editor(const Editor&) = delete;
     Editor& operator=(const Editor&) = delete;
+    
+    // Initialize RichEdit library (call once at app startup)
+    static bool InitializeRichEdit();
+    static void UninitializeRichEdit();
     
     // Initialize the edit control
     [[nodiscard]] bool Create(HWND parent, HINSTANCE hInstance, const AppSettings& settings);
@@ -184,6 +169,16 @@ public:
     // Get character count
     [[nodiscard]] int GetTextLength() const noexcept;
     
+    // Get font for line numbers gutter
+    [[nodiscard]] HFONT GetFont() const noexcept { return m_font.get(); }
+    
+    // Get first visible line (for line numbers sync)
+    [[nodiscard]] int GetFirstVisibleLine() const noexcept;
+    
+    // Scroll notification callback
+    using ScrollCallback = void(*)(void* userData);
+    void SetScrollCallback(ScrollCallback callback, void* userData) noexcept;
+    
 private:
     // Recreate edit control (needed for word wrap toggle)
     void RecreateControl();
@@ -216,10 +211,15 @@ private:
     
     bool m_rtl = false;
     
-    // Undo/redo stacks (beyond what Windows provides)
-    std::vector<UndoAction> m_undoStack;
-    std::vector<UndoAction> m_redoStack;
-    static constexpr size_t MAX_UNDO_LEVELS = 100;
+    // Scroll notification callback
+    ScrollCallback m_scrollCallback = nullptr;
+    void* m_scrollCallbackData = nullptr;
+    
+    // Undo limit
+    static constexpr int UNDO_LIMIT = 100;
+    
+    // RichEdit library handle
+    static HMODULE s_hRichEditLib;
     
     // Current search state
     std::wstring m_lastSearchText;
