@@ -120,6 +120,22 @@
 
 // Tools menu
 #define IDM_TOOLS_EDITSHORTCUTS         10002
+#define IDM_TOOLS_COPYFILEPATH          10003
+#define IDM_TOOLS_AUTOSAVEOPTIONS       10004
+#define IDM_TOOLS_URLENCODE             10005
+#define IDM_TOOLS_URLDECODE             10006
+#define IDM_TOOLS_BASE64ENCODE          10007
+#define IDM_TOOLS_BASE64DECODE          10008
+#define IDM_TOOLS_INSERTLOREM           10009
+#define IDM_TOOLS_SPLITLINES            10010
+#define IDM_TOOLS_TABSTOSPACES          10011
+#define IDM_TOOLS_SPACESTOTABS          10012
+#define IDM_TOOLS_WORDCOUNT             10013
+#define IDM_TOOLS_REMOVEBLANKLINES      10014
+#define IDM_TOOLS_JOINLINES             10015
+#define IDM_TOOLS_FORMATJSON            10016
+#define IDM_TOOLS_OPENTERMINAL          10017
+#define IDM_TOOLS_MINIFYJSON            10018
 
 // Notes menu (additional)
 #define IDM_NOTES_EXPORT                7010
@@ -154,6 +170,15 @@
 
 // Tab size dialog controls
 #define IDC_TABSIZE_EDIT                1012
+
+// Auto-save options dialog controls
+#define IDD_AUTOSAVE                    205
+#define IDC_AUTOSAVE_ENABLE             1020
+#define IDC_AUTOSAVE_INTERVAL           1021
+
+// Split lines dialog controls
+#define IDD_SPLITLINES                  206
+#define IDC_SPLITLINES_WIDTH            1022
 
 // Status bar parts
 #define SB_PART_POSITION                0

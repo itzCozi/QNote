@@ -145,6 +145,26 @@ private:
     
     // Tools operations
     void OnToolsEditShortcuts();
+    void OnToolsCopyFilePath();
+    void OnToolsAutoSaveOptions();
+    void OnToolsUrlEncode();
+    void OnToolsUrlDecode();
+    void OnToolsBase64Encode();
+    void OnToolsBase64Decode();
+    void OnToolsInsertLorem();
+    void OnToolsSplitLines();
+    void OnToolsTabsToSpaces();
+    void OnToolsSpacesToTabs();
+    void OnToolsWordCount();
+    void OnToolsRemoveBlankLines();
+    void OnToolsJoinLines();
+    void OnToolsFormatJson();
+    void OnToolsMinifyJson();
+    void OnToolsOpenTerminal();
+    
+    // Tools dialog procs
+    static INT_PTR CALLBACK AutoSaveDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
+    static INT_PTR CALLBACK SplitLinesDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
     
     // Notes operations
     void OnNotesNew();

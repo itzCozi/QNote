@@ -15,11 +15,13 @@
 #include <algorithm>
 #include <cctype>
 #include <set>
+#include <wincrypt.h>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
+#pragma comment(lib, "Crypt32.lib")
 
 // DWM dark title bar (Windows 10 1809+) - fallback for older SDKs
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
@@ -671,6 +673,22 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         
         // Tools menu
         case IDM_TOOLS_EDITSHORTCUTS:    OnToolsEditShortcuts(); break;
+        case IDM_TOOLS_COPYFILEPATH:     OnToolsCopyFilePath(); break;
+        case IDM_TOOLS_AUTOSAVEOPTIONS:  OnToolsAutoSaveOptions(); break;
+        case IDM_TOOLS_URLENCODE:        OnToolsUrlEncode(); break;
+        case IDM_TOOLS_URLDECODE:        OnToolsUrlDecode(); break;
+        case IDM_TOOLS_BASE64ENCODE:     OnToolsBase64Encode(); break;
+        case IDM_TOOLS_BASE64DECODE:     OnToolsBase64Decode(); break;
+        case IDM_TOOLS_INSERTLOREM:      OnToolsInsertLorem(); break;
+        case IDM_TOOLS_SPLITLINES:       OnToolsSplitLines(); break;
+        case IDM_TOOLS_TABSTOSPACES:     OnToolsTabsToSpaces(); break;
+        case IDM_TOOLS_SPACESTOTABS:     OnToolsSpacesToTabs(); break;
+        case IDM_TOOLS_WORDCOUNT:        OnToolsWordCount(); break;
+        case IDM_TOOLS_REMOVEBLANKLINES: OnToolsRemoveBlankLines(); break;
+        case IDM_TOOLS_JOINLINES:        OnToolsJoinLines(); break;
+        case IDM_TOOLS_FORMATJSON:       OnToolsFormatJson(); break;
+        case IDM_TOOLS_MINIFYJSON:       OnToolsMinifyJson(); break;
+        case IDM_TOOLS_OPENTERMINAL:     OnToolsOpenTerminal(); break;
         
         // Notes menu (additional)
         case IDM_NOTES_EXPORT:           OnNotesExport(); break;
@@ -731,6 +749,10 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
             }
         }
         UpdateTitle();
+        UpdateStatusBar();
+        if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+            m_lineNumbersGutter->Update();
+        }
     }
 }
 
@@ -1403,6 +1425,718 @@ void MainWindow::OnToolsEditShortcuts() {
 }
 
 //------------------------------------------------------------------------------
+// Tools -> Copy File Path to Clipboard
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsCopyFilePath() {
+    if (m_currentFile.empty() || m_isNewFile) return;
+    
+    if (!OpenClipboard(m_hwnd)) return;
+    EmptyClipboard();
+    
+    size_t len = (m_currentFile.size() + 1) * sizeof(wchar_t);
+    HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, len);
+    if (hMem) {
+        wchar_t* pMem = static_cast<wchar_t*>(GlobalLock(hMem));
+        if (pMem) {
+            wcscpy_s(pMem, m_currentFile.size() + 1, m_currentFile.c_str());
+            GlobalUnlock(hMem);
+            SetClipboardData(CF_UNICODETEXT, hMem);
+        }
+    }
+    CloseClipboard();
+    
+    // Brief status bar notification
+    SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_COUNTS,
+                 reinterpret_cast<LPARAM>(L"Path copied to clipboard"));
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Auto-Save Options dialog
+//------------------------------------------------------------------------------
+struct AutoSaveDialogData {
+    bool enabled;
+    int intervalSeconds;
+};
+
+INT_PTR CALLBACK MainWindow::AutoSaveDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            SetWindowLongPtrW(hDlg, DWLP_USER, lParam);
+            auto* data = reinterpret_cast<AutoSaveDialogData*>(lParam);
+            CheckDlgButton(hDlg, IDC_AUTOSAVE_ENABLE, data->enabled ? BST_CHECKED : BST_UNCHECKED);
+            SetDlgItemInt(hDlg, IDC_AUTOSAVE_INTERVAL, data->intervalSeconds, FALSE);
+            // Enable/disable interval field based on checkbox
+            EnableWindow(GetDlgItem(hDlg, IDC_AUTOSAVE_INTERVAL), data->enabled);
+            return TRUE;
+        }
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case IDC_AUTOSAVE_ENABLE: {
+                    bool checked = IsDlgButtonChecked(hDlg, IDC_AUTOSAVE_ENABLE) == BST_CHECKED;
+                    EnableWindow(GetDlgItem(hDlg, IDC_AUTOSAVE_INTERVAL), checked);
+                    return TRUE;
+                }
+                case IDOK: {
+                    auto* data = reinterpret_cast<AutoSaveDialogData*>(GetWindowLongPtrW(hDlg, DWLP_USER));
+                    data->enabled = IsDlgButtonChecked(hDlg, IDC_AUTOSAVE_ENABLE) == BST_CHECKED;
+                    BOOL success = FALSE;
+                    int val = GetDlgItemInt(hDlg, IDC_AUTOSAVE_INTERVAL, &success, FALSE);
+                    if (success && val >= 5 && val <= 3600) {
+                        data->intervalSeconds = val;
+                    } else {
+                        MessageBoxW(hDlg, L"Please enter an interval between 5 and 3600 seconds.",
+                                    L"QNote", MB_OK | MB_ICONWARNING);
+                        return TRUE;
+                    }
+                    EndDialog(hDlg, IDOK);
+                    return TRUE;
+                }
+                case IDCANCEL:
+                    EndDialog(hDlg, IDCANCEL);
+                    return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
+
+void MainWindow::OnToolsAutoSaveOptions() {
+    AppSettings& settings = m_settingsManager->GetSettings();
+    AutoSaveDialogData data;
+    data.enabled = settings.fileAutoSave;
+    data.intervalSeconds = static_cast<int>(FILEAUTOSAVE_INTERVAL / 1000);
+    
+    INT_PTR result = DialogBoxParamW(m_hInstance, MAKEINTRESOURCEW(IDD_AUTOSAVE),
+                                      m_hwnd, AutoSaveDlgProc, reinterpret_cast<LPARAM>(&data));
+    if (result == IDOK) {
+        settings.fileAutoSave = data.enabled;
+        (void)m_settingsManager->Save();
+        
+        // Restart or stop the file auto-save timer
+        KillTimer(m_hwnd, TIMER_FILEAUTOSAVE);
+        if (data.enabled) {
+            SetTimer(m_hwnd, TIMER_FILEAUTOSAVE, static_cast<UINT>(data.intervalSeconds * 1000), nullptr);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> URL Encode Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsUrlEncode() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+    
+    // Convert to UTF-8 for encoding
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, sel.c_str(), static_cast<int>(sel.size()), nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return;
+    std::string utf8(utf8Len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, sel.c_str(), static_cast<int>(sel.size()), &utf8[0], utf8Len, nullptr, nullptr);
+    
+    std::string encoded;
+    encoded.reserve(utf8.size() * 3);
+    for (unsigned char c : utf8) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            encoded += static_cast<char>(c);
+        } else {
+            char hex[4];
+            sprintf_s(hex, "%%%02X", c);
+            encoded += hex;
+        }
+    }
+    
+    // Convert back to wide string
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, encoded.c_str(), static_cast<int>(encoded.size()), nullptr, 0);
+    if (wideLen <= 0) return;
+    std::wstring result(wideLen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, encoded.c_str(), static_cast<int>(encoded.size()), &result[0], wideLen);
+    
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> URL Decode Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsUrlDecode() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+    
+    // Convert to UTF-8 for decoding
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, sel.c_str(), static_cast<int>(sel.size()), nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return;
+    std::string utf8(utf8Len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, sel.c_str(), static_cast<int>(sel.size()), &utf8[0], utf8Len, nullptr, nullptr);
+    
+    std::string decoded;
+    decoded.reserve(utf8.size());
+    for (size_t i = 0; i < utf8.size(); ++i) {
+        if (utf8[i] == '%' && i + 2 < utf8.size()) {
+            char hex[3] = { utf8[i + 1], utf8[i + 2], '\0' };
+            char* end = nullptr;
+            long val = strtol(hex, &end, 16);
+            if (end == hex + 2) {
+                decoded += static_cast<char>(val);
+                i += 2;
+                continue;
+            }
+        }
+        if (utf8[i] == '+') {
+            decoded += ' ';
+        } else {
+            decoded += utf8[i];
+        }
+    }
+    
+    // Convert back to wide string
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, decoded.c_str(), static_cast<int>(decoded.size()), nullptr, 0);
+    if (wideLen <= 0) return;
+    std::wstring result(wideLen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, decoded.c_str(), static_cast<int>(decoded.size()), &result[0], wideLen);
+    
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Base64 Encode Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsBase64Encode() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+    
+    // Convert to UTF-8
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, sel.c_str(), static_cast<int>(sel.size()), nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return;
+    std::string utf8(utf8Len, '\0');
+    WideCharToMultiByte(CP_UTF8, 0, sel.c_str(), static_cast<int>(sel.size()), &utf8[0], utf8Len, nullptr, nullptr);
+    
+    // Use CryptBinaryToStringA for Base64
+    DWORD b64Len = 0;
+    if (!CryptBinaryToStringA(reinterpret_cast<const BYTE*>(utf8.data()), static_cast<DWORD>(utf8.size()),
+                               CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, nullptr, &b64Len)) {
+        return;
+    }
+    std::string b64(b64Len, '\0');
+    if (!CryptBinaryToStringA(reinterpret_cast<const BYTE*>(utf8.data()), static_cast<DWORD>(utf8.size()),
+                               CRYPT_STRING_BASE64 | CRYPT_STRING_NOCRLF, &b64[0], &b64Len)) {
+        return;
+    }
+    b64.resize(b64Len);
+    
+    // Convert to wide string
+    std::wstring result(b64.begin(), b64.end());
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Base64 Decode Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsBase64Decode() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+    
+    // Convert selection to narrow string (Base64 is ASCII)
+    std::string b64;
+    b64.reserve(sel.size());
+    for (wchar_t wc : sel) {
+        b64 += static_cast<char>(wc & 0x7F);
+    }
+    
+    // Decode
+    DWORD binLen = 0;
+    if (!CryptStringToBinaryA(b64.c_str(), static_cast<DWORD>(b64.size()),
+                               CRYPT_STRING_BASE64, nullptr, &binLen, nullptr, nullptr)) {
+        MessageBoxW(m_hwnd, L"Invalid Base64 data.", L"QNote", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    std::vector<BYTE> bin(binLen);
+    if (!CryptStringToBinaryA(b64.c_str(), static_cast<DWORD>(b64.size()),
+                               CRYPT_STRING_BASE64, bin.data(), &binLen, nullptr, nullptr)) {
+        MessageBoxW(m_hwnd, L"Failed to decode Base64 data.", L"QNote", MB_OK | MB_ICONWARNING);
+        return;
+    }
+    
+    // Convert from UTF-8 to wide string
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(bin.data()),
+                                       static_cast<int>(binLen), nullptr, 0);
+    if (wideLen <= 0) return;
+    std::wstring result(wideLen, L'\0');
+    MultiByteToWideChar(CP_UTF8, 0, reinterpret_cast<const char*>(bin.data()),
+                         static_cast<int>(binLen), &result[0], wideLen);
+    
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Insert Lorem Ipsum
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsInsertLorem() {
+    m_editor->ReplaceSelection(L"Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Split Lines at Column
+//------------------------------------------------------------------------------
+INT_PTR CALLBACK MainWindow::SplitLinesDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_INITDIALOG:
+            SetWindowLongPtrW(hDlg, DWLP_USER, lParam);
+            SetDlgItemInt(hDlg, IDC_SPLITLINES_WIDTH, 80, FALSE);
+            return TRUE;
+        case WM_COMMAND:
+            switch (LOWORD(wParam)) {
+                case IDOK: {
+                    auto* pWidth = reinterpret_cast<int*>(GetWindowLongPtrW(hDlg, DWLP_USER));
+                    BOOL success = FALSE;
+                    int val = GetDlgItemInt(hDlg, IDC_SPLITLINES_WIDTH, &success, FALSE);
+                    if (success && val >= 1 && val <= 999) {
+                        *pWidth = val;
+                        EndDialog(hDlg, IDOK);
+                    } else {
+                        MessageBoxW(hDlg, L"Please enter a width between 1 and 999.",
+                                    L"QNote", MB_OK | MB_ICONWARNING);
+                    }
+                    return TRUE;
+                }
+                case IDCANCEL:
+                    EndDialog(hDlg, IDCANCEL);
+                    return TRUE;
+            }
+            break;
+    }
+    return FALSE;
+}
+
+void MainWindow::OnToolsSplitLines() {
+    int maxWidth = 80;
+    INT_PTR result = DialogBoxParamW(m_hInstance, MAKEINTRESOURCEW(IDD_SPLITLINES),
+                                      m_hwnd, SplitLinesDlgProc, reinterpret_cast<LPARAM>(&maxWidth));
+    if (result != IDOK) return;
+    
+    // Operate on selection if present, otherwise on whole document
+    bool hasSelection = false;
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    hasSelection = (selStart != selEnd);
+    
+    std::wstring text = hasSelection ? m_editor->GetSelectedText() : m_editor->GetText();
+    if (text.empty()) return;
+    
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        
+        // Split this line if it exceeds maxWidth
+        while (static_cast<int>(line.size()) > maxWidth) {
+            // Try to break at a space
+            int breakPos = maxWidth;
+            for (int i = maxWidth - 1; i > 0; --i) {
+                if (line[i] == L' ' || line[i] == L'\t') {
+                    breakPos = i + 1;
+                    break;
+                }
+            }
+            lines.push_back(line.substr(0, breakPos));
+            line = line.substr(breakPos);
+            // Trim leading spaces from the continuation
+            size_t firstNonSpace = line.find_first_not_of(L' ');
+            if (firstNonSpace != std::wstring::npos && firstNonSpace > 0) {
+                line = line.substr(firstNonSpace);
+            }
+        }
+        lines.push_back(line);
+    }
+    
+    std::wstring resultText;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        resultText += lines[i];
+        if (i < lines.size() - 1) resultText += L"\r\n";
+    }
+    
+    if (hasSelection) {
+        m_editor->ReplaceSelection(resultText);
+    } else {
+        m_editor->SelectAll();
+        m_editor->ReplaceSelection(resultText);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Tabs to Spaces
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsTabsToSpaces() {
+    std::wstring text = m_editor->GetText();
+    if (text.empty()) return;
+    
+    int tabSize = m_settingsManager->GetSettings().tabSize;
+    std::wstring spaces(tabSize, L' ');
+    
+    std::wstring result;
+    result.reserve(text.size());
+    for (wchar_t ch : text) {
+        if (ch == L'\t') {
+            result += spaces;
+        } else {
+            result += ch;
+        }
+    }
+    
+    if (result != text) {
+        m_editor->SelectAll();
+        m_editor->ReplaceSelection(result);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Spaces to Tabs
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsSpacesToTabs() {
+    std::wstring text = m_editor->GetText();
+    if (text.empty()) return;
+    
+    int tabSize = m_settingsManager->GetSettings().tabSize;
+    std::wstring spaces(tabSize, L' ');
+    
+    // Replace leading spaces with tabs on each line
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        
+        std::wstring newLine;
+        size_t i = 0;
+        // Convert leading spaces to tabs
+        while (i + tabSize <= line.size()) {
+            bool allSpaces = true;
+            for (int j = 0; j < tabSize; ++j) {
+                if (line[i + j] != L' ') { allSpaces = false; break; }
+            }
+            if (allSpaces) {
+                newLine += L'\t';
+                i += tabSize;
+            } else {
+                break;
+            }
+        }
+        newLine += line.substr(i);
+        lines.push_back(newLine);
+    }
+    
+    std::wstring result;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        result += lines[i];
+        if (i < lines.size() - 1) result += L"\r\n";
+    }
+    
+    if (result != text) {
+        m_editor->SelectAll();
+        m_editor->ReplaceSelection(result);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Word Count
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsWordCount() {
+    std::wstring text = m_editor->GetText();
+    
+    int charCount = static_cast<int>(text.size());
+    int charNoSpaces = 0;
+    int wordCount = 0;
+    int lineCount = 1;
+    int paragraphCount = 0;
+    bool inWord = false;
+    bool lastWasNewline = false;
+    
+    for (size_t i = 0; i < text.size(); ++i) {
+        wchar_t ch = text[i];
+        
+        if (ch != L' ' && ch != L'\t' && ch != L'\r' && ch != L'\n') {
+            charNoSpaces++;
+        }
+        
+        if (ch == L'\n') {
+            lineCount++;
+            if (lastWasNewline) {
+                paragraphCount++;
+            }
+            lastWasNewline = true;
+        } else if (ch != L'\r') {
+            lastWasNewline = false;
+        }
+        
+        if (ch == L' ' || ch == L'\t' || ch == L'\r' || ch == L'\n') {
+            if (inWord) {
+                wordCount++;
+                inWord = false;
+            }
+        } else {
+            inWord = true;
+        }
+    }
+    if (inWord) wordCount++;
+    if (charCount > 0) paragraphCount++; // count last paragraph
+    
+    // Also count selection stats
+    std::wstring sel = m_editor->GetSelectedText();
+    std::wstring selInfo;
+    if (!sel.empty()) {
+        int selChars = static_cast<int>(sel.size());
+        int selWords = 0;
+        bool selInWord = false;
+        for (wchar_t ch : sel) {
+            if (ch == L' ' || ch == L'\t' || ch == L'\r' || ch == L'\n') {
+                if (selInWord) { selWords++; selInWord = false; }
+            } else {
+                selInWord = true;
+            }
+        }
+        if (selInWord) selWords++;
+        
+        wchar_t selBuf[128];
+        swprintf_s(selBuf, L"\n\nSelection:\n  Characters: %d\n  Words: %d", selChars, selWords);
+        selInfo = selBuf;
+    }
+    
+    wchar_t msg[512];
+    swprintf_s(msg, 
+        L"Document Statistics:\n"
+        L"  Characters (with spaces): %d\n"
+        L"  Characters (no spaces): %d\n"
+        L"  Words: %d\n"
+        L"  Lines: %d\n"
+        L"  Paragraphs: %d%s",
+        charCount, charNoSpaces, wordCount, lineCount, paragraphCount, selInfo.c_str());
+    
+    MessageBoxW(m_hwnd, msg, L"Word Count - QNote", MB_OK | MB_ICONINFORMATION);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Remove Blank Lines
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsRemoveBlankLines() {
+    std::wstring text = m_editor->GetText();
+    if (text.empty()) return;
+    
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        // Keep the line only if it's not blank
+        if (line.find_first_not_of(L" \t") != std::wstring::npos) {
+            lines.push_back(line);
+        }
+    }
+    
+    std::wstring result;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        result += lines[i];
+        if (i < lines.size() - 1) result += L"\r\n";
+    }
+    
+    m_editor->SelectAll();
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Join Lines
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsJoinLines() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+    
+    std::wstring result;
+    result.reserve(sel.size());
+    bool lastWasNewline = false;
+    for (size_t i = 0; i < sel.size(); ++i) {
+        wchar_t ch = sel[i];
+        if (ch == L'\r') continue; // skip CR
+        if (ch == L'\n') {
+            if (!lastWasNewline) {
+                result += L' '; // replace first newline with space
+            }
+            lastWasNewline = true;
+        } else {
+            lastWasNewline = false;
+            result += ch;
+        }
+    }
+    
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Format JSON (pretty-print)
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsFormatJson() {
+    // Operate on selection or whole document
+    bool hasSelection = false;
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    hasSelection = (selStart != selEnd);
+    
+    std::wstring text = hasSelection ? m_editor->GetSelectedText() : m_editor->GetText();
+    if (text.empty()) return;
+    
+    // Simple JSON pretty-printer
+    std::wstring result;
+    result.reserve(text.size() * 2);
+    int indent = 0;
+    bool inString = false;
+    bool escaped = false;
+    
+    auto addNewline = [&]() {
+        result += L"\r\n";
+        for (int i = 0; i < indent; ++i) result += L"    ";
+    };
+    
+    for (size_t i = 0; i < text.size(); ++i) {
+        wchar_t ch = text[i];
+        
+        if (escaped) {
+            result += ch;
+            escaped = false;
+            continue;
+        }
+        
+        if (ch == L'\\' && inString) {
+            result += ch;
+            escaped = true;
+            continue;
+        }
+        
+        if (ch == L'"') {
+            inString = !inString;
+            result += ch;
+            continue;
+        }
+        
+        if (inString) {
+            result += ch;
+            continue;
+        }
+        
+        // Skip existing whitespace outside strings
+        if (ch == L' ' || ch == L'\t' || ch == L'\r' || ch == L'\n') {
+            continue;
+        }
+        
+        if (ch == L'{' || ch == L'[') {
+            result += ch;
+            // Check if empty object/array
+            size_t next = i + 1;
+            while (next < text.size() && (text[next] == L' ' || text[next] == L'\t' || 
+                   text[next] == L'\r' || text[next] == L'\n')) next++;
+            if (next < text.size() && ((ch == L'{' && text[next] == L'}') || 
+                                        (ch == L'[' && text[next] == L']'))) {
+                result += text[next];
+                i = next;
+            } else {
+                indent++;
+                addNewline();
+            }
+        } else if (ch == L'}' || ch == L']') {
+            indent--;
+            if (indent < 0) indent = 0;
+            addNewline();
+            result += ch;
+        } else if (ch == L',') {
+            result += ch;
+            addNewline();
+        } else if (ch == L':') {
+            result += L": ";
+        } else {
+            result += ch;
+        }
+    }
+    
+    if (hasSelection) {
+        m_editor->ReplaceSelection(result);
+    } else {
+        m_editor->SelectAll();
+        m_editor->ReplaceSelection(result);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Minify JSON
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsMinifyJson() {
+    bool hasSelection = false;
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    hasSelection = (selStart != selEnd);
+    
+    std::wstring text = hasSelection ? m_editor->GetSelectedText() : m_editor->GetText();
+    if (text.empty()) return;
+    
+    std::wstring result;
+    result.reserve(text.size());
+    bool inString = false;
+    bool escaped = false;
+    
+    for (wchar_t ch : text) {
+        if (escaped) {
+            result += ch;
+            escaped = false;
+            continue;
+        }
+        if (ch == L'\\' && inString) {
+            result += ch;
+            escaped = true;
+            continue;
+        }
+        if (ch == L'"') {
+            inString = !inString;
+            result += ch;
+            continue;
+        }
+        if (inString) {
+            result += ch;
+            continue;
+        }
+        // Skip whitespace outside strings
+        if (ch == L' ' || ch == L'\t' || ch == L'\r' || ch == L'\n') {
+            continue;
+        }
+        result += ch;
+    }
+    
+    if (hasSelection) {
+        m_editor->ReplaceSelection(result);
+    } else {
+        m_editor->SelectAll();
+        m_editor->ReplaceSelection(result);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Open Terminal Here
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsOpenTerminal() {
+    std::wstring dir;
+    if (!m_currentFile.empty() && !m_isNewFile) {
+        size_t pos = m_currentFile.find_last_of(L"\\/");
+        if (pos != std::wstring::npos) {
+            dir = m_currentFile.substr(0, pos);
+        }
+    }
+    
+    if (dir.empty()) {
+        wchar_t cwd[MAX_PATH] = {};
+        GetCurrentDirectoryW(MAX_PATH, cwd);
+        dir = cwd;
+    }
+    
+    // Open PowerShell in the directory
+    ShellExecuteW(nullptr, L"open", L"powershell.exe", nullptr, dir.c_str(), SW_SHOWNORMAL);
+}
+
+//------------------------------------------------------------------------------
 // Notes -> Export Notes
 //------------------------------------------------------------------------------
 void MainWindow::OnNotesExport() {
@@ -1942,6 +2676,15 @@ void MainWindow::UpdateMenuState() {
                   MF_BYCOMMAND | (enc == TextEncoding::UTF16_BE ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(hMenu, IDM_ENCODING_ANSI, 
                   MF_BYCOMMAND | (enc == TextEncoding::ANSI ? MF_CHECKED : MF_UNCHECKED));
+    
+    // Tools menu state
+    EnableMenuItem(hMenu, IDM_TOOLS_COPYFILEPATH, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_OPENTERMINAL, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_URLENCODE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_URLDECODE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_BASE64ENCODE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_BASE64DECODE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_JOINLINES, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
 }
 
 //------------------------------------------------------------------------------
