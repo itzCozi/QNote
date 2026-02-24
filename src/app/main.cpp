@@ -47,38 +47,75 @@ static bool CheckSingleInstance() {
 }
 
 //------------------------------------------------------------------------------
+// Check if a path ends with notepad.exe (case-insensitive)
+// Used to detect IFEO Debugger redirect
+//------------------------------------------------------------------------------
+static bool IsNotepadExe(const std::wstring& path) {
+    if (path.length() < 11) return false;  // "notepad.exe" is 11 chars
+    
+    std::wstring lower = path;
+    for (auto& c : lower) {
+        c = towlower(c);
+    }
+    
+    // Check if ends with notepad.exe
+    const std::wstring notepad = L"notepad.exe";
+    if (lower.length() >= notepad.length()) {
+        size_t pos = lower.length() - notepad.length();
+        if (lower.substr(pos) == notepad) {
+            // Make sure it's at a path boundary (not "mynotepad.exe")
+            if (pos == 0 || lower[pos - 1] == L'\\' || lower[pos - 1] == L'/') {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+//------------------------------------------------------------------------------
 // Parse command line to get the file to open
+// Handles IFEO redirect where first arg is notepad.exe
 //------------------------------------------------------------------------------
 static std::wstring ParseCommandLine() {
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     
     std::wstring filePath;
+    int fileArgIndex = 1;  // Default: first argument is the file
     
     if (argv && argc > 1) {
-        // Get the first argument as the file path
-        filePath = argv[1];
-        
-        // Handle quoted paths
-        if (!filePath.empty() && filePath.front() == L'"') {
-            filePath = filePath.substr(1);
-        }
-        if (!filePath.empty() && filePath.back() == L'"') {
-            filePath.pop_back();
+        // Check if first argument is notepad.exe (IFEO redirect)
+        std::wstring firstArg = argv[1];
+        if (IsNotepadExe(firstArg)) {
+            // IFEO redirect: skip notepad.exe, file is in argv[2]
+            fileArgIndex = 2;
         }
         
-        // If it's a relative path, make it absolute
-        if (!filePath.empty() && filePath[0] != L'\\' && 
-            (filePath.length() < 2 || filePath[1] != L':')) {
-            wchar_t currentDir[MAX_PATH];
-            if (GetCurrentDirectoryW(MAX_PATH, currentDir)) {
-                std::wstring fullPath = currentDir;
-                fullPath += L"\\";
-                fullPath += filePath;
-                
-                wchar_t absolutePath[MAX_PATH];
-                if (GetFullPathNameW(fullPath.c_str(), MAX_PATH, absolutePath, nullptr)) {
-                    filePath = absolutePath;
+        if (argc > fileArgIndex) {
+            // Get the file path
+            filePath = argv[fileArgIndex];
+            
+            // Handle quoted paths
+            if (!filePath.empty() && filePath.front() == L'"') {
+                filePath = filePath.substr(1);
+            }
+            if (!filePath.empty() && filePath.back() == L'"') {
+                filePath.pop_back();
+            }
+            
+            // If it's a relative path, make it absolute
+            if (!filePath.empty() && filePath[0] != L'\\' && 
+                (filePath.length() < 2 || filePath[1] != L':')) {
+                wchar_t currentDir[MAX_PATH];
+                if (GetCurrentDirectoryW(MAX_PATH, currentDir)) {
+                    std::wstring fullPath = currentDir;
+                    fullPath += L"\\";
+                    fullPath += filePath;
+                    
+                    wchar_t absolutePath[MAX_PATH];
+                    if (GetFullPathNameW(fullPath.c_str(), MAX_PATH, absolutePath, nullptr)) {
+                        filePath = absolutePath;
+                    }
                 }
             }
         }

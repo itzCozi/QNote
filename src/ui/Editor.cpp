@@ -112,6 +112,10 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
     // Set undo limit to 100 levels
     SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, UNDO_LIMIT, 0);
     
+    // Enable EN_CHANGE notifications (required for RichEdit controls)
+    DWORD eventMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, eventMask | ENM_CHANGE | ENM_SCROLL);
+    
     // Create and set font
     m_font.reset(CreateEditorFont());
     if (m_font.get()) {
@@ -998,6 +1002,15 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 }
                 return result;
             }
+
+        case WM_PASTE: {
+            // Paste may insert multiple lines; update line numbers after paste
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (editor->m_scrollCallback) {
+                editor->m_scrollCallback(editor->m_scrollCallbackData);
+            }
+            return result;
+        }
 
         case WM_CHAR: {
             // Auto-indent: when Enter is pressed, copy leading whitespace from current line

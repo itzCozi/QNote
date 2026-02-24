@@ -171,6 +171,8 @@ BEGIN
     END
     POPUP "&Help"
     BEGIN
+        MENUITEM "Check for &Updates...",    IDM_HELP_CHECKUPDATE
+        MENUITEM SEPARATOR
         MENUITEM "&About QNote",             IDM_HELP_ABOUT
     END
 END
@@ -357,14 +359,15 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName",      "Open Source"
-            VALUE "FileDescription",  "QNote"
+            VALUE "CompanyName",      "QNote Project (github.com/itzcozi/qnote)"
+            VALUE "FileDescription",  "QNote - Lightweight Notepad Replacement"
             VALUE "FileVersion",      VER_STRING
             VALUE "InternalName",     "QNote"
             VALUE "LegalCopyright",   "Copyright (c) 2026 - MIT License"
             VALUE "OriginalFilename", "QNote.exe"
             VALUE "ProductName",      "QNote"
             VALUE "ProductVersion",   VER_STRING
+            VALUE "Comments",         "Open source: https://github.com/itzcozi/qnote"
         END
     END
     BLOCK "VarFileInfo"

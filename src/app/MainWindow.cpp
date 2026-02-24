@@ -16,8 +16,10 @@
 #include <cctype>
 #include <set>
 #include <wincrypt.h>
+#include <winhttp.h>
 
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "winhttp.lib")
 #pragma comment(lib, "comdlg32.lib")
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
@@ -638,6 +640,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         
         // Help menu
         case IDM_HELP_ABOUT: OnHelpAbout(); break;
+        case IDM_HELP_CHECKUPDATE: OnHelpCheckUpdate(); break;
         
         // Notes menu
         case IDM_NOTES_NEW:          OnNotesNew(); break;
@@ -2483,6 +2486,178 @@ void MainWindow::OnReopenWithEncoding(TextEncoding encoding) {
 //------------------------------------------------------------------------------
 void MainWindow::OnHelpAbout() {
     m_dialogManager->ShowAboutDialog();
+}
+
+//------------------------------------------------------------------------------
+// Help -> Check for Updates
+// Queries GitHub Releases API and compares version to current
+//------------------------------------------------------------------------------
+void MainWindow::OnHelpCheckUpdate() {
+    // Current version from resource.h
+    const int currentMajor = VER_MAJOR;
+    const int currentMinor = VER_MINOR;
+    const int currentPatch = VER_PATCH;
+    
+    std::wstring latestVersion;
+    std::wstring downloadUrl;
+    bool updateAvailable = false;
+    bool checkFailed = false;
+    
+    // Initialize WinHTTP
+    HINTERNET hSession = WinHttpOpen(
+        L"QNote Update Checker/1.0",
+        WINHTTP_ACCESS_TYPE_DEFAULT_PROXY,
+        WINHTTP_NO_PROXY_NAME,
+        WINHTTP_NO_PROXY_BYPASS,
+        0);
+    
+    if (!hSession) {
+        checkFailed = true;
+    }
+    
+    HINTERNET hConnect = nullptr;
+    HINTERNET hRequest = nullptr;
+    
+    if (!checkFailed) {
+        hConnect = WinHttpConnect(hSession, L"api.github.com", INTERNET_DEFAULT_HTTPS_PORT, 0);
+        if (!hConnect) {
+            checkFailed = true;
+        }
+    }
+    
+    if (!checkFailed) {
+        hRequest = WinHttpOpenRequest(
+            hConnect,
+            L"GET",
+            L"/repos/itzcozi/qnote/releases/latest",
+            nullptr,
+            WINHTTP_NO_REFERER,
+            WINHTTP_DEFAULT_ACCEPT_TYPES,
+            WINHTTP_FLAG_SECURE);
+        if (!hRequest) {
+            checkFailed = true;
+        }
+    }
+    
+    if (!checkFailed) {
+        // Add User-Agent header (required by GitHub API)
+        WinHttpAddRequestHeaders(hRequest, L"User-Agent: QNote", (DWORD)-1, WINHTTP_ADDREQ_FLAG_ADD);
+        
+        if (!WinHttpSendRequest(hRequest, WINHTTP_NO_ADDITIONAL_HEADERS, 0, WINHTTP_NO_REQUEST_DATA, 0, 0, 0)) {
+            checkFailed = true;
+        }
+    }
+    
+    if (!checkFailed) {
+        if (!WinHttpReceiveResponse(hRequest, nullptr)) {
+            checkFailed = true;
+        }
+    }
+    
+    std::string responseBody;
+    if (!checkFailed) {
+        DWORD dwSize = 0;
+        DWORD dwDownloaded = 0;
+        
+        do {
+            dwSize = 0;
+            if (!WinHttpQueryDataAvailable(hRequest, &dwSize)) {
+                break;
+            }
+            
+            if (dwSize == 0) break;
+            
+            std::vector<char> buffer(dwSize + 1, 0);
+            if (!WinHttpReadData(hRequest, buffer.data(), dwSize, &dwDownloaded)) {
+                break;
+            }
+            
+            responseBody.append(buffer.data(), dwDownloaded);
+        } while (dwSize > 0);
+    }
+    
+    // Cleanup
+    if (hRequest) WinHttpCloseHandle(hRequest);
+    if (hConnect) WinHttpCloseHandle(hConnect);
+    if (hSession) WinHttpCloseHandle(hSession);
+    
+    // Parse response (simple JSON parsing for "tag_name" field)
+    if (!checkFailed && !responseBody.empty()) {
+        // Look for "tag_name": "X.Y.Z" or "tag_name": "vX.Y.Z"
+        std::string tagKey = "\"tag_name\"";
+        size_t tagPos = responseBody.find(tagKey);
+        if (tagPos != std::string::npos) {
+            size_t colonPos = responseBody.find(':', tagPos);
+            size_t quoteStart = responseBody.find('"', colonPos + 1);
+            size_t quoteEnd = responseBody.find('"', quoteStart + 1);
+            
+            if (quoteStart != std::string::npos && quoteEnd != std::string::npos) {
+                std::string tag = responseBody.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+                
+                // Remove leading 'v' if present
+                if (!tag.empty() && (tag[0] == 'v' || tag[0] == 'V')) {
+                    tag = tag.substr(1);
+                }
+                
+                // Parse version X.Y.Z
+                int remoteMajor = 0, remoteMinor = 0, remotePatch = 0;
+                if (sscanf_s(tag.c_str(), "%d.%d.%d", &remoteMajor, &remoteMinor, &remotePatch) >= 2) {
+                    latestVersion = std::wstring(tag.begin(), tag.end());
+                    
+                    // Compare versions
+                    if (remoteMajor > currentMajor ||
+                        (remoteMajor == currentMajor && remoteMinor > currentMinor) ||
+                        (remoteMajor == currentMajor && remoteMinor == currentMinor && remotePatch > currentPatch)) {
+                        updateAvailable = true;
+                        downloadUrl = L"https://github.com/itzcozi/qnote/releases/latest";
+                    }
+                }
+            }
+        }
+        
+        // Look for html_url for the release page
+        std::string urlKey = "\"html_url\"";
+        size_t urlPos = responseBody.find(urlKey);
+        if (urlPos != std::string::npos) {
+            size_t colonPos = responseBody.find(':', urlPos);
+            size_t quoteStart = responseBody.find('"', colonPos + 1);
+            size_t quoteEnd = responseBody.find('"', quoteStart + 1);
+            
+            if (quoteStart != std::string::npos && quoteEnd != std::string::npos) {
+                std::string url = responseBody.substr(quoteStart + 1, quoteEnd - quoteStart - 1);
+                downloadUrl = std::wstring(url.begin(), url.end());
+            }
+        }
+    } else if (responseBody.empty()) {
+        checkFailed = true;
+    }
+    
+    // Show result to user
+    if (checkFailed) {
+        MessageBoxW(m_hwnd,
+            L"Unable to check for updates.\n\n"
+            L"Please check your internet connection or visit:\n"
+            L"https://github.com/itzcozi/qnote/releases",
+            L"Update Check Failed",
+            MB_OK | MB_ICONWARNING);
+    } else if (updateAvailable) {
+        std::wstring message = L"A new version of QNote is available!\n\n"
+            L"Current version: " + std::to_wstring(currentMajor) + L"." + 
+            std::to_wstring(currentMinor) + L"." + std::to_wstring(currentPatch) + L"\n"
+            L"Latest version: " + latestVersion + L"\n\n"
+            L"Would you like to open the download page?";
+        
+        int result = MessageBoxW(m_hwnd, message.c_str(), L"Update Available", MB_YESNO | MB_ICONINFORMATION);
+        if (result == IDYES) {
+            ShellExecuteW(nullptr, L"open", downloadUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+        }
+    } else {
+        std::wstring message = L"You are running the latest version of QNote.\n\n"
+            L"Version: " + std::to_wstring(currentMajor) + L"." + 
+            std::to_wstring(currentMinor) + L"." + std::to_wstring(currentPatch);
+        
+        MessageBoxW(m_hwnd, message.c_str(), L"No Updates Available", MB_OK | MB_ICONINFORMATION);
+    }
 }
 
 //------------------------------------------------------------------------------

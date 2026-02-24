@@ -71,6 +71,7 @@
 
 // Help menu
 #define IDM_HELP_ABOUT                  6001
+#define IDM_HELP_CHECKUPDATE            6002
 
 // Notes menu (new features)
 #define IDM_NOTES_NEW                   7001

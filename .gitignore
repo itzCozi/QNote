@@ -5,6 +5,7 @@ x64/
 x86/
 Debug/
 Release/
+dist/
 
 # Visual Studio files
 .vs/

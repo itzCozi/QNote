@@ -125,6 +125,7 @@ private:
     
     // Help operations
     void OnHelpAbout();
+    void OnHelpCheckUpdate();
     
     // File operations (additional)
     void OnFileRevert();

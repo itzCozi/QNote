@@ -6,6 +6,9 @@
 
 setlocal enabledelayedexpansion
 
+:: Navigate to project root (parent of scripts folder)
+cd /d "%~dp0.."
+
 :: Configuration
 set "BUILD_TYPE=Release"
 set "CLEAN=0"
