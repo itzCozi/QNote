@@ -4,6 +4,8 @@
 //==============================================================================
 
 #include "DocumentManager.h"
+#include "Editor.h"
+#include "TabBar.h"
 #include <algorithm>
 
 namespace QNote {

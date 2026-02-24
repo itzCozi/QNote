@@ -6,7 +6,6 @@
 #include "Settings.h"
 #include <ShlObj.h>
 #include <algorithm>
-#include <sstream>
 
 namespace QNote {
 

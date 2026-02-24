@@ -13,10 +13,12 @@
 #endif
 #include <Windows.h>
 #include <string>
-#include "Editor.h"
-#include "Settings.h"
 
 namespace QNote {
+
+// Forward declarations to avoid including full headers
+class Editor;
+struct AppSettings;
 
 //------------------------------------------------------------------------------
 // Find dialog parameters

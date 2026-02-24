@@ -111,6 +111,7 @@ private:
     void OnPaint();
     void DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive, bool isHovered, bool isCloseHovered);
     void DrawNewTabButton(HDC hdc, const RECT& rc, bool isHovered);
+    void DrawScrollArrow(HDC hdc, const RECT& rc, bool isLeft, bool isHovered);
 
     // Hit testing
     int TabHitTest(int x, int y) const;          // Returns tab id or -1
@@ -127,6 +128,11 @@ private:
 
     // Tab rename (inline edit)
     void BeginRename(int tabId);
+
+    // Scroll overflow helpers
+    int CalcTabWidth() const;
+    void ClampScrollOffset();
+    void EnsureTabVisible(int tabId);
 
     // Emit notification
     void Notify(TabNotification notification, int tabId);
@@ -181,6 +187,9 @@ private:
 
     // Scroll state for many tabs
     int m_scrollOffset = 0;
+    int m_scrollArrowWidth = 20;
+    bool m_leftArrowHovered = false;
+    bool m_rightArrowHovered = false;
 
     // Drag reorder state
     bool m_dragging = false;
@@ -201,6 +210,7 @@ private:
     static constexpr int BASE_CLOSE_BTN_SIZE = 16;
     static constexpr int BASE_CLOSE_BTN_MARGIN = 8;
     static constexpr int BASE_NEW_TAB_BTN_WIDTH = 32;
+    static constexpr int BASE_SCROLL_ARROW_WIDTH = 24;
     static constexpr int BASE_PIN_ICON_WIDTH = 16;
     static constexpr int BASE_FONT_SIZE = 14;
 
@@ -224,7 +234,6 @@ private:
     static constexpr COLORREF CLR_CLOSE_X      = RGB(120, 120, 120);
     static constexpr COLORREF CLR_BORDER       = RGB(200, 200, 200);
     static constexpr COLORREF CLR_NEWTAB_HOVER = RGB(210, 210, 210);
-    static constexpr COLORREF CLR_ACTIVE_LINE  = RGB(0, 122, 204);
 
     // Window class name
     static constexpr wchar_t TAB_CLASS[] = L"QNoteTabBar";

@@ -48,9 +48,18 @@ if(MSVC)
     # Runtime library (static for release, dynamic for debug)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     
-    # Optimization for release
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /GL /Gy")
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /OPT:REF /OPT:ICF")
+    # Optimization for release - maximize speed and minimize size
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /GL /Gy /Gw /GF /Oi")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /OPT:REF /OPT:ICF=3")
+    
+    # Remove unreferenced COMDAT data and enable string pooling
+    add_compile_options(/Zc:inline)
+    
+    # Favor small code in release builds
+    add_compile_options("$<$<CONFIG:Release>:/Os>")
+    
+    # Enable intrinsic functions
+    add_compile_options("$<$<CONFIG:Release>:/Oi>")
     
     # Additional security flags
     add_compile_options(/GS)
@@ -59,8 +68,11 @@ if(MSVC)
     # Use our custom manifest instead of auto-generated one
     add_link_options(/MANIFEST:NO)
     
-    # Disable specific warnings if needed
-    # add_compile_options(/wd4100)  # unreferenced formal parameter
+    # Disable RTTI (not needed - we don't use dynamic_cast or typeid)
+    add_compile_options(/GR-)
+    
+    # Disable exceptions if not used (uncomment if no exceptions are thrown)
+    # add_compile_options(/EHs-c-)
     
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # MinGW-w64 / Clang settings
@@ -71,11 +83,14 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "C
     # Static linking of runtime libraries
     add_link_options(-static -static-libgcc -static-libstdc++)
     
-    # Optimization for release
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2")
+    # Optimization for release - size and speed balance
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2 -ffunction-sections -fdata-sections -flto")
     
-    # Strip symbols in release
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -s")
+    # Strip symbols and remove unused sections in release
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -s -Wl,--gc-sections -flto")
+    
+    # Disable RTTI (not needed)
+    add_compile_options(-fno-rtti)
     
     # Windows subsystem
     add_link_options(-mwindows)

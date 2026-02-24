@@ -4,6 +4,7 @@
 //==============================================================================
 
 #include "FindBar.h"
+#include "Editor.h"
 #include <CommCtrl.h>
 #include <regex>
 #include <windowsx.h>

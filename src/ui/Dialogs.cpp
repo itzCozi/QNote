@@ -4,6 +4,8 @@
 //==============================================================================
 
 #include "Dialogs.h"
+#include "Editor.h"
+#include "Settings.h"
 #include "resource.h"
 #include <commdlg.h>
 

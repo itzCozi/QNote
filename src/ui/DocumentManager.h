@@ -14,16 +14,15 @@
 #include <Windows.h>
 #include <string>
 #include <vector>
-#include <unordered_map>
-#include <memory>
-#include <optional>
 #include <set>
 
-#include "Settings.h"
-#include "Editor.h"
-#include "TabBar.h"
+#include "Settings.h"  // Needed for TextEncoding, LineEnding enums
 
 namespace QNote {
+
+// Forward declarations to reduce include dependencies
+class Editor;
+class TabBar;
 
 //------------------------------------------------------------------------------
 // Document state - everything needed to save/restore a document in the editor

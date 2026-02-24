@@ -13,10 +13,11 @@
 #endif
 #include <Windows.h>
 #include <string>
-#include <memory>
-#include "Editor.h"
 
 namespace QNote {
+
+// Forward declaration
+class Editor;
 
 //------------------------------------------------------------------------------
 // FindBar mode

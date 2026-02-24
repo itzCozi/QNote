@@ -8,9 +8,7 @@
 #include <algorithm>
 #include <sstream>
 #include <iomanip>
-#include <fstream>
-#include <locale>
-#include <codecvt>
+#include <unordered_set>
 
 namespace QNote {
 
@@ -181,6 +179,8 @@ std::vector<NoteSearchResult> NoteStore::SearchNotes(const std::wstring& query, 
         return results;
     }
     
+    results.reserve(m_notes.size());  // Pre-allocate worst case
+    
     std::wstring searchQuery = query;
     if (!matchCase) {
         std::transform(searchQuery.begin(), searchQuery.end(), searchQuery.begin(), ::towlower);
@@ -216,6 +216,7 @@ std::vector<NoteSearchResult> NoteStore::SearchNotes(const std::wstring& query, 
 
 std::vector<Note> NoteStore::GetNotesForDate(int year, int month, int day) const {
     std::vector<Note> result;
+    result.reserve(m_notes.size());  // Pre-allocate worst case
     
     struct tm targetDate = {};
     targetDate.tm_year = year - 1900;
@@ -238,16 +239,16 @@ std::vector<Note> NoteStore::GetNotesForDate(int year, int month, int day) const
 }
 
 std::vector<time_t> NoteStore::GetNoteDates() const {
-    std::vector<time_t> dates;
+    std::unordered_set<time_t> uniqueDates;
+    uniqueDates.reserve(m_notes.size());
     
     for (const auto& note : m_notes) {
         time_t midnight = GetMidnight(note.createdAt);
-        if (std::find(dates.begin(), dates.end(), midnight) == dates.end()) {
-            dates.push_back(midnight);
-        }
+        uniqueDates.insert(midnight);
     }
     
-    // Sort dates descending (most recent first)
+    // Convert to vector and sort descending (most recent first)
+    std::vector<time_t> dates(uniqueDates.begin(), uniqueDates.end());
     std::sort(dates.begin(), dates.end(), std::greater<time_t>());
     
     return dates;
@@ -572,6 +573,7 @@ std::wstring NoteStore::JsonUnescape(const std::wstring& str) {
 
 std::vector<Note> NoteStore::FilterAndSort(const NoteFilter& filter) const {
     std::vector<Note> result;
+    result.reserve(m_notes.size());  // Pre-allocate worst case
     
     for (const auto& note : m_notes) {
         // Apply filters

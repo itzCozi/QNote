@@ -149,6 +149,7 @@ int TabBar::AddTab(const std::wstring& title, const std::wstring& filePath, bool
         m_tabs.push_back(tab);
     }
 
+    EnsureTabVisible(tab.id);
     Redraw();
     return tab.id;
 }
@@ -172,6 +173,7 @@ void TabBar::RemoveTab(int tabId) {
         m_activeTabId = -1;
     }
 
+    ClampScrollOffset();
     Redraw();
 }
 
@@ -183,6 +185,7 @@ void TabBar::SetActiveTab(int tabId) {
     if (FindTabIndex(tabId) < 0) return;
 
     m_activeTabId = tabId;
+    EnsureTabVisible(tabId);
     Redraw();
 }
 
@@ -276,6 +279,7 @@ int TabBar::GetTabIdByIndex(int index) const {
 void TabBar::Resize(int x, int y, int width) {
     if (m_hwnd) {
         MoveWindow(m_hwnd, x, y, width, m_tabBarHeight, TRUE);
+        ClampScrollOffset();
     }
 }
 
@@ -316,6 +320,35 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_LBUTTONDOWN: {
             int x = GET_X_LPARAM(lParam);
             int y = GET_Y_LPARAM(lParam);
+
+            // Check scroll arrow buttons
+            {
+                RECT clientRc;
+                GetClientRect(m_hwnd, &clientRc);
+                int tabWidth = CalcTabWidth();
+                int totalTabs = static_cast<int>(m_tabs.size());
+                int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+                POINT pt = { x, y };
+
+                if (m_scrollOffset > 0) {
+                    RECT leftRc = { 0, 0, m_scrollArrowWidth, clientRc.bottom - 1 };
+                    if (PtInRect(&leftRc, pt)) {
+                        m_scrollOffset -= tabWidth;
+                        ClampScrollOffset();
+                        Redraw();
+                        return 0;
+                    }
+                }
+                if (totalContentWidth - m_scrollOffset > clientRc.right) {
+                    RECT rightRc = { clientRc.right - m_scrollArrowWidth, 0, clientRc.right, clientRc.bottom - 1 };
+                    if (PtInRect(&rightRc, pt)) {
+                        m_scrollOffset += tabWidth;
+                        ClampScrollOffset();
+                        Redraw();
+                        return 0;
+                    }
+                }
+            }
 
             // Check new tab button first
             if (NewTabButtonHitTest(x, y)) {
@@ -449,17 +482,42 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             int oldHovered = m_hoveredTabId;
             bool oldCloseHovered = m_closeHovered;
             bool oldNewTabHovered = m_newTabHovered;
+            bool oldLeftArrowHovered = m_leftArrowHovered;
+            bool oldRightArrowHovered = m_rightArrowHovered;
 
             m_hoveredTabId = TabHitTest(x, y);
             m_closeHovered = false;
             m_newTabHovered = NewTabButtonHitTest(x, y);
+            m_leftArrowHovered = false;
+            m_rightArrowHovered = false;
 
             if (m_hoveredTabId >= 0) {
                 m_closeHovered = CloseButtonHitTest(m_hoveredTabId, x, y);
             }
 
+            // Track scroll arrow hover
+            {
+                RECT clientRc;
+                GetClientRect(m_hwnd, &clientRc);
+                int tabWidth = CalcTabWidth();
+                int totalTabs = static_cast<int>(m_tabs.size());
+                int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+                POINT pt = { x, y };
+
+                if (m_scrollOffset > 0) {
+                    RECT leftRc = { 0, 0, m_scrollArrowWidth, clientRc.bottom - 1 };
+                    m_leftArrowHovered = PtInRect(&leftRc, pt) != FALSE;
+                }
+                if (totalContentWidth - m_scrollOffset > clientRc.right) {
+                    RECT rightRc = { clientRc.right - m_scrollArrowWidth, 0, clientRc.right, clientRc.bottom - 1 };
+                    m_rightArrowHovered = PtInRect(&rightRc, pt) != FALSE;
+                }
+            }
+
             if (m_hoveredTabId != oldHovered || m_closeHovered != oldCloseHovered || 
-                m_newTabHovered != oldNewTabHovered) {
+                m_newTabHovered != oldNewTabHovered ||
+                m_leftArrowHovered != oldLeftArrowHovered ||
+                m_rightArrowHovered != oldRightArrowHovered) {
                 Redraw();
             }
 
@@ -488,6 +546,8 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             m_tooltipReady = false;
             m_closeHovered = false;
             m_newTabHovered = false;
+            m_leftArrowHovered = false;
+            m_rightArrowHovered = false;
             SendMessageW(m_hwndTooltip, TTM_POP, 0, 0);
             Redraw();
             return 0;
@@ -496,7 +556,7 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             // Scroll tabs horizontally with mouse wheel
             int delta = GET_WHEEL_DELTA_WPARAM(wParam);
             m_scrollOffset -= (delta > 0) ? Scale(30) : -Scale(30);
-            if (m_scrollOffset < 0) m_scrollOffset = 0;
+            ClampScrollOffset();
             Redraw();
             return 0;
         }
@@ -617,6 +677,22 @@ void TabBar::OnPaint() {
         DrawNewTabButton(memDC, newBtnRc, m_newTabHovered);
     }
 
+    // Draw scroll arrows if tabs overflow
+    {
+        int tabWidth = CalcTabWidth();
+        int totalTabs = static_cast<int>(m_tabs.size());
+        int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+
+        if (m_scrollOffset > 0) {
+            RECT arrowRc = { 0, 0, m_scrollArrowWidth, rc.bottom - 1 };
+            DrawScrollArrow(memDC, arrowRc, true, m_leftArrowHovered);
+        }
+        if (totalContentWidth - m_scrollOffset > rc.right) {
+            RECT arrowRc = { rc.right - m_scrollArrowWidth, 0, rc.right, rc.bottom - 1 };
+            DrawScrollArrow(memDC, arrowRc, false, m_rightArrowHovered);
+        }
+    }
+
     // Restore font
     if (oldFont) {
         SelectObject(memDC, oldFont);
@@ -644,14 +720,6 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
     tabRect.bottom -= 1;
     FillRect(hdc, &tabRect, brush);
     DeleteObject(brush);
-
-    // Active tab indicator line at the top
-    if (isActive) {
-        HBRUSH accentBrush = CreateSolidBrush(CLR_ACTIVE_LINE);
-        RECT lineRc = { rc.left, rc.top, rc.right, rc.top + 2 };
-        FillRect(hdc, &lineRc, accentBrush);
-        DeleteObject(accentBrush);
-    }
 
     // Text area
     RECT textRc = tabRect;
@@ -740,14 +808,29 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
 // Draw new tab (+) button
 //------------------------------------------------------------------------------
 void TabBar::DrawNewTabButton(HDC hdc, const RECT& rc, bool isHovered) {
-    if (isHovered) {
-        HBRUSH brush = CreateSolidBrush(CLR_NEWTAB_HOVER);
-        FillRect(hdc, &rc, brush);
-        DeleteObject(brush);
+    RECT btnRc = rc;
+    btnRc.bottom -= 1;  // Leave room for bottom border line
+    HBRUSH brush = CreateSolidBrush(CLR_TAB_HOVER);
+    FillRect(hdc, &btnRc, brush);
+    DeleteObject(brush);
+
+    // Draw right border if not at the window edge
+    RECT clientRc;
+    GetClientRect(m_hwnd, &clientRc);
+    if (rc.right < clientRc.right) {
+        HPEN borderPen = CreatePen(PS_SOLID, 1, CLR_BORDER);
+        HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, borderPen));
+        MoveToEx(hdc, rc.right - 1, rc.top, nullptr);
+        LineTo(hdc, rc.right - 1, btnRc.bottom);
+        SelectObject(hdc, oldPen);
+        DeleteObject(borderPen);
     }
 
     SetTextColor(hdc, CLR_TEXT_INACTIVE);
-    DrawTextW(hdc, L"+", 1, const_cast<RECT*>(&rc), DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
+    RECT textRc = btnRc;
+    textRc.top -= 2;
+    textRc.bottom -= 2;
+    DrawTextW(hdc, L"+", 1, &textRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 }
 
 //------------------------------------------------------------------------------
@@ -797,13 +880,7 @@ RECT TabBar::GetTabRect(int index) const {
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
 
-    // Calculate tab width based on available space
-    int totalTabs = static_cast<int>(m_tabs.size());
-    int availWidth = clientRc.right - m_newTabBtnWidth;
-
-    int tabWidth = (totalTabs > 0) ? availWidth / totalTabs : m_tabMaxWidth;
-    tabWidth = (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_tabMaxWidth));
-
+    int tabWidth = CalcTabWidth();
     int left = index * tabWidth - m_scrollOffset;
 
     RECT rc;
@@ -836,11 +913,8 @@ RECT TabBar::GetNewTabButtonRect() const {
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
 
+    int tabWidth = CalcTabWidth();
     int totalTabs = static_cast<int>(m_tabs.size());
-    int availWidth = clientRc.right - m_newTabBtnWidth;
-    int tabWidth = (totalTabs > 0) ? availWidth / totalTabs : m_tabMaxWidth;
-    tabWidth = (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_tabMaxWidth));
-
     int left = totalTabs * tabWidth - m_scrollOffset;
 
     RECT rc;
@@ -849,6 +923,97 @@ RECT TabBar::GetNewTabButtonRect() const {
     rc.right = left + m_newTabBtnWidth;
     rc.bottom = clientRc.bottom;
     return rc;
+}
+
+//------------------------------------------------------------------------------
+// Calculate consistent tab width
+//------------------------------------------------------------------------------
+int TabBar::CalcTabWidth() const {
+    if (!m_hwnd || m_tabs.empty()) return m_tabMaxWidth;
+    RECT clientRc;
+    GetClientRect(m_hwnd, &clientRc);
+    int totalTabs = static_cast<int>(m_tabs.size());
+    int availWidth = clientRc.right - m_newTabBtnWidth;
+    int tabWidth = availWidth / totalTabs;
+    return (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_tabMaxWidth));
+}
+
+//------------------------------------------------------------------------------
+// Clamp scroll offset to valid range
+//------------------------------------------------------------------------------
+void TabBar::ClampScrollOffset() {
+    if (!m_hwnd) return;
+    RECT clientRc;
+    GetClientRect(m_hwnd, &clientRc);
+    int tabWidth = CalcTabWidth();
+    int totalTabs = static_cast<int>(m_tabs.size());
+    int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+    int maxScroll = totalContentWidth - clientRc.right;
+    if (maxScroll < 0) maxScroll = 0;
+    m_scrollOffset = (std::max)(0, (std::min)(m_scrollOffset, maxScroll));
+}
+
+//------------------------------------------------------------------------------
+// Ensure a tab is scrolled into view
+//------------------------------------------------------------------------------
+void TabBar::EnsureTabVisible(int tabId) {
+    int idx = FindTabIndex(tabId);
+    if (idx < 0 || !m_hwnd) return;
+    RECT clientRc;
+    GetClientRect(m_hwnd, &clientRc);
+    int tabWidth = CalcTabWidth();
+    int tabLeft = idx * tabWidth;
+    int tabRight = tabLeft + tabWidth;
+    int visibleRight = clientRc.right;
+    if (tabLeft < m_scrollOffset) {
+        m_scrollOffset = tabLeft;
+    } else if (tabRight > m_scrollOffset + visibleRight) {
+        m_scrollOffset = tabRight - visibleRight;
+    }
+    ClampScrollOffset();
+}
+
+//------------------------------------------------------------------------------
+// Draw a scroll arrow overlay
+//------------------------------------------------------------------------------
+void TabBar::DrawScrollArrow(HDC hdc, const RECT& rc, bool isLeft, bool isHovered) {
+    HBRUSH brush = CreateSolidBrush(CLR_TAB_HOVER);
+    FillRect(hdc, &rc, brush);
+    DeleteObject(brush);
+
+    // Draw border on the inner edge
+    HPEN pen = CreatePen(PS_SOLID, 1, CLR_BORDER);
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, pen));
+    if (isLeft) {
+        MoveToEx(hdc, rc.right - 1, rc.top, nullptr);
+        LineTo(hdc, rc.right - 1, rc.bottom);
+    } else {
+        MoveToEx(hdc, rc.left, rc.top, nullptr);
+        LineTo(hdc, rc.left, rc.bottom);
+    }
+    SelectObject(hdc, oldPen);
+    DeleteObject(pen);
+
+    // Draw chevron character with a larger dedicated font
+    HFONT arrowFont = CreateFontW(
+        -Scale(20), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        L"Segoe UI"
+    );
+    HFONT prevFont = static_cast<HFONT>(SelectObject(hdc, arrowFont));
+    SetTextColor(hdc, CLR_TEXT_INACTIVE);
+
+    // Measure the glyph and center it manually
+    const wchar_t* glyph = isLeft ? L"\u2039" : L"\u203A";
+    SIZE sz = {};
+    GetTextExtentPoint32W(hdc, glyph, 1, &sz);
+    int cx = rc.left + (rc.right - rc.left - sz.cx) / 2;
+    int cy = rc.top + (rc.bottom - rc.top - sz.cy) / 2 - 2;
+    ExtTextOutW(hdc, cx, cy, ETO_CLIPPED, &rc, glyph, 1, nullptr);
+
+    SelectObject(hdc, prevFont);
+    DeleteObject(arrowFont);
 }
 
 //------------------------------------------------------------------------------
@@ -1048,6 +1213,7 @@ void TabBar::InitializeDPI() {
     m_closeBtnSize = Scale(BASE_CLOSE_BTN_SIZE);
     m_closeBtnMargin = Scale(BASE_CLOSE_BTN_MARGIN);
     m_newTabBtnWidth = Scale(BASE_NEW_TAB_BTN_WIDTH);
+    m_scrollArrowWidth = Scale(BASE_SCROLL_ARROW_WIDTH);
 }
 
 //------------------------------------------------------------------------------
@@ -1066,6 +1232,7 @@ void TabBar::UpdateDPI(UINT newDpi) {
     m_closeBtnSize = Scale(BASE_CLOSE_BTN_SIZE);
     m_closeBtnMargin = Scale(BASE_CLOSE_BTN_MARGIN);
     m_newTabBtnWidth = Scale(BASE_NEW_TAB_BTN_WIDTH);
+    m_scrollArrowWidth = Scale(BASE_SCROLL_ARROW_WIDTH);
 
     // Recreate the font at the new DPI
     if (m_font) {
