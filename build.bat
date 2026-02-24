@@ -96,22 +96,30 @@ if errorlevel 1 (
 
 cd ..
 
-:: Copy exe to root folder
+:: Copy exe to root folder (keep original in build directory)
 echo Copying QNote.exe to root folder...
-copy /y "build\QNote.exe" "QNote.exe" >nul
+if exist "build\QNote.exe" (
+    copy /y "build\QNote.exe" "QNote.exe" >nul
+    echo Original executable remains in build\QNote.exe
+) else (
+    echo Warning: QNote.exe not found in build directory
+)
 
 echo.
 echo ============================================================
 echo  Build completed successfully!
-echo  Output: QNote.exe
+echo  Output: QNote.exe (copy in root folder)
+echo  Original: build\QNote.exe (kept in build directory)
 echo ============================================================
 echo.
 
 :: Show file size
-for %%A in ("QNote.exe") do (
-    set "SIZE=%%~zA"
-    set /a "SIZE_KB=SIZE/1024"
-    echo Executable size: !SIZE_KB! KB
+if exist "QNote.exe" (
+    for %%A in ("QNote.exe") do (
+        set "SIZE=%%~zA"
+        set /a "SIZE_KB=SIZE/1024"
+        echo Executable size: !SIZE_KB! KB
+    )
 )
 
 exit /b 0

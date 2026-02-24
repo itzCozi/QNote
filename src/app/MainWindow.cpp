@@ -18,14 +18,12 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
 
-namespace QNote {
-
-//------------------------------------------------------------------------------
-// DWM dark title bar (Windows 10 1809+)
-//------------------------------------------------------------------------------
+// DWM dark title bar (Windows 10 1809+) - fallback for older SDKs
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
+
+namespace QNote {
 
 //------------------------------------------------------------------------------
 // Constructor
@@ -36,6 +34,8 @@ MainWindow::MainWindow()
     , m_dialogManager(std::make_unique<DialogManager>())
     , m_findBar(std::make_unique<FindBar>())
     , m_lineNumbersGutter(std::make_unique<LineNumbersGutter>())
+    , m_tabBar(std::make_unique<TabBar>())
+    , m_documentManager(std::make_unique<DocumentManager>())
     , m_noteStore(std::make_unique<NoteStore>())
     , m_hotkeyManager(std::make_unique<GlobalHotkeyManager>())
 {
@@ -278,6 +278,49 @@ void MainWindow::OnCreate() {
         MessageBoxW(m_hwnd, L"Failed to create line numbers gutter.", L"Error", MB_OK | MB_ICONERROR);
     }
     
+    // Create tab bar
+    if (!m_tabBar->Create(m_hwnd, m_hInstance)) {
+        MessageBoxW(m_hwnd, L"Failed to create tab bar.", L"Error", MB_OK | MB_ICONERROR);
+    }
+    
+    // Initialize document manager
+    m_documentManager->Initialize(m_editor.get(), m_tabBar.get(), m_settingsManager.get());
+    
+    // Set up tab bar callbacks
+    m_tabBar->SetCallback([this](TabNotification notification, int tabId) {
+        switch (notification) {
+            case TabNotification::TabSelected:
+                OnTabSelected(tabId);
+                break;
+            case TabNotification::TabCloseRequested:
+                OnTabCloseRequested(tabId);
+                break;
+            case TabNotification::NewTabRequested:
+                OnTabNew();
+                break;
+            case TabNotification::TabRenamed:
+                OnTabRenamed(tabId);
+                break;
+            case TabNotification::TabPinToggled:
+                OnTabPinToggled(tabId);
+                break;
+            case TabNotification::CloseOthers:
+                OnTabCloseOthers(tabId);
+                break;
+            case TabNotification::CloseAll:
+                OnTabCloseAll();
+                break;
+            case TabNotification::CloseToRight:
+                OnTabCloseToRight(tabId);
+                break;
+        }
+    });
+    
+    // Create an initial tab
+    m_documentManager->NewDocument();
+    m_isNewFile = true;
+    m_currentFile.clear();
+    
     // Set up scroll callback for line numbers sync
     m_editor->SetScrollCallback(OnEditorScroll, this);
     
@@ -380,10 +423,44 @@ void MainWindow::OnClose() {
         return;
     }
     
-    // In file mode, prompt for save as before
-    if (PromptSaveChanges()) {
-        DestroyWindow(m_hwnd);
+    // Save current editor state to document manager
+    if (m_documentManager) {
+        m_documentManager->SaveCurrentState();
     }
+    
+    // Check all tabs for unsaved changes
+    if (m_documentManager) {
+        auto ids = m_documentManager->GetAllTabIds();
+        for (int id : ids) {
+            auto* doc = m_documentManager->GetDocument(id);
+            if (doc && doc->isModified) {
+                // Switch to the unsaved tab so user can see it
+                OnTabSelected(id);
+                
+                std::wstring message = L"Do you want to save changes";
+                if (!doc->filePath.empty()) {
+                    message += L" to " + doc->GetDisplayTitle();
+                }
+                message += L"?";
+                
+                int result = MessageBoxW(m_hwnd, message.c_str(), L"QNote",
+                                         MB_YESNOCANCEL | MB_ICONWARNING);
+                
+                switch (result) {
+                    case IDYES:
+                        if (!OnFileSave()) return;  // Save failed or cancelled
+                        break;
+                    case IDNO:
+                        break;  // Continue without saving
+                    case IDCANCEL:
+                    default:
+                        return;  // Cancel close
+                }
+            }
+        }
+    }
+    
+    DestroyWindow(m_hwnd);
 }
 
 //------------------------------------------------------------------------------
@@ -473,10 +550,48 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_NOTES_PINNOTE:      OnNotesPinCurrent(); break;
         case IDM_NOTES_SAVENOW:      OnNotesSaveNow(); break;
         case IDM_NOTES_DELETENOTE:   OnNotesDeleteCurrent(); break;
+        
+        // Tab menu
+        case IDM_TAB_NEW:            OnTabNew(); break;
+        case IDM_TAB_CLOSE:          OnTabClose(); break;
+        case IDM_TAB_NEXT: {
+            // Switch to next tab
+            auto ids = m_tabBar->GetAllTabIds();
+            if (ids.size() > 1) {
+                int activeId = m_tabBar->GetActiveTabId();
+                for (size_t i = 0; i < ids.size(); i++) {
+                    if (ids[i] == activeId) {
+                        int nextId = ids[(i + 1) % ids.size()];
+                        OnTabSelected(nextId);
+                        break;
+                    }
+                }
+            }
+            break;
+        }
+        case IDM_TAB_PREV: {
+            // Switch to previous tab
+            auto ids = m_tabBar->GetAllTabIds();
+            if (ids.size() > 1) {
+                int activeId = m_tabBar->GetActiveTabId();
+                for (size_t i = 0; i < ids.size(); i++) {
+                    if (ids[i] == activeId) {
+                        int prevId = ids[(i + ids.size() - 1) % ids.size()];
+                        OnTabSelected(prevId);
+                        break;
+                    }
+                }
+            }
+            break;
+        }
     }
     
     // Handle edit control notifications
     if (hwndCtl == m_editor->GetHandle() && code == EN_CHANGE) {
+        // Sync modified state with DocumentManager and TabBar
+        if (m_documentManager) {
+            m_documentManager->SyncModifiedState();
+        }
         UpdateTitle();
     }
 }
@@ -487,15 +602,47 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
 void MainWindow::OnDropFiles(HDROP hDrop) {
     wchar_t filePath[MAX_PATH] = {};
     
-    // Get the first dropped file
-    if (DragQueryFileW(hDrop, 0, filePath, MAX_PATH) > 0) {
-        // Check for unsaved changes
-        if (PromptSaveChanges()) {
-            LoadFile(filePath);
+    // Get the number of dropped files
+    UINT fileCount = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+    
+    // Open each dropped file in a new tab
+    for (UINT i = 0; i < fileCount; i++) {
+        if (DragQueryFileW(hDrop, i, filePath, MAX_PATH) > 0) {
+            // Check if already open
+            int existingTab = m_documentManager->FindDocumentByPath(filePath);
+            if (existingTab >= 0) {
+                if (i == fileCount - 1) {
+                    OnTabSelected(existingTab);
+                }
+                continue;
+            }
+            
+            // For the first file, reuse current tab if empty/untitled
+            if (i == 0) {
+                auto* activeDoc = m_documentManager->GetActiveDocument();
+                if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
+                    m_editor->GetTextLength() == 0) {
+                    LoadFile(filePath);
+                    continue;
+                }
+            }
+            
+            FileReadResult result = FileIO::ReadFile(filePath);
+            if (result.success) {
+                m_documentManager->OpenDocument(
+                    filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
+                m_currentFile = filePath;
+                m_isNewFile = false;
+                m_isNoteMode = false;
+                m_settingsManager->AddRecentFile(filePath);
+                UpdateRecentFilesMenu();
+            }
         }
     }
     
     DragFinish(hDrop);
+    UpdateTitle();
+    UpdateStatusBar();
     
     // Bring window to front
     SetForegroundWindow(m_hwnd);
@@ -539,24 +686,50 @@ LRESULT MainWindow::OnCtlColorEdit(HDC hdc, HWND hwndEdit) {
 // File -> New
 //------------------------------------------------------------------------------
 void MainWindow::OnFileNew() {
-    if (!PromptSaveChanges()) {
-        return;
-    }
-    
-    NewDocument();
+    // Create a new tab with an empty document
+    OnTabNew();
 }
 
 //------------------------------------------------------------------------------
 // File -> Open
 //------------------------------------------------------------------------------
 void MainWindow::OnFileOpen() {
-    if (!PromptSaveChanges()) {
-        return;
-    }
-    
     std::wstring filePath;
     if (FileIO::ShowOpenDialog(m_hwnd, filePath)) {
-        LoadFile(filePath);
+        // Check if already open in another tab
+        int existingTab = m_documentManager->FindDocumentByPath(filePath);
+        if (existingTab >= 0) {
+            OnTabSelected(existingTab);
+            return;
+        }
+        
+        // If current tab is untitled, unmodified, and empty - reuse it
+        auto* activeDoc = m_documentManager->GetActiveDocument();
+        if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified && 
+            m_editor->GetTextLength() == 0) {
+            // Reuse current tab
+            LoadFile(filePath);
+        } else {
+            // Open in new tab
+            FileReadResult result = FileIO::ReadFile(filePath);
+            if (result.success) {
+                int tabId = m_documentManager->OpenDocument(
+                    filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
+                if (tabId >= 0) {
+                    m_currentFile = filePath;
+                    m_isNewFile = false;
+                    m_isNoteMode = false;
+                    m_currentNoteId.clear();
+                    m_settingsManager->AddRecentFile(filePath);
+                    UpdateRecentFilesMenu();
+                    UpdateTitle();
+                    UpdateStatusBar();
+                }
+            } else {
+                MessageBoxW(m_hwnd, result.errorMessage.c_str(), L"Error Opening File",
+                            MB_OK | MB_ICONERROR);
+            }
+        }
     }
 }
 
@@ -568,7 +741,11 @@ bool MainWindow::OnFileSave() {
         return OnFileSaveAs();
     }
     
-    return SaveFile(m_currentFile);
+    bool result = SaveFile(m_currentFile);
+    if (result && m_documentManager) {
+        m_documentManager->SetDocumentModified(m_documentManager->GetActiveTabId(), false);
+    }
+    return result;
 }
 
 //------------------------------------------------------------------------------
@@ -585,6 +762,14 @@ bool MainWindow::OnFileSaveAs() {
             m_isNewFile = false;
             m_settingsManager->AddRecentFile(filePath);
             UpdateRecentFilesMenu();
+            
+            // Update document manager with new file path
+            if (m_documentManager) {
+                int activeTab = m_documentManager->GetActiveTabId();
+                m_documentManager->SetDocumentFilePath(activeTab, filePath);
+                m_documentManager->SetDocumentModified(activeTab, false);
+            }
+            
             UpdateTitle();
             return true;
         }
@@ -600,11 +785,14 @@ void MainWindow::OnFileOpenRecent(int index) {
     const auto& recentFiles = m_settingsManager->GetSettings().recentFiles;
     
     if (index >= 0 && index < static_cast<int>(recentFiles.size())) {
-        if (!PromptSaveChanges()) {
+        std::wstring filePath = recentFiles[index];
+        
+        // Check if already open
+        int existingTab = m_documentManager->FindDocumentByPath(filePath);
+        if (existingTab >= 0) {
+            OnTabSelected(existingTab);
             return;
         }
-        
-        std::wstring filePath = recentFiles[index];
         
         // Check if file still exists
         if (GetFileAttributesW(filePath.c_str()) == INVALID_FILE_ATTRIBUTES) {
@@ -614,7 +802,25 @@ void MainWindow::OnFileOpenRecent(int index) {
             return;
         }
         
-        LoadFile(filePath);
+        // Open in new tab if current tab has content, otherwise reuse
+        auto* activeDoc = m_documentManager->GetActiveDocument();
+        if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
+            m_editor->GetTextLength() == 0) {
+            LoadFile(filePath);
+        } else {
+            FileReadResult result = FileIO::ReadFile(filePath);
+            if (result.success) {
+                m_documentManager->OpenDocument(
+                    filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
+                m_currentFile = filePath;
+                m_isNewFile = false;
+                m_isNoteMode = false;
+                m_settingsManager->AddRecentFile(filePath);
+                UpdateRecentFilesMenu();
+                UpdateTitle();
+                UpdateStatusBar();
+            }
+        }
     }
 }
 
@@ -1010,6 +1216,17 @@ void MainWindow::UpdateTitle() {
         title = L"*";
     }
     
+    // Check if document manager has an active document with a custom title
+    if (m_documentManager) {
+        auto* doc = m_documentManager->GetActiveDocument();
+        if (doc && !doc->customTitle.empty()) {
+            title += doc->customTitle;
+            title += L" - QNote";
+            SetWindowTextW(m_hwnd, title.c_str());
+            return;
+        }
+    }
+    
     // Handle note mode vs file mode
     if (m_isNoteMode) {
         // Note mode - show note title
@@ -1236,6 +1453,23 @@ bool MainWindow::LoadFile(const std::wstring& filePath) {
     m_currentFile = filePath;
     m_isNewFile = false;
     
+    // Sync with document manager
+    if (m_documentManager) {
+        int activeTab = m_documentManager->GetActiveTabId();
+        m_documentManager->SetDocumentFilePath(activeTab, filePath);
+        m_documentManager->SetDocumentModified(activeTab, false);
+        
+        auto* doc = m_documentManager->GetActiveDocument();
+        if (doc) {
+            doc->encoding = result.detectedEncoding;
+            doc->lineEnding = result.detectedLineEnding;
+            doc->text = result.content;
+            doc->isNewFile = false;
+            doc->isNoteMode = false;
+            doc->noteId.clear();
+        }
+    }
+    
     // Add to recent files
     m_settingsManager->AddRecentFile(filePath);
     UpdateRecentFilesMenu();
@@ -1339,6 +1573,7 @@ void MainWindow::ResizeControls() {
     int statusHeight = 0;
     int findBarHeight = 0;
     int gutterWidth = 0;
+    int tabBarHeight = 0;
     int topOffset = 0;  // No gap below menu
     
     // Position status bar
@@ -1350,14 +1585,20 @@ void MainWindow::ResizeControls() {
         statusHeight = statusRect.bottom - statusRect.top;
     }
     
-    // Position find bar at top
+    // Position tab bar below menu
+    if (m_tabBar && m_tabBar->GetHandle()) {
+        tabBarHeight = m_tabBar->GetHeight();
+        m_tabBar->Resize(0, topOffset, rc.right);
+    }
+    
+    // Position find bar below tab bar
     if (m_findBar && m_findBar->IsVisible()) {
         findBarHeight = m_findBar->GetHeight();
-        m_findBar->Resize(0, topOffset, rc.right);
+        m_findBar->Resize(0, topOffset + tabBarHeight, rc.right);
     }
     
     // Calculate content area top position
-    int contentTop = topOffset + findBarHeight;
+    int contentTop = topOffset + tabBarHeight + findBarHeight;
     int contentHeight = rc.bottom - statusHeight - contentTop;
     
     // Position line numbers gutter
@@ -1383,30 +1624,28 @@ void MainWindow::ResizeControls() {
 void MainWindow::InitializeNoteStore() {
     // Initialize the note store
     if (m_noteStore) {
-        m_noteStore->Initialize();
+        (void)m_noteStore->Initialize();
     }
     
     // Create capture window
     m_captureWindow = std::make_unique<CaptureWindow>();
-    if (m_captureWindow->Create(m_hInstance, m_noteStore.get())) {
-        // Set callback for when user wants to edit in main window
-        m_captureWindow->SetEditCallback([this](const std::wstring& noteId) {
-            OpenNoteFromId(noteId);
-        });
-    }
+    (void)m_captureWindow->Create(m_hInstance, m_noteStore.get());
+    // Set callback for when user wants to edit in main window
+    m_captureWindow->SetEditCallback([this](const std::wstring& noteId) {
+        OpenNoteFromId(noteId);
+    });
     
     // Create note list window
     m_noteListWindow = std::make_unique<NoteListWindow>();
-    if (m_noteListWindow->Create(m_hInstance, m_hwnd, m_noteStore.get())) {
-        // Set callback for opening notes
-        m_noteListWindow->SetOpenCallback([this](const Note& note) {
-            LoadNoteIntoEditor(note);
-        });
-    }
+    (void)m_noteListWindow->Create(m_hInstance, m_hwnd, m_noteStore.get());
+    // Set callback for opening notes
+    m_noteListWindow->SetOpenCallback([this](const Note& note) {
+        LoadNoteIntoEditor(note);
+    });
     
     // Register global hotkey (Ctrl+Shift+Q)
     if (m_hotkeyManager) {
-        m_hotkeyManager->Register(m_hwnd, HOTKEY_QUICKCAPTURE);
+        (void)m_hotkeyManager->Register(m_hwnd, HOTKEY_QUICKCAPTURE);
     }
 }
 
@@ -1428,7 +1667,7 @@ void MainWindow::AutoSaveCurrentNote() {
         if (existingNote) {
             Note updated = *existingNote;
             updated.content = content;
-            m_noteStore->UpdateNote(updated);
+            (void)m_noteStore->UpdateNote(updated);
         }
     }
     
@@ -1567,7 +1806,7 @@ void MainWindow::OnNotesPinCurrent() {
         return;
     }
     
-    m_noteStore->TogglePin(m_currentNoteId);
+    (void)m_noteStore->TogglePin(m_currentNoteId);
     
     auto note = m_noteStore->GetNote(m_currentNoteId);
     if (note) {
@@ -1604,7 +1843,7 @@ void MainWindow::OnNotesDeleteCurrent() {
     
     std::wstring msg = L"Delete \"" + title + L"\"? This cannot be undone.";
     if (MessageBoxW(m_hwnd, msg.c_str(), L"Delete Note", MB_YESNO | MB_ICONWARNING) == IDYES) {
-        m_noteStore->DeleteNote(m_currentNoteId);
+        (void)m_noteStore->DeleteNote(m_currentNoteId);
         
         // Start a new note
         OnNotesNew();
@@ -1669,6 +1908,212 @@ void MainWindow::OnEditorScroll(void* userData) {
     MainWindow* self = static_cast<MainWindow*>(userData);
     if (self && self->m_lineNumbersGutter && self->m_lineNumbersGutter->IsVisible()) {
         self->m_lineNumbersGutter->OnEditorScroll();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tab -> New Tab (Ctrl+T)
+//------------------------------------------------------------------------------
+void MainWindow::OnTabNew() {
+    if (m_documentManager) {
+        m_documentManager->NewDocument();
+        m_currentFile.clear();
+        m_isNewFile = true;
+        m_isNoteMode = false;
+        m_currentNoteId.clear();
+        UpdateTitle();
+        UpdateStatusBar();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tab -> Close Tab (Ctrl+W) 
+//------------------------------------------------------------------------------
+void MainWindow::OnTabClose() {
+    if (!m_documentManager || !m_tabBar) return;
+    
+    int activeTab = m_documentManager->GetActiveTabId();
+    OnTabCloseRequested(activeTab);
+}
+
+//------------------------------------------------------------------------------
+// Tab selected (user clicked a different tab)
+//------------------------------------------------------------------------------
+void MainWindow::OnTabSelected(int tabId) {
+    if (!m_documentManager) return;
+    
+    m_documentManager->SwitchToDocument(tabId);
+    
+    // Update MainWindow state from the new active document
+    auto* doc = m_documentManager->GetActiveDocument();
+    if (doc) {
+        m_currentFile = doc->filePath;
+        m_isNewFile = doc->isNewFile;
+        m_isNoteMode = doc->isNoteMode;
+        m_currentNoteId = doc->noteId;
+    }
+    
+    UpdateTitle();
+    UpdateStatusBar();
+    
+    // Update line numbers gutter
+    if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+        m_lineNumbersGutter->Update();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tab close requested (user clicked X on a tab)
+//------------------------------------------------------------------------------
+void MainWindow::OnTabCloseRequested(int tabId) {
+    if (!m_documentManager || !m_tabBar) return;
+    
+    // Don't close the last tab - instead clear it
+    if (m_documentManager->GetDocumentCount() <= 1) {
+        auto* doc = m_documentManager->GetActiveDocument();
+        if (doc && doc->isModified) {
+            if (!PromptSaveTab(tabId)) return;
+        }
+        // Reset the current tab instead of closing
+        NewDocument();
+        return;
+    }
+    
+    // Check for unsaved changes
+    if (!PromptSaveTab(tabId)) return;
+    
+    m_documentManager->CloseDocument(tabId);
+    
+    // Update MainWindow state from new active document
+    auto* doc = m_documentManager->GetActiveDocument();
+    if (doc) {
+        m_currentFile = doc->filePath;
+        m_isNewFile = doc->isNewFile;
+        m_isNoteMode = doc->isNoteMode;
+        m_currentNoteId = doc->noteId;
+    }
+    
+    UpdateTitle();
+    UpdateStatusBar();
+}
+
+//------------------------------------------------------------------------------
+// Tab renamed via double-click
+//------------------------------------------------------------------------------
+void MainWindow::OnTabRenamed(int tabId) {
+    if (!m_documentManager || !m_tabBar) return;
+    
+    auto* tabItem = m_tabBar->GetTab(tabId);
+    if (tabItem) {
+        m_documentManager->SetDocumentTitle(tabId, tabItem->title);
+        UpdateTitle();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tab pin toggled via context menu
+//------------------------------------------------------------------------------
+void MainWindow::OnTabPinToggled(int tabId) {
+    if (!m_documentManager) return;
+    
+    auto* doc = m_documentManager->GetDocument(tabId);
+    if (doc) {
+        bool newPinState = !doc->isPinned;
+        m_documentManager->SetDocumentPinned(tabId, newPinState);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Close other tabs
+//------------------------------------------------------------------------------
+void MainWindow::OnTabCloseOthers(int tabId) {
+    if (!m_documentManager) return;
+    
+    auto ids = m_documentManager->GetAllTabIds();
+    for (int id : ids) {
+        if (id == tabId) continue;
+        auto* doc = m_documentManager->GetDocument(id);
+        if (doc && doc->isModified) {
+            if (!PromptSaveTab(id)) return;
+        }
+    }
+    
+    m_documentManager->CloseOtherDocuments(tabId);
+    OnTabSelected(tabId);
+}
+
+//------------------------------------------------------------------------------
+// Close all tabs
+//------------------------------------------------------------------------------
+void MainWindow::OnTabCloseAll() {
+    if (!m_documentManager) return;
+    
+    auto ids = m_documentManager->GetAllTabIds();
+    for (int id : ids) {
+        auto* doc = m_documentManager->GetDocument(id);
+        if (doc && doc->isModified) {
+            if (!PromptSaveTab(id)) return;
+        }
+    }
+    
+    m_documentManager->CloseAllDocuments();
+    
+    // Create a fresh tab
+    OnTabNew();
+}
+
+//------------------------------------------------------------------------------
+// Close tabs to the right
+//------------------------------------------------------------------------------
+void MainWindow::OnTabCloseToRight(int tabId) {
+    if (!m_documentManager) return;
+    
+    // Check for unsaved changes in tabs to the right
+    auto ids = m_documentManager->GetAllTabIds();
+    bool found = false;
+    for (int id : ids) {
+        if (id == tabId) { found = true; continue; }
+        if (!found) continue;
+        auto* doc = m_documentManager->GetDocument(id);
+        if (doc && doc->isModified) {
+            if (!PromptSaveTab(id)) return;
+        }
+    }
+    
+    m_documentManager->CloseDocumentsToRight(tabId);
+}
+
+//------------------------------------------------------------------------------
+// Prompt to save a specific tab's document
+//------------------------------------------------------------------------------
+bool MainWindow::PromptSaveTab(int tabId) {
+    if (!m_documentManager) return true;
+    
+    auto* doc = m_documentManager->GetDocument(tabId);
+    if (!doc || !doc->isModified) return true;
+    
+    // Switch to the tab so user can see it
+    if (tabId != m_documentManager->GetActiveTabId()) {
+        OnTabSelected(tabId);
+    }
+    
+    std::wstring message = L"Do you want to save changes";
+    if (!doc->filePath.empty()) {
+        message += L" to " + doc->GetDisplayTitle();
+    }
+    message += L"?";
+    
+    int result = MessageBoxW(m_hwnd, message.c_str(), L"QNote",
+                             MB_YESNOCANCEL | MB_ICONWARNING);
+    
+    switch (result) {
+        case IDYES:
+            return OnFileSave();
+        case IDNO:
+            return true;
+        case IDCANCEL:
+        default:
+            return false;
     }
 }
 

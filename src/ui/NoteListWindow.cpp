@@ -11,14 +11,12 @@
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "dwmapi.lib")
 
-namespace QNote {
-
-//------------------------------------------------------------------------------
-// DWM dark title bar (Windows 10 1809+)
-//------------------------------------------------------------------------------
+// DWM dark title bar (Windows 10 1809+) - fallback for older SDKs
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
+
+namespace QNote {
 
 //------------------------------------------------------------------------------
 // NoteListWindow Implementation
@@ -517,7 +515,7 @@ void NoteListWindow::OnContextMenuPin(int index) {
     
     const std::wstring& noteId = m_displayedNotes[index].id;
     if (m_noteStore) {
-        m_noteStore->TogglePin(noteId);
+        (void)m_noteStore->TogglePin(noteId);
         RefreshList();
     }
 }
@@ -534,7 +532,7 @@ void NoteListWindow::OnContextMenuDelete(int index) {
             m_deleteCallback(note.id);
         }
         if (m_noteStore) {
-            m_noteStore->DeleteNote(note.id);
+            (void)m_noteStore->DeleteNote(note.id);
         }
         RefreshList();
     }
@@ -592,7 +590,7 @@ void NoteListWindow::DeleteSelectedNotes() {
             if (m_deleteCallback) {
                 m_deleteCallback(id);
             }
-            m_noteStore->DeleteNote(id);
+            (void)m_noteStore->DeleteNote(id);
         }
         
         RefreshList();
@@ -608,7 +606,7 @@ void NoteListWindow::PinSelectedNotes() {
     // Toggle pin state for all selected notes
     for (int idx : selected) {
         if (idx >= 0 && idx < static_cast<int>(m_displayedNotes.size())) {
-            m_noteStore->TogglePin(m_displayedNotes[idx].id);
+            (void)m_noteStore->TogglePin(m_displayedNotes[idx].id);
         }
     }
     
@@ -621,21 +619,21 @@ void NoteListWindow::CreateControls() {
         0, L"BUTTON", L"All Notes",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 100, TOOLBAR_HEIGHT,
-        m_hwnd, reinterpret_cast<HMENU>(IDC_ALL_BTN), m_hInstance, nullptr
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_ALL_BTN)), m_hInstance, nullptr
     );
     
     m_hwndPinnedBtn = CreateWindowExW(
         0, L"BUTTON", L"Pinned",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 100, TOOLBAR_HEIGHT,
-        m_hwnd, reinterpret_cast<HMENU>(IDC_PINNED_BTN), m_hInstance, nullptr
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PINNED_BTN)), m_hInstance, nullptr
     );
     
     m_hwndTimelineBtn = CreateWindowExW(
         0, L"BUTTON", L"Timeline",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 100, TOOLBAR_HEIGHT,
-        m_hwnd, reinterpret_cast<HMENU>(IDC_TIMELINE_BTN), m_hInstance, nullptr
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_TIMELINE_BTN)), m_hInstance, nullptr
     );
     
     // Search controls
@@ -643,7 +641,7 @@ void NoteListWindow::CreateControls() {
         WS_EX_CLIENTEDGE, L"EDIT", L"",
         WS_CHILD | WS_VISIBLE | ES_AUTOHSCROLL,
         0, 0, 200, SEARCH_HEIGHT,
-        m_hwnd, reinterpret_cast<HMENU>(IDC_SEARCH_EDIT), m_hInstance, nullptr
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SEARCH_EDIT)), m_hInstance, nullptr
     );
     
     // Set placeholder text
@@ -653,14 +651,14 @@ void NoteListWindow::CreateControls() {
         0, L"BUTTON", L"Search",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 60, SEARCH_HEIGHT,
-        m_hwnd, reinterpret_cast<HMENU>(IDC_SEARCH_BTN), m_hInstance, nullptr
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SEARCH_BTN)), m_hInstance, nullptr
     );
     
     m_hwndClearBtn = CreateWindowExW(
         0, L"BUTTON", L"Clear",
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, 50, SEARCH_HEIGHT,
-        m_hwnd, reinterpret_cast<HMENU>(IDC_CLEAR_BTN), m_hInstance, nullptr
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CLEAR_BTN)), m_hInstance, nullptr
     );
     
     // List view
@@ -669,7 +667,7 @@ void NoteListWindow::CreateControls() {
         WC_LISTVIEWW, L"",
         WS_CHILD | WS_VISIBLE | LVS_REPORT | LVS_SHOWSELALWAYS,
         0, 0, 400, 300,
-        m_hwnd, reinterpret_cast<HMENU>(IDC_NOTE_LIST), m_hInstance, nullptr
+        m_hwnd, reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_NOTE_LIST)), m_hInstance, nullptr
     );
     
     // Set extended styles

@@ -134,6 +134,12 @@ BEGIN
     VK_OEM_MINUS,   IDM_VIEW_ZOOMOUT,   VIRTKEY, CONTROL
     "0",            IDM_VIEW_ZOOMRESET, VIRTKEY, CONTROL
     
+    // Tab accelerators
+    "T",        IDM_TAB_NEW,            VIRTKEY, CONTROL
+    "W",        IDM_TAB_CLOSE,          VIRTKEY, CONTROL
+    VK_TAB,     IDM_TAB_NEXT,           VIRTKEY, CONTROL
+    VK_TAB,     IDM_TAB_PREV,           VIRTKEY, CONTROL, SHIFT
+    
     // Notes accelerators
     "Q",        IDM_NOTES_QUICKCAPTURE, VIRTKEY, CONTROL, SHIFT
     "A",        IDM_NOTES_ALLNOTES,     VIRTKEY, CONTROL, SHIFT

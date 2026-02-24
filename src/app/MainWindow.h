@@ -16,7 +16,6 @@
 #include <shellapi.h>
 #include <string>
 #include <memory>
-#include <algorithm>
 #include "Settings.h"
 #include "Editor.h"
 #include "FileIO.h"
@@ -26,6 +25,8 @@
 #include "NoteListWindow.h"
 #include "FindBar.h"
 #include "LineNumbersGutter.h"
+#include "TabBar.h"
+#include "DocumentManager.h"
 
 namespace QNote {
 
@@ -67,6 +68,18 @@ private:
     void OnTimer(UINT_PTR timerId);
     LRESULT OnCtlColorEdit(HDC hdc, HWND hwndEdit);
     
+    // Tab operations
+    void OnTabNew();
+    void OnTabClose();
+    void OnTabSelected(int tabId);
+    void OnTabCloseRequested(int tabId);
+    void OnTabRenamed(int tabId);
+    void OnTabPinToggled(int tabId);
+    void OnTabCloseOthers(int tabId);
+    void OnTabCloseAll();
+    void OnTabCloseToRight(int tabId);
+    bool PromptSaveTab(int tabId);
+
     // File operations
     void OnFileNew();
     void OnFileNewWindow();
@@ -162,6 +175,8 @@ private:
     std::unique_ptr<DialogManager> m_dialogManager;
     std::unique_ptr<FindBar> m_findBar;
     std::unique_ptr<LineNumbersGutter> m_lineNumbersGutter;
+    std::unique_ptr<TabBar> m_tabBar;
+    std::unique_ptr<DocumentManager> m_documentManager;
     
     // Note store and windows
     std::unique_ptr<NoteStore> m_noteStore;

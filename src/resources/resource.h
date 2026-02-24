@@ -5,6 +5,10 @@
 
 #pragma once
 
+// Application name (used in window titles, message boxes, etc.)
+#define APP_NAME                        L"QNote"
+#define APP_VERSION                     L"1.0.0"
+
 // Standard control identifier for static text (if not defined by system headers)
 #ifndef IDC_STATIC
 #define IDC_STATIC                      (-1)
@@ -78,6 +82,12 @@
 #define IDM_NOTES_PINNOTE               7007
 #define IDM_NOTES_DELETENOTE            7008
 #define IDM_NOTES_SAVENOW               7009
+
+// Tab menu
+#define IDM_TAB_NEW                     8001
+#define IDM_TAB_CLOSE                   8002
+#define IDM_TAB_NEXT                    8003
+#define IDM_TAB_PREV                    8004
 
 // Dialog controls
 #define IDD_FIND                        200

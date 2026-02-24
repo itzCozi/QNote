@@ -100,6 +100,8 @@ set(SOURCES
     src/ui/CaptureWindow.cpp
     src/ui/NoteListWindow.cpp
     src/ui/LineNumbersGutter.cpp
+    src/ui/TabBar.cpp
+    src/ui/DocumentManager.cpp
     src/core/Settings.cpp
     src/core/FileIO.cpp
     src/core/NoteStore.cpp
@@ -113,6 +115,8 @@ set(HEADERS
     src/ui/CaptureWindow.h
     src/ui/NoteListWindow.h
     src/ui/LineNumbersGutter.h
+    src/ui/TabBar.h
+    src/ui/DocumentManager.h
     src/core/Settings.h
     src/core/FileIO.h
     src/core/NoteStore.h

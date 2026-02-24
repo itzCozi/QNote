@@ -75,7 +75,7 @@ NoteStore::NoteStore() {
 NoteStore::~NoteStore() {
     // Auto-save on destruction if dirty
     if (m_dirty) {
-        Save();
+        (void)Save();
     }
 }
 
@@ -106,7 +106,7 @@ Note NoteStore::CreateNote(const std::wstring& content) {
     
     m_notes.push_back(note);
     m_dirty = true;
-    Save();  // Autosave
+    (void)Save();  // Autosave
     
     return note;
 }
@@ -131,7 +131,7 @@ bool NoteStore::UpdateNote(const Note& note) {
         it->updatedAt = std::time(nullptr);
         it->isPinned = note.isPinned;
         m_dirty = true;
-        Save();  // Autosave
+        (void)Save();  // Autosave
         return true;
     }
     return false;
@@ -144,7 +144,7 @@ bool NoteStore::DeleteNote(const std::wstring& id) {
     if (it != m_notes.end()) {
         m_notes.erase(it);
         m_dirty = true;
-        Save();  // Autosave
+        (void)Save();  // Autosave
         return true;
     }
     return false;
@@ -158,7 +158,7 @@ bool NoteStore::TogglePin(const std::wstring& id) {
         it->isPinned = !it->isPinned;
         it->updatedAt = std::time(nullptr);
         m_dirty = true;
-        Save();  // Autosave
+        (void)Save();  // Autosave
         return true;
     }
     return false;

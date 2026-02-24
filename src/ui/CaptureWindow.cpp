@@ -10,14 +10,12 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "comctl32.lib")
 
-namespace QNote {
-
-//------------------------------------------------------------------------------
-// DWM dark title bar (Windows 10 1809+)
-//------------------------------------------------------------------------------
+// DWM dark title bar (Windows 10 1809+) - fallback for older SDKs
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
 #define DWMWA_USE_IMMERSIVE_DARK_MODE 20
 #endif
+
+namespace QNote {
 
 //------------------------------------------------------------------------------
 // CaptureWindow Implementation
@@ -329,7 +327,7 @@ void CaptureWindow::SaveNote() {
         Note newNote = m_noteStore->CreateNote(text);
         m_currentNoteId = newNote.id;
         if (m_isPinned) {
-            m_noteStore->TogglePin(m_currentNoteId);
+            (void)m_noteStore->TogglePin(m_currentNoteId);
         }
     } else {
         // Update existing note
@@ -338,7 +336,7 @@ void CaptureWindow::SaveNote() {
             Note updated = *existingNote;
             updated.content = text;
             updated.isPinned = m_isPinned;
-            m_noteStore->UpdateNote(updated);
+            (void)m_noteStore->UpdateNote(updated);
         }
     }
     
@@ -372,7 +370,7 @@ void CaptureWindow::TogglePinNote() {
     
     // If note already exists, toggle its pin status
     if (!m_currentNoteId.empty() && m_noteStore) {
-        m_noteStore->TogglePin(m_currentNoteId);
+        (void)m_noteStore->TogglePin(m_currentNoteId);
     }
 }
 
@@ -414,7 +412,7 @@ void CaptureWindow::CreateControls() {
         PADDING, PADDING, 
         WINDOW_WIDTH - PADDING * 2, 100,
         m_hwnd,
-        reinterpret_cast<HMENU>(IDC_CAPTURE_EDIT),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_CAPTURE_EDIT)),
         m_hInstance,
         nullptr
     );
@@ -456,7 +454,7 @@ void CaptureWindow::CreateControls() {
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, BUTTON_WIDTH, BUTTON_HEIGHT,
         m_hwnd,
-        reinterpret_cast<HMENU>(IDC_SAVE_BTN),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_SAVE_BTN)),
         m_hInstance,
         nullptr
     );
@@ -469,7 +467,7 @@ void CaptureWindow::CreateControls() {
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, BUTTON_WIDTH, BUTTON_HEIGHT,
         m_hwnd,
-        reinterpret_cast<HMENU>(IDC_PIN_BTN),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_PIN_BTN)),
         m_hInstance,
         nullptr
     );
@@ -482,7 +480,7 @@ void CaptureWindow::CreateControls() {
         WS_CHILD | WS_VISIBLE | BS_PUSHBUTTON,
         0, 0, BUTTON_WIDTH, BUTTON_HEIGHT,
         m_hwnd,
-        reinterpret_cast<HMENU>(IDC_EDIT_BTN),
+        reinterpret_cast<HMENU>(static_cast<INT_PTR>(IDC_EDIT_BTN)),
         m_hInstance,
         nullptr
     );
