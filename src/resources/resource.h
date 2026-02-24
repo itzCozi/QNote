@@ -89,6 +89,30 @@
 #define IDM_TAB_NEXT                    8003
 #define IDM_TAB_PREV                    8004
 
+// File menu (additional)
+#define IDM_FILE_REVERT                 1009
+#define IDM_FILE_OPENCONTAINING         1010
+
+// Edit menu (text manipulation)
+#define IDM_EDIT_UPPERCASE              2020
+#define IDM_EDIT_LOWERCASE              2021
+#define IDM_EDIT_SORTLINES_ASC          2022
+#define IDM_EDIT_SORTLINES_DESC         2023
+#define IDM_EDIT_TRIMWHITESPACE         2024
+#define IDM_EDIT_REMOVEDUPLICATES       2025
+
+// Reopen with encoding
+#define IDM_ENCODING_REOPEN_UTF8        5101
+#define IDM_ENCODING_REOPEN_UTF8BOM     5102
+#define IDM_ENCODING_REOPEN_UTF16LE     5103
+#define IDM_ENCODING_REOPEN_UTF16BE     5104
+#define IDM_ENCODING_REOPEN_ANSI        5105
+
+// System tray
+#define IDM_TRAY_SHOW                   9001
+#define IDM_TRAY_CAPTURE                9002
+#define IDM_TRAY_EXIT                   9003
+
 // Dialog controls
 #define IDD_FIND                        200
 #define IDD_REPLACE                     201
@@ -119,17 +143,20 @@
 #define SB_PART_ENCODING                1
 #define SB_PART_EOL                     2
 #define SB_PART_ZOOM                    3
+#define SB_PART_COUNTS                  4
 
 // Custom messages
 #define WM_APP_UPDATETITLE              (WM_APP + 1)
 #define WM_APP_UPDATESTATUS             (WM_APP + 2)
 #define WM_APP_FILECHANGED              (WM_APP + 3)
 #define WM_APP_OPENNOTE                 (WM_APP + 4)
+#define WM_APP_TRAYICON                 (WM_APP + 5)
 
 // Timer IDs
 #define TIMER_STATUSUPDATE              1
 #define TIMER_AUTOSAVE                  2
 #define TIMER_FILEAUTOSAVE              3
+#define TIMER_FILEWATCH                 4
 
 // Global hotkey ID
 #define HOTKEY_QUICKCAPTURE             1

@@ -23,6 +23,9 @@ BEGIN
         MENUITEM "&Open...\tCtrl+O",            IDM_FILE_OPEN
         MENUITEM "&Save\tCtrl+S",               IDM_FILE_SAVE
         MENUITEM "Save &As...\tCtrl+Shift+S",   IDM_FILE_SAVEAS
+        MENUITEM "Re&vert to Saved",              IDM_FILE_REVERT
+        MENUITEM SEPARATOR
+        MENUITEM "Open Containing &Folder",       IDM_FILE_OPENCONTAINING
         MENUITEM SEPARATOR
         POPUP "Recent Files"
         BEGIN
@@ -51,6 +54,18 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "Select &All\tCtrl+A",         IDM_EDIT_SELECTALL
         MENUITEM "Time/&Date\tF5",              IDM_EDIT_DATETIME
+        MENUITEM SEPARATOR
+        POPUP "Text &Operations"
+        BEGIN
+            MENUITEM "&Uppercase Selection",        IDM_EDIT_UPPERCASE
+            MENUITEM "&Lowercase Selection",        IDM_EDIT_LOWERCASE
+            MENUITEM SEPARATOR
+            MENUITEM "Sort Lines (&Ascending)",     IDM_EDIT_SORTLINES_ASC
+            MENUITEM "Sort Lines (&Descending)",    IDM_EDIT_SORTLINES_DESC
+            MENUITEM SEPARATOR
+            MENUITEM "&Trim Trailing Whitespace",   IDM_EDIT_TRIMWHITESPACE
+            MENUITEM "Remove &Duplicate Lines",     IDM_EDIT_REMOVEDUPLICATES
+        END
     END
     POPUP "F&ormat"
     BEGIN
@@ -82,6 +97,14 @@ BEGIN
             MENUITEM "UTF-16 LE",               IDM_ENCODING_UTF16LE
             MENUITEM "UTF-16 BE",               IDM_ENCODING_UTF16BE
             MENUITEM "ANSI",                    IDM_ENCODING_ANSI
+        END
+        POPUP "Reopen with E&ncoding"
+        BEGIN
+            MENUITEM "UTF-8",                   IDM_ENCODING_REOPEN_UTF8
+            MENUITEM "UTF-8 with BOM",          IDM_ENCODING_REOPEN_UTF8BOM
+            MENUITEM "UTF-16 LE",               IDM_ENCODING_REOPEN_UTF16LE
+            MENUITEM "UTF-16 BE",               IDM_ENCODING_REOPEN_UTF16BE
+            MENUITEM "ANSI",                    IDM_ENCODING_REOPEN_ANSI
         END
     END
     POPUP "&Notes"

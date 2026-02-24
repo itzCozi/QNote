@@ -366,6 +366,52 @@ FileReadResult FileIO::ReadFile(const std::wstring& filePath) {
 }
 
 //------------------------------------------------------------------------------
+// Read a file forcing a specific encoding
+//------------------------------------------------------------------------------
+FileReadResult FileIO::ReadFileWithEncoding(const std::wstring& filePath, TextEncoding encoding) {
+    FileReadResult result;
+    
+    // Open file for reading
+    HandleGuard hFile(CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    
+    if (!hFile.valid()) {
+        result.errorMessage = FormatLastError(GetLastError());
+        return result;
+    }
+    
+    // Get file size
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile.get(), &fileSize)) {
+        result.errorMessage = FormatLastError(GetLastError());
+        return result;
+    }
+    
+    if (fileSize.QuadPart > 256 * 1024 * 1024) {
+        result.errorMessage = L"File is too large (max 256MB)";
+        return result;
+    }
+    
+    std::vector<uint8_t> data;
+    if (fileSize.QuadPart > 0) {
+        data.resize(static_cast<size_t>(fileSize.QuadPart));
+        DWORD bytesRead = 0;
+        if (!::ReadFile(hFile.get(), data.data(), static_cast<DWORD>(data.size()), &bytesRead, nullptr)) {
+            result.errorMessage = FormatLastError(GetLastError());
+            return result;
+        }
+        data.resize(bytesRead);
+    }
+    
+    // Use the forced encoding
+    result.detectedEncoding = encoding;
+    result.content = DecodeToWString(data, encoding);
+    result.detectedLineEnding = DetectLineEnding(result.content);
+    result.success = true;
+    return result;
+}
+
+//------------------------------------------------------------------------------
 // Write a file with specified encoding and line endings
 //------------------------------------------------------------------------------
 FileWriteResult FileIO::WriteFile(const std::wstring& filePath, const std::wstring& content,
@@ -507,8 +553,15 @@ bool FileIO::ShowOpenDialog(HWND parent, std::wstring& outPath) {
     ofn.lpstrFile = szFile;
     ofn.nMaxFile = MAX_PATH;
     ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0"
+                      L"Markdown (*.md;*.markdown)\0*.md;*.markdown\0"
+                      L"Source Code (*.cpp;*.c;*.h;*.hpp;*.cs;*.java;*.py;*.js;*.ts)\0*.cpp;*.c;*.h;*.hpp;*.cs;*.java;*.py;*.js;*.ts\0"
+                      L"Web Files (*.html;*.htm;*.css;*.xml;*.json)\0*.html;*.htm;*.css;*.xml;*.json\0"
+                      L"Config Files (*.ini;*.cfg;*.conf;*.yaml;*.yml;*.toml)\0*.ini;*.cfg;*.conf;*.yaml;*.yml;*.toml\0"
+                      L"Log Files (*.log)\0*.log\0"
+                      L"Data Files (*.csv;*.tsv;*.sql)\0*.csv;*.tsv;*.sql\0"
+                      L"Script Files (*.bat;*.cmd;*.ps1;*.sh)\0*.bat;*.cmd;*.ps1;*.sh\0"
                       L"All Files (*.*)\0*.*\0";
-    ofn.nFilterIndex = 1;
+    ofn.nFilterIndex = 9;
     ofn.lpstrDefExt = L"txt";
     ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY;
     

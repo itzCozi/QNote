@@ -382,15 +382,32 @@ bool NoteStore::ParseJson(const std::wstring& json) {
         // Parse note fields
         Note note;
         
-        // Parse id
+        // Helper: find end of a JSON string value, handling escape sequences
+        auto findStringEnd = [&noteJson](size_t start) -> size_t {
+            size_t pos = start;
+            while (pos < noteJson.length()) {
+                if (noteJson[pos] == L'\\') {
+                    pos += 2;  // Skip escaped char
+                } else if (noteJson[pos] == L'"') {
+                    return pos;
+                } else {
+                    pos++;
+                }
+            }
+            return std::wstring::npos;
+        };
+        
+        // Parse id (with escape-aware string end)
         size_t idPos = noteJson.find(L"\"id\"");
         if (idPos != std::wstring::npos) {
             size_t valStart = noteJson.find(L"\"", idPos + 4) + 1;
-            size_t valEnd = noteJson.find(L"\"", valStart);
-            note.id = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            size_t valEnd = findStringEnd(valStart);
+            if (valEnd != std::wstring::npos) {
+                note.id = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            }
         }
         
-        // Parse content
+        // Parse content (already escape-aware)
         size_t contentPos = noteJson.find(L"\"content\"");
         if (contentPos != std::wstring::npos) {
             size_t valStart = noteJson.find(L"\"", contentPos + 9) + 1;
@@ -408,12 +425,14 @@ bool NoteStore::ParseJson(const std::wstring& json) {
             note.content = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
         }
         
-        // Parse title
+        // Parse title (with escape-aware string end)
         size_t titlePos = noteJson.find(L"\"title\"");
         if (titlePos != std::wstring::npos) {
             size_t valStart = noteJson.find(L"\"", titlePos + 7) + 1;
-            size_t valEnd = noteJson.find(L"\"", valStart);
-            note.title = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            size_t valEnd = findStringEnd(valStart);
+            if (valEnd != std::wstring::npos) {
+                note.title = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            }
         }
         
         // Parse createdAt
@@ -448,8 +467,10 @@ bool NoteStore::ParseJson(const std::wstring& json) {
         size_t pinnedPos = noteJson.find(L"\"isPinned\"");
         if (pinnedPos != std::wstring::npos) {
             size_t valStart = noteJson.find(L":", pinnedPos) + 1;
-            note.isPinned = (noteJson.find(L"true", valStart) != std::wstring::npos && 
-                            noteJson.find(L"true", valStart) < noteJson.find(L",", valStart));
+            // Skip whitespace
+            while (valStart < noteJson.length() && (noteJson[valStart] == L' ' || noteJson[valStart] == L'\t')) valStart++;
+            // Check if value starts with 't' (true)
+            note.isPinned = (valStart < noteJson.length() && noteJson[valStart] == L't');
         }
         
         if (!note.id.empty()) {

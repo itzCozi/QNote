@@ -46,6 +46,9 @@ public:
     // Read a file with automatic encoding detection
     [[nodiscard]] static FileReadResult ReadFile(const std::wstring& filePath);
     
+    // Read a file forcing a specific encoding (for "Reopen with Encoding")
+    [[nodiscard]] static FileReadResult ReadFileWithEncoding(const std::wstring& filePath, TextEncoding encoding);
+    
     // Write a file with specified encoding and line endings
     [[nodiscard]] static FileWriteResult WriteFile(const std::wstring& filePath,
                                      const std::wstring& content,

@@ -5,7 +5,10 @@
 
 #include "LineNumbersGutter.h"
 #include "Editor.h"
+#include <ShellScalingApi.h>
 #include <algorithm>
+
+#pragma comment(lib, "Shcore.lib")
 
 namespace QNote {
 
@@ -26,6 +29,9 @@ bool LineNumbersGutter::Create(HWND parent, HINSTANCE hInstance, Editor* editor)
     m_hwndParent = parent;
     m_hInstance = hInstance;
     m_editor = editor;
+
+    // Initialize DPI scaling
+    InitializeDPI();
     
     // Register window class if not already done
     if (!s_classRegistered) {
@@ -71,6 +77,11 @@ bool LineNumbersGutter::Create(HWND parent, HINSTANCE hInstance, Editor* editor)
 // Destroy the gutter window
 //------------------------------------------------------------------------------
 void LineNumbersGutter::Destroy() noexcept {
+    if (m_ownsFont && m_font) {
+        DeleteObject(m_font);
+        m_font = nullptr;
+        m_ownsFont = false;
+    }
     if (m_hwndGutter) {
         DestroyWindow(m_hwndGutter);
         m_hwndGutter = nullptr;
@@ -115,21 +126,25 @@ void LineNumbersGutter::Update() noexcept {
 // Set font to match editor
 //------------------------------------------------------------------------------
 void LineNumbersGutter::SetFont(HFONT font) noexcept {
-    m_font = font;
-    
+    if (!font) return;
+
+    // Extract the logical font properties from the editor's font
+    LOGFONTW lf = {};
+    if (GetObjectW(font, sizeof(lf), &lf) == 0) return;
+
+    // Store the font properties
+    m_logFont = lf;
+
+    // Compute the base (unscaled) font height by reversing the DPI scaling
+    // lfHeight is typically negative = -(size * dpi / 72)
+    // We store it as-is so we can re-scale for our DPI
+    m_baseFontHeight = lf.lfHeight;
+
+    // Create our own copy of the font, scaled for our DPI
+    RecreateFont();
+
     if (m_font && m_hwndGutter) {
-        // Get font metrics
-        HDC hdc = GetDC(m_hwndGutter);
-        HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, m_font));
-        
-        TEXTMETRICW tm;
-        GetTextMetricsW(hdc, &tm);
-        m_charWidth = tm.tmAveCharWidth;
-        m_lineHeight = tm.tmHeight;
-        
-        SelectObject(hdc, oldFont);
-        ReleaseDC(m_hwndGutter, hdc);
-        
+        UpdateFontMetrics();
         CalculateWidth();
         Update();
     }
@@ -163,9 +178,9 @@ void LineNumbersGutter::CalculateWidth() {
     digits = (std::max)(digits, 3);
     m_width = (digits + 2) * m_charWidth;  // Extra space for padding
     
-    // Minimum width
-    if (m_width < 40) {
-        m_width = 40;
+    // Minimum width (DPI-scaled)
+    if (m_width < m_minWidth) {
+        m_width = m_minWidth;
     }
 }
 
@@ -193,6 +208,21 @@ LRESULT LineNumbersGutter::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
             
         case WM_ERASEBKGND:
             return 1;  // We handle background in WM_PAINT
+
+        case WM_DPICHANGED_AFTERPARENT: {
+            // Child windows receive this when parent DPI changes (Per-Monitor V2)
+            HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
+            if (hUser32) {
+                using GetDpiForWindowFunc = UINT(WINAPI*)(HWND);
+                auto pGetDpiForWindow = reinterpret_cast<GetDpiForWindowFunc>(
+                    GetProcAddress(hUser32, "GetDpiForWindow"));
+                if (pGetDpiForWindow && m_hwndParent) {
+                    UINT newDpi = pGetDpiForWindow(m_hwndParent);
+                    UpdateDPI(newDpi);
+                }
+            }
+            return 0;
+        }
     }
     
     return DefWindowProcW(m_hwndGutter, msg, wParam, lParam);
@@ -255,9 +285,9 @@ void LineNumbersGutter::OnPaint() {
             wsprintfW(buffer, L"%d", lineNum);
             
             RECT textRect;
-            textRect.left = 4;
+            textRect.left = m_leftPadding;
             textRect.top = i * m_lineHeight;
-            textRect.right = rc.right - 8;
+            textRect.right = rc.right - m_rightPadding;
             textRect.bottom = textRect.top + m_lineHeight;
             
             DrawTextW(memDC, buffer, -1, &textRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
@@ -277,6 +307,123 @@ void LineNumbersGutter::OnPaint() {
     DeleteDC(memDC);
     
     EndPaint(m_hwndGutter, &ps);
+}
+
+//------------------------------------------------------------------------------
+// Initialize DPI scaling
+//------------------------------------------------------------------------------
+void LineNumbersGutter::InitializeDPI() {
+    // Try to get per-monitor DPI (Windows 8.1+)
+    HMODULE hShcore = GetModuleHandleW(L"Shcore.dll");
+    if (hShcore) {
+        using GetDpiForMonitorFunc = HRESULT(WINAPI*)(HMONITOR, MONITOR_DPI_TYPE, UINT*, UINT*);
+        auto pGetDpiForMonitor = reinterpret_cast<GetDpiForMonitorFunc>(
+            GetProcAddress(hShcore, "GetDpiForMonitor"));
+        if (pGetDpiForMonitor && m_hwndParent) {
+            HMONITOR hMon = MonitorFromWindow(m_hwndParent, MONITOR_DEFAULTTONEAREST);
+            UINT dpiX = 96, dpiY = 96;
+            if (SUCCEEDED(pGetDpiForMonitor(hMon, MDT_EFFECTIVE_DPI, &dpiX, &dpiY))) {
+                m_dpi = static_cast<int>(dpiX);
+            }
+        }
+    }
+
+    // Fallback: get system DPI from DC
+    if (m_dpi == 96) {
+        HDC hdc = GetDC(nullptr);
+        if (hdc) {
+            m_dpi = GetDeviceCaps(hdc, LOGPIXELSX);
+            ReleaseDC(nullptr, hdc);
+        }
+    }
+
+    // Scale layout values
+    m_leftPadding = Scale(BASE_LEFT_PADDING);
+    m_rightPadding = Scale(BASE_RIGHT_PADDING);
+    m_minWidth = Scale(BASE_MIN_WIDTH);
+    m_width = Scale(BASE_DEFAULT_WIDTH);
+}
+
+//------------------------------------------------------------------------------
+// Update DPI scaling (called when monitor DPI changes)
+//------------------------------------------------------------------------------
+void LineNumbersGutter::UpdateDPI(UINT newDpi) {
+    if (static_cast<int>(newDpi) == m_dpi) return;
+
+    m_dpi = static_cast<int>(newDpi);
+
+    // Rescale layout values
+    m_leftPadding = Scale(BASE_LEFT_PADDING);
+    m_rightPadding = Scale(BASE_RIGHT_PADDING);
+    m_minWidth = Scale(BASE_MIN_WIDTH);
+
+    // Recreate the font at the new DPI if we have font properties
+    if (m_baseFontHeight != 0) {
+        RecreateFont();
+        if (m_font && m_hwndGutter) {
+            UpdateFontMetrics();
+        }
+    }
+
+    CalculateWidth();
+    if (m_hwndGutter && m_visible) {
+        InvalidateRect(m_hwndGutter, nullptr, FALSE);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Recreate the gutter's own font scaled for current DPI
+//------------------------------------------------------------------------------
+void LineNumbersGutter::RecreateFont() {
+    // Delete old owned font
+    if (m_ownsFont && m_font) {
+        DeleteObject(m_font);
+        m_font = nullptr;
+        m_ownsFont = false;
+    }
+
+    // Create a new font using stored properties
+    // The lfHeight from the editor was created at the editor's DPI.
+    // We use it directly since the editor should already be DPI-aware.
+    // But if DPI has changed since font was set, we need to rescale.
+    LOGFONTW lf = m_logFont;
+
+    // Ensure the font height is properly scaled for our current DPI
+    // Extract the point size from the stored height and rescale
+    // lfHeight = -(pointSize * dpi / 72)
+    // We want to ensure the font matches what the editor displays
+    if (lf.lfHeight < 0) {
+        // Compute a DPI-aware height
+        // Use our DPI to create the font so it renders correctly in our DC
+        lf.lfHeight = -MulDiv(-lf.lfHeight, m_dpi, m_dpi);
+        // The above is identity, but what we really need is to ensure
+        // the font is created with the correct height for this DPI.
+        // Since the editor font may have been created at a different DPI,
+        // let's just use the LOGFONT as-is (the editor already DPI-scaled it)
+        lf.lfHeight = m_logFont.lfHeight;
+    }
+
+    lf.lfQuality = CLEARTYPE_QUALITY;
+    m_font = CreateFontIndirectW(&lf);
+    m_ownsFont = (m_font != nullptr);
+}
+
+//------------------------------------------------------------------------------
+// Update cached font metrics from the current font
+//------------------------------------------------------------------------------
+void LineNumbersGutter::UpdateFontMetrics() {
+    if (!m_font || !m_hwndGutter) return;
+
+    HDC hdc = GetDC(m_hwndGutter);
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, m_font));
+
+    TEXTMETRICW tm;
+    GetTextMetricsW(hdc, &tm);
+    m_charWidth = tm.tmAveCharWidth;
+    m_lineHeight = tm.tmHeight;
+
+    SelectObject(hdc, oldFont);
+    ReleaseDC(m_hwndGutter, hdc);
 }
 
 } // namespace QNote

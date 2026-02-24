@@ -12,6 +12,9 @@
 #include <uxtheme.h>
 #include <vssym32.h>
 #include <sstream>
+#include <algorithm>
+#include <cctype>
+#include <set>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "comdlg32.lib")
@@ -243,6 +246,23 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             OnHotkey(static_cast<int>(wParam));
             return 0;
             
+        case WM_SYSCOMMAND:
+            // Intercept minimize to send to tray
+            if ((wParam & 0xFFF0) == SC_MINIMIZE) {
+                MinimizeToTray();
+                return 0;
+            }
+            break;
+            
+        case WM_APP_TRAYICON:
+            // System tray icon messages
+            if (lParam == WM_LBUTTONDBLCLK) {
+                RestoreFromTray();
+            } else if (lParam == WM_RBUTTONUP) {
+                ShowTrayContextMenu();
+            }
+            return 0;
+
         case WM_APP_OPENNOTE:
             // Open a note by ID passed via lParam (as allocated string)
             if (lParam) {
@@ -251,6 +271,38 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 delete noteId;
             }
             return 0;
+
+        case WM_DPICHANGED: {
+            // Top-level window receives this when moved to a monitor with different DPI
+            UINT newDpi = HIWORD(wParam);
+
+            // Propagate DPI change to the tab bar
+            if (m_tabBar) {
+                m_tabBar->UpdateDPI(newDpi);
+            }
+
+            // Propagate DPI change to the line numbers gutter
+            // Also re-set the editor font so the gutter gets updated font properties
+            if (m_lineNumbersGutter) {
+                m_lineNumbersGutter->UpdateDPI(newDpi);
+                if (m_editor && m_lineNumbersGutter->IsVisible()) {
+                    m_lineNumbersGutter->SetFont(m_editor->GetFont());
+                }
+            }
+
+            // Resize the main window to the suggested rect
+            const RECT* prcNewWindow = reinterpret_cast<const RECT*>(lParam);
+            if (prcNewWindow) {
+                SetWindowPos(m_hwnd, nullptr,
+                    prcNewWindow->left, prcNewWindow->top,
+                    prcNewWindow->right - prcNewWindow->left,
+                    prcNewWindow->bottom - prcNewWindow->top,
+                    SWP_NOZORDER | SWP_NOACTIVATE);
+            }
+
+            ResizeControls();
+            return 0;
+        }
     }
     
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
@@ -354,6 +406,15 @@ void MainWindow::OnCreate() {
     // Start file auto-save timer
     SetTimer(m_hwnd, TIMER_FILEAUTOSAVE, FILEAUTOSAVE_INTERVAL, nullptr);
     
+    // Start file change monitoring timer
+    SetTimer(m_hwnd, TIMER_FILEWATCH, FILEWATCH_INTERVAL, nullptr);
+    
+    // Initialize system tray
+    InitializeSystemTray();
+    
+    // Restore previous session (must be after tab bar + document manager init)
+    LoadSession();
+    
     // Initial resize
     RECT rc;
     GetClientRect(m_hwnd, &rc);
@@ -368,6 +429,13 @@ void MainWindow::OnDestroy() {
     KillTimer(m_hwnd, TIMER_STATUSUPDATE);
     KillTimer(m_hwnd, TIMER_AUTOSAVE);
     KillTimer(m_hwnd, TIMER_FILEAUTOSAVE);
+    KillTimer(m_hwnd, TIMER_FILEWATCH);
+    
+    // Save session before destroying
+    SaveSession();
+    
+    // Clean up system tray
+    CleanupSystemTray();
     
     // Delete auto-save backup if file was saved successfully
     if (!m_isNoteMode && !m_isNewFile && !m_currentFile.empty() && !m_editor->IsModified()) {
@@ -537,6 +605,13 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_ENCODING_UTF16BE:  OnEncodingChange(TextEncoding::UTF16_BE); break;
         case IDM_ENCODING_ANSI:     OnEncodingChange(TextEncoding::ANSI); break;
         
+        // Reopen with encoding
+        case IDM_ENCODING_REOPEN_UTF8:    OnReopenWithEncoding(TextEncoding::UTF8); break;
+        case IDM_ENCODING_REOPEN_UTF8BOM: OnReopenWithEncoding(TextEncoding::UTF8_BOM); break;
+        case IDM_ENCODING_REOPEN_UTF16LE: OnReopenWithEncoding(TextEncoding::UTF16_LE); break;
+        case IDM_ENCODING_REOPEN_UTF16BE: OnReopenWithEncoding(TextEncoding::UTF16_BE); break;
+        case IDM_ENCODING_REOPEN_ANSI:    OnReopenWithEncoding(TextEncoding::ANSI); break;
+        
         // Help menu
         case IDM_HELP_ABOUT: OnHelpAbout(); break;
         
@@ -550,6 +625,23 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_NOTES_PINNOTE:      OnNotesPinCurrent(); break;
         case IDM_NOTES_SAVENOW:      OnNotesSaveNow(); break;
         case IDM_NOTES_DELETENOTE:   OnNotesDeleteCurrent(); break;
+        
+        // File operations (additional)
+        case IDM_FILE_REVERT:        OnFileRevert(); break;
+        case IDM_FILE_OPENCONTAINING: OnFileOpenContainingFolder(); break;
+        
+        // Text manipulation
+        case IDM_EDIT_UPPERCASE:         OnEditUppercase(); break;
+        case IDM_EDIT_LOWERCASE:         OnEditLowercase(); break;
+        case IDM_EDIT_SORTLINES_ASC:     OnEditSortLines(true); break;
+        case IDM_EDIT_SORTLINES_DESC:    OnEditSortLines(false); break;
+        case IDM_EDIT_TRIMWHITESPACE:    OnEditTrimWhitespace(); break;
+        case IDM_EDIT_REMOVEDUPLICATES:  OnEditRemoveDuplicateLines(); break;
+        
+        // System tray
+        case IDM_TRAY_SHOW:     RestoreFromTray(); break;
+        case IDM_TRAY_CAPTURE:  OnNotesQuickCapture(); break;
+        case IDM_TRAY_EXIT:     DestroyWindow(m_hwnd); break;
         
         // Tab menu
         case IDM_TAB_NEW:            OnTabNew(); break;
@@ -671,6 +763,9 @@ void MainWindow::OnTimer(UINT_PTR timerId) {
     } else if (timerId == TIMER_FILEAUTOSAVE) {
         // Auto-save file backup if in file mode and modified
         AutoSaveFileBackup();
+    } else if (timerId == TIMER_FILEWATCH) {
+        // Check if the current file has been modified externally
+        CheckFileChanged();
     }
 }
 
@@ -1199,6 +1294,50 @@ void MainWindow::OnEncodingChange(TextEncoding encoding) {
 }
 
 //------------------------------------------------------------------------------
+// Reopen current file with a specific encoding
+//------------------------------------------------------------------------------
+void MainWindow::OnReopenWithEncoding(TextEncoding encoding) {
+    if (m_currentFile.empty() || m_isNewFile) {
+        MessageBoxW(m_hwnd, L"No file is currently open to reopen.", L"QNote", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    
+    if (m_editor->IsModified()) {
+        int result = MessageBoxW(m_hwnd, 
+            L"The file has unsaved changes. Reopening with a different encoding will discard them.\nContinue?",
+            L"QNote", MB_YESNO | MB_ICONWARNING);
+        if (result != IDYES) return;
+    }
+    
+    m_ignoreNextFileChange = true;
+    FileReadResult result = FileIO::ReadFileWithEncoding(m_currentFile, encoding);
+    if (result.success) {
+        m_editor->SetText(result.content);
+        m_editor->SetEncoding(encoding);
+        m_editor->SetLineEnding(result.detectedLineEnding);
+        m_editor->SetModified(false);
+        m_editor->SetSelection(0, 0);
+        
+        // Update document manager
+        if (m_documentManager) {
+            auto* doc = m_documentManager->GetActiveDocument();
+            if (doc) {
+                doc->encoding = encoding;
+                doc->lineEnding = result.detectedLineEnding;
+                doc->text = result.content;
+            }
+            m_documentManager->SetDocumentModified(m_documentManager->GetActiveTabId(), false);
+        }
+        
+        StartFileMonitoring();
+        UpdateTitle();
+        UpdateStatusBar();
+    } else {
+        MessageBoxW(m_hwnd, result.errorMessage.c_str(), L"Error Reopening File", MB_OK | MB_ICONERROR);
+    }
+}
+
+//------------------------------------------------------------------------------
 // Help -> About
 //------------------------------------------------------------------------------
 void MainWindow::OnHelpAbout() {
@@ -1272,8 +1411,17 @@ void MainWindow::UpdateStatusBar() {
     int line = m_editor->GetCurrentLine() + 1;
     int column = m_editor->GetCurrentColumn() + 1;
     
-    wchar_t posText[64];
-    swprintf_s(posText, L"Ln %d, Col %d", line, column);
+    // Check for selection
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    
+    wchar_t posText[128];
+    if (selStart != selEnd) {
+        DWORD selLen = (selEnd > selStart) ? (selEnd - selStart) : (selStart - selEnd);
+        swprintf_s(posText, L"Ln %d, Col %d  |  %lu sel", line, column, static_cast<unsigned long>(selLen));
+    } else {
+        swprintf_s(posText, L"Ln %d, Col %d", line, column);
+    }
     SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_POSITION, reinterpret_cast<LPARAM>(posText));
     
     // Encoding
@@ -1288,6 +1436,26 @@ void MainWindow::UpdateStatusBar() {
     wchar_t zoomText[32];
     swprintf_s(zoomText, L"%d%%", m_settingsManager->GetSettings().zoomLevel);
     SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_ZOOM, reinterpret_cast<LPARAM>(zoomText));
+    
+    // Word and character count
+    int textLen = m_editor->GetTextLength();
+    // Simple word count: count transitions from whitespace to non-whitespace
+    int wordCount = 0;
+    if (textLen > 0) {
+        std::wstring text = m_editor->GetText();
+        bool inWord = false;
+        for (wchar_t c : text) {
+            if (c == L' ' || c == L'\t' || c == L'\r' || c == L'\n') {
+                inWord = false;
+            } else if (!inWord) {
+                inWord = true;
+                wordCount++;
+            }
+        }
+    }
+    wchar_t countText[64];
+    swprintf_s(countText, L"%d words, %d chars", wordCount, textLen);
+    SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_COUNTS, reinterpret_cast<LPARAM>(countText));
 }
 
 //------------------------------------------------------------------------------
@@ -1315,6 +1483,22 @@ void MainWindow::UpdateMenuState() {
     EnableMenuItem(hMenu, IDM_EDIT_COPY, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(hMenu, IDM_EDIT_PASTE, MF_BYCOMMAND | (canPaste ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(hMenu, IDM_EDIT_DELETE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    
+    // Text operation menu states
+    EnableMenuItem(hMenu, IDM_EDIT_UPPERCASE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_EDIT_LOWERCASE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    
+    // File operation states
+    bool hasFile = !m_isNewFile && !m_currentFile.empty();
+    EnableMenuItem(hMenu, IDM_FILE_REVERT, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_FILE_OPENCONTAINING, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    
+    // Reopen with encoding requires a file
+    EnableMenuItem(hMenu, IDM_ENCODING_REOPEN_UTF8, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_ENCODING_REOPEN_UTF8BOM, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_ENCODING_REOPEN_UTF16LE, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_ENCODING_REOPEN_UTF16BE, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_ENCODING_REOPEN_ANSI, MF_BYCOMMAND | (hasFile ? MF_ENABLED : MF_GRAYED));
     
     // Format menu state
     CheckMenuItem(hMenu, IDM_FORMAT_WORDWRAP, 
@@ -1477,6 +1661,9 @@ bool MainWindow::LoadFile(const std::wstring& filePath) {
     UpdateTitle();
     UpdateStatusBar();
     
+    // Start monitoring the file for external changes
+    StartFileMonitoring();
+    
     // Move cursor to start
     m_editor->SetSelection(0, 0);
     m_editor->SetFocus();
@@ -1507,6 +1694,10 @@ bool MainWindow::SaveFile(const std::wstring& filePath) {
     
     // Delete auto-save backup on successful save
     DeleteAutoSaveBackup();
+    
+    // Refresh file write time to avoid false change detection
+    m_ignoreNextFileChange = true;
+    StartFileMonitoring();
     
     // Add to recent files
     m_settingsManager->AddRecentFile(filePath);
@@ -1553,7 +1744,7 @@ void MainWindow::CreateStatusBar() {
     
     if (m_hwndStatus) {
         // Set up status bar parts
-        int widths[STATUS_PARTS] = { 150, 250, 330, -1 };
+        int widths[STATUS_PARTS] = { 150, 250, 330, 400, -1 };
         SendMessageW(m_hwndStatus, SB_SETPARTS, STATUS_PARTS, reinterpret_cast<LPARAM>(widths));
     }
     
@@ -1909,6 +2100,485 @@ void MainWindow::OnEditorScroll(void* userData) {
     if (self && self->m_lineNumbersGutter && self->m_lineNumbersGutter->IsVisible()) {
         self->m_lineNumbersGutter->OnEditorScroll();
     }
+}
+
+//------------------------------------------------------------------------------
+// File -> Revert to Saved
+//------------------------------------------------------------------------------
+void MainWindow::OnFileRevert() {
+    if (m_currentFile.empty() || m_isNewFile) {
+        MessageBoxW(m_hwnd, L"No file to revert to.", L"QNote", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    
+    if (m_editor->IsModified()) {
+        int result = MessageBoxW(m_hwnd,
+            L"Discard all changes and reload the file from disk?",
+            L"Revert to Saved", MB_YESNO | MB_ICONWARNING);
+        if (result != IDYES) return;
+    }
+    
+    m_ignoreNextFileChange = true;
+    LoadFile(m_currentFile);
+}
+
+//------------------------------------------------------------------------------
+// File -> Open Containing Folder
+//------------------------------------------------------------------------------
+void MainWindow::OnFileOpenContainingFolder() {
+    if (m_currentFile.empty() || m_isNewFile) {
+        MessageBoxW(m_hwnd, L"No file is currently open.", L"QNote", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    
+    // Use explorer.exe /select to open the folder and highlight the file
+    std::wstring params = L"/select,\"" + m_currentFile + L"\"";
+    ShellExecuteW(nullptr, L"open", L"explorer.exe", params.c_str(), nullptr, SW_SHOWNORMAL);
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Uppercase Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnEditUppercase() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+    
+    std::transform(sel.begin(), sel.end(), sel.begin(), ::towupper);
+    m_editor->ReplaceSelection(sel);
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Lowercase Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnEditLowercase() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+    
+    std::transform(sel.begin(), sel.end(), sel.begin(), ::towlower);
+    m_editor->ReplaceSelection(sel);
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Sort Lines (ascending or descending)
+//------------------------------------------------------------------------------
+void MainWindow::OnEditSortLines(bool ascending) {
+    std::wstring text = m_editor->GetText();
+    if (text.empty()) return;
+    
+    // Split into lines
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        // Remove trailing \r if present
+        if (!line.empty() && line.back() == L'\r') {
+            line.pop_back();
+        }
+        lines.push_back(line);
+    }
+    
+    // Sort
+    if (ascending) {
+        std::sort(lines.begin(), lines.end(), [](const std::wstring& a, const std::wstring& b) {
+            return _wcsicmp(a.c_str(), b.c_str()) < 0;
+        });
+    } else {
+        std::sort(lines.begin(), lines.end(), [](const std::wstring& a, const std::wstring& b) {
+            return _wcsicmp(a.c_str(), b.c_str()) > 0;
+        });
+    }
+    
+    // Rejoin with \r\n (RichEdit uses \r internally, but SetText handles it)
+    std::wstring result;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        result += lines[i];
+        if (i < lines.size() - 1) {
+            result += L"\r\n";
+        }
+    }
+    
+    m_editor->SelectAll();
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Trim Trailing Whitespace
+//------------------------------------------------------------------------------
+void MainWindow::OnEditTrimWhitespace() {
+    std::wstring text = m_editor->GetText();
+    if (text.empty()) return;
+    
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') {
+            line.pop_back();
+        }
+        // Trim trailing whitespace
+        size_t end = line.find_last_not_of(L" \t");
+        if (end != std::wstring::npos) {
+            line = line.substr(0, end + 1);
+        } else if (!line.empty()) {
+            line.clear();  // Line was all whitespace
+        }
+        lines.push_back(line);
+    }
+    
+    std::wstring result;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        result += lines[i];
+        if (i < lines.size() - 1) {
+            result += L"\r\n";
+        }
+    }
+    
+    m_editor->SelectAll();
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Remove Duplicate Lines
+//------------------------------------------------------------------------------
+void MainWindow::OnEditRemoveDuplicateLines() {
+    std::wstring text = m_editor->GetText();
+    if (text.empty()) return;
+    
+    std::vector<std::wstring> lines;
+    std::set<std::wstring> seen;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') {
+            line.pop_back();
+        }
+        if (seen.insert(line).second) {
+            lines.push_back(line);
+        }
+    }
+    
+    std::wstring result;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        result += lines[i];
+        if (i < lines.size() - 1) {
+            result += L"\r\n";
+        }
+    }
+    
+    m_editor->SelectAll();
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// File change monitoring
+//------------------------------------------------------------------------------
+void MainWindow::StartFileMonitoring() {
+    if (!m_currentFile.empty() && !m_isNewFile) {
+        m_lastWriteTime = GetFileLastWriteTime(m_currentFile);
+    } else {
+        m_lastWriteTime = {};
+    }
+}
+
+void MainWindow::CheckFileChanged() {
+    if (m_currentFile.empty() || m_isNewFile || m_isNoteMode) return;
+    if (m_ignoreNextFileChange) {
+        m_ignoreNextFileChange = false;
+        return;
+    }
+    
+    // Check if file still exists
+    if (GetFileAttributesW(m_currentFile.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    
+    FILETIME currentTime = GetFileLastWriteTime(m_currentFile);
+    if (currentTime.dwHighDateTime == 0 && currentTime.dwLowDateTime == 0) return;
+    
+    if (CompareFileTime(&currentTime, &m_lastWriteTime) != 0) {
+        m_lastWriteTime = currentTime;
+        
+        int result = MessageBoxW(m_hwnd,
+            L"The file has been modified by another program.\nDo you want to reload it?",
+            L"File Changed", MB_YESNO | MB_ICONQUESTION);
+        
+        if (result == IDYES) {
+            LoadFile(m_currentFile);
+        }
+    }
+}
+
+FILETIME MainWindow::GetFileLastWriteTime(const std::wstring& path) {
+    FILETIME ft = {};
+    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
+                               nullptr, OPEN_EXISTING, 0, nullptr);
+    if (hFile != INVALID_HANDLE_VALUE) {
+        GetFileTime(hFile, nullptr, nullptr, &ft);
+        CloseHandle(hFile);
+    }
+    return ft;
+}
+
+//------------------------------------------------------------------------------
+// Session save/restore
+//------------------------------------------------------------------------------
+void MainWindow::SaveSession() {
+    if (!m_documentManager || !m_settingsManager) return;
+    
+    // Build session file path
+    std::wstring sessionPath = m_settingsManager->GetSettingsPath();
+    size_t pos = sessionPath.rfind(L"config.ini");
+    if (pos == std::wstring::npos) return;
+    std::wstring sessionDir = sessionPath.substr(0, pos);
+    sessionPath = sessionDir + L"session.ini";
+    
+    // Save current document state
+    m_documentManager->SaveCurrentState();
+    
+    auto ids = m_documentManager->GetAllTabIds();
+    int activeTabId = m_documentManager->GetActiveTabId();
+    
+    // Delete old session file
+    DeleteFileW(sessionPath.c_str());
+    
+    // Don't save session if there's only one empty untitled tab
+    if (ids.size() == 1) {
+        auto* doc = m_documentManager->GetDocument(ids[0]);
+        if (doc && doc->isNewFile && !doc->isModified && doc->text.empty()) {
+            return;
+        }
+    }
+    
+    // Write tab count and active index
+    WritePrivateProfileStringW(L"Session", L"TabCount",
+        std::to_wstring(ids.size()).c_str(), sessionPath.c_str());
+    
+    int activeIndex = 0;
+    for (int i = 0; i < static_cast<int>(ids.size()); i++) {
+        if (ids[i] == activeTabId) { activeIndex = i; break; }
+    }
+    WritePrivateProfileStringW(L"Session", L"ActiveIndex",
+        std::to_wstring(activeIndex).c_str(), sessionPath.c_str());
+    
+    for (int i = 0; i < static_cast<int>(ids.size()); i++) {
+        auto* doc = m_documentManager->GetDocument(ids[i]);
+        if (!doc) continue;
+        
+        std::wstring section = L"Tab" + std::to_wstring(i);
+        
+        auto writeStr = [&](const wchar_t* key, const std::wstring& val) {
+            WritePrivateProfileStringW(section.c_str(), key, val.c_str(), sessionPath.c_str());
+        };
+        auto writeInt = [&](const wchar_t* key, int val) {
+            writeStr(key, std::to_wstring(val));
+        };
+        
+        writeStr(L"FilePath", doc->filePath);
+        writeStr(L"CustomTitle", doc->customTitle);
+        writeInt(L"IsNewFile", doc->isNewFile ? 1 : 0);
+        writeInt(L"IsPinned", doc->isPinned ? 1 : 0);
+        writeInt(L"Encoding", static_cast<int>(doc->encoding));
+        writeInt(L"LineEnding", static_cast<int>(doc->lineEnding));
+        writeInt(L"CursorStart", static_cast<int>(doc->cursorStart));
+        writeInt(L"CursorEnd", static_cast<int>(doc->cursorEnd));
+        writeInt(L"FirstVisibleLine", doc->firstVisibleLine);
+        writeInt(L"IsNoteMode", doc->isNoteMode ? 1 : 0);
+        writeStr(L"NoteId", doc->noteId);
+        
+        // For untitled or modified tabs, save content to sidecar file
+        if (doc->isNewFile || doc->isModified) {
+            std::wstring contentPath = sessionDir + L"session_tab" + std::to_wstring(i) + L".txt";
+            (void)FileIO::WriteFile(contentPath, doc->text, TextEncoding::UTF8, LineEnding::LF);
+            writeInt(L"HasSavedContent", 1);
+        }
+    }
+}
+
+void MainWindow::LoadSession() {
+    if (!m_documentManager || !m_settingsManager) return;
+    
+    std::wstring sessionPath = m_settingsManager->GetSettingsPath();
+    size_t pos = sessionPath.rfind(L"config.ini");
+    if (pos == std::wstring::npos) return;
+    std::wstring sessionDir = sessionPath.substr(0, pos);
+    sessionPath = sessionDir + L"session.ini";
+    
+    if (GetFileAttributesW(sessionPath.c_str()) == INVALID_FILE_ATTRIBUTES) return;
+    
+    int tabCount = GetPrivateProfileIntW(L"Session", L"TabCount", 0, sessionPath.c_str());
+    int activeIndex = GetPrivateProfileIntW(L"Session", L"ActiveIndex", 0, sessionPath.c_str());
+    
+    if (tabCount <= 0) {
+        DeleteFileW(sessionPath.c_str());
+        return;
+    }
+    
+    for (int i = 0; i < tabCount; i++) {
+        std::wstring section = L"Tab" + std::to_wstring(i);
+        wchar_t buf[4096] = {};
+        
+        GetPrivateProfileStringW(section.c_str(), L"FilePath", L"", buf, 4096, sessionPath.c_str());
+        std::wstring filePath = buf;
+        
+        GetPrivateProfileStringW(section.c_str(), L"CustomTitle", L"", buf, 4096, sessionPath.c_str());
+        std::wstring customTitle = buf;
+        
+        bool isNewFile = GetPrivateProfileIntW(section.c_str(), L"IsNewFile", 1, sessionPath.c_str()) != 0;
+        bool isPinned = GetPrivateProfileIntW(section.c_str(), L"IsPinned", 0, sessionPath.c_str()) != 0;
+        auto encoding = static_cast<TextEncoding>(GetPrivateProfileIntW(section.c_str(), L"Encoding", 1, sessionPath.c_str()));
+        auto lineEnding = static_cast<LineEnding>(GetPrivateProfileIntW(section.c_str(), L"LineEnding", 0, sessionPath.c_str()));
+        DWORD cursorStart = static_cast<DWORD>(GetPrivateProfileIntW(section.c_str(), L"CursorStart", 0, sessionPath.c_str()));
+        DWORD cursorEnd = static_cast<DWORD>(GetPrivateProfileIntW(section.c_str(), L"CursorEnd", 0, sessionPath.c_str()));
+        int firstVisibleLine = GetPrivateProfileIntW(section.c_str(), L"FirstVisibleLine", 0, sessionPath.c_str());
+        bool isNoteMode = GetPrivateProfileIntW(section.c_str(), L"IsNoteMode", 0, sessionPath.c_str()) != 0;
+        
+        GetPrivateProfileStringW(section.c_str(), L"NoteId", L"", buf, 4096, sessionPath.c_str());
+        std::wstring noteId = buf;
+        
+        bool hasSavedContent = GetPrivateProfileIntW(section.c_str(), L"HasSavedContent", 0, sessionPath.c_str()) != 0;
+        
+        std::wstring content;
+        
+        if (!isNewFile && !filePath.empty()) {
+            // File-based tab: re-read from disk
+            if (GetFileAttributesW(filePath.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
+            FileReadResult readResult = FileIO::ReadFile(filePath);
+            if (!readResult.success) continue;
+            content = readResult.content;
+            encoding = readResult.detectedEncoding;
+            lineEnding = readResult.detectedLineEnding;
+        } else if (hasSavedContent) {
+            // Untitled/modified: read from sidecar
+            std::wstring contentPath = sessionDir + L"session_tab" + std::to_wstring(i) + L".txt";
+            FileReadResult readResult = FileIO::ReadFile(contentPath);
+            if (readResult.success) content = readResult.content;
+        }
+        
+        if (i == 0) {
+            // Reuse the initial empty tab created in OnCreate
+            int tabId = m_documentManager->GetActiveTabId();
+            auto* doc = m_documentManager->GetActiveDocument();
+            if (doc) {
+                doc->filePath = filePath;
+                doc->customTitle = customTitle;
+                doc->isNewFile = isNewFile;
+                doc->isPinned = isPinned;
+                doc->encoding = encoding;
+                doc->lineEnding = lineEnding;
+                doc->cursorStart = cursorStart;
+                doc->cursorEnd = cursorEnd;
+                doc->firstVisibleLine = firstVisibleLine;
+                doc->isNoteMode = isNoteMode;
+                doc->noteId = noteId;
+                doc->text = content;
+                doc->isModified = hasSavedContent && isNewFile;
+                
+                m_tabBar->SetTabTitle(tabId, doc->GetDisplayTitle());
+                if (!filePath.empty()) m_tabBar->SetTabFilePath(tabId, filePath);
+                if (isPinned) m_tabBar->SetTabPinned(tabId, true);
+                if (doc->isModified) m_tabBar->SetTabModified(tabId, true);
+                
+                m_editor->SetText(content);
+                m_editor->SetEncoding(encoding);
+                m_editor->SetLineEnding(lineEnding);
+                m_editor->SetModified(doc->isModified);
+                
+                m_currentFile = filePath;
+                m_isNewFile = isNewFile;
+                m_isNoteMode = isNoteMode;
+                m_currentNoteId = noteId;
+            }
+        } else {
+            int tabId = m_documentManager->OpenDocument(filePath, content, encoding, lineEnding);
+            auto* doc = m_documentManager->GetDocument(tabId);
+            if (doc) {
+                doc->customTitle = customTitle;
+                doc->isNewFile = isNewFile;
+                doc->isPinned = isPinned;
+                doc->cursorStart = cursorStart;
+                doc->cursorEnd = cursorEnd;
+                doc->firstVisibleLine = firstVisibleLine;
+                doc->isNoteMode = isNoteMode;
+                doc->noteId = noteId;
+                
+                if (hasSavedContent && isNewFile) {
+                    doc->isModified = true;
+                    m_tabBar->SetTabModified(tabId, true);
+                }
+                if (!customTitle.empty()) m_tabBar->SetTabTitle(tabId, customTitle);
+                if (isPinned) m_tabBar->SetTabPinned(tabId, true);
+            }
+        }
+    }
+    
+    // Switch to the previously active tab
+    auto ids = m_documentManager->GetAllTabIds();
+    if (activeIndex >= 0 && activeIndex < static_cast<int>(ids.size())) {
+        OnTabSelected(ids[activeIndex]);
+    }
+    
+    // Start monitoring the restored file
+    StartFileMonitoring();
+    
+    // Clean up sidecar files
+    for (int i = 0; i < tabCount; i++) {
+        std::wstring contentPath = sessionDir + L"session_tab" + std::to_wstring(i) + L".txt";
+        DeleteFileW(contentPath.c_str());
+    }
+    
+    // Delete session file
+    DeleteFileW(sessionPath.c_str());
+    
+    UpdateTitle();
+    UpdateStatusBar();
+}
+
+//------------------------------------------------------------------------------
+// System tray
+//------------------------------------------------------------------------------
+void MainWindow::InitializeSystemTray() {
+    m_trayIcon = {};
+    m_trayIcon.cbSize = sizeof(m_trayIcon);
+    m_trayIcon.hWnd = m_hwnd;
+    m_trayIcon.uID = 1;
+    m_trayIcon.uFlags = NIF_ICON | NIF_MESSAGE | NIF_TIP;
+    m_trayIcon.uCallbackMessage = WM_APP_TRAYICON;
+    m_trayIcon.hIcon = LoadIconW(m_hInstance, MAKEINTRESOURCEW(IDI_APP_ICON));
+    wcscpy_s(m_trayIcon.szTip, L"QNote");
+    
+    Shell_NotifyIconW(NIM_ADD, &m_trayIcon);
+    m_trayIconCreated = true;
+}
+
+void MainWindow::CleanupSystemTray() {
+    if (m_trayIconCreated) {
+        Shell_NotifyIconW(NIM_DELETE, &m_trayIcon);
+        m_trayIconCreated = false;
+    }
+}
+
+void MainWindow::ShowTrayContextMenu() {
+    HMENU hMenu = CreatePopupMenu();
+    AppendMenuW(hMenu, MF_STRING, IDM_TRAY_SHOW, L"&Show QNote");
+    AppendMenuW(hMenu, MF_STRING, IDM_TRAY_CAPTURE, L"Quick &Capture");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING, IDM_TRAY_EXIT, L"E&xit");
+    
+    POINT pt;
+    GetCursorPos(&pt);
+    SetForegroundWindow(m_hwnd);
+    TrackPopupMenu(hMenu, TPM_RIGHTBUTTON, pt.x, pt.y, 0, m_hwnd, nullptr);
+    DestroyMenu(hMenu);
+}
+
+void MainWindow::MinimizeToTray() {
+    ShowWindow(m_hwnd, SW_HIDE);
+    m_minimizedToTray = true;
+}
+
+void MainWindow::RestoreFromTray() {
+    ShowWindow(m_hwnd, SW_SHOW);
+    ShowWindow(m_hwnd, SW_RESTORE);
+    SetForegroundWindow(m_hwnd);
+    m_minimizedToTray = false;
 }
 
 //------------------------------------------------------------------------------

@@ -940,7 +940,51 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
         }
         
         case EN_CHANGE:
+            // WM_CUT has the same value; both should trigger line number update
+            {
+                LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                if (editor->m_scrollCallback) {
+                    editor->m_scrollCallback(editor->m_scrollCallbackData);
+                }
+                return result;
+            }
+
         case WM_CHAR: {
+            // Auto-indent: when Enter is pressed, copy leading whitespace from current line
+            if (wParam == L'\r') {
+                // Get current line's leading whitespace before the newline is inserted
+                int curLine = static_cast<int>(SendMessageW(hwnd, EM_LINEFROMCHAR, static_cast<WPARAM>(-1), 0));
+                int lineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, curLine, 0));
+                int lineLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, lineStart, 0));
+
+                std::wstring whitespace;
+                if (lineLen > 0) {
+                    std::vector<wchar_t> buf(lineLen + 2, 0);
+                    *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
+                    SendMessageW(hwnd, EM_GETLINE, curLine, reinterpret_cast<LPARAM>(buf.data()));
+                    for (int j = 0; j < lineLen; ++j) {
+                        if (buf[j] == L' ' || buf[j] == L'\t') {
+                            whitespace += buf[j];
+                        } else {
+                            break;
+                        }
+                    }
+                }
+
+                // Let default insert the newline
+                LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+
+                // Insert the leading whitespace after the newline
+                if (!whitespace.empty()) {
+                    SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(whitespace.c_str()));
+                }
+
+                if (editor->m_scrollCallback) {
+                    editor->m_scrollCallback(editor->m_scrollCallbackData);
+                }
+                return result;
+            }
+
             // Content change may affect line numbers
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
             if (editor->m_scrollCallback) {

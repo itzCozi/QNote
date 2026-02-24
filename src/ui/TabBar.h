@@ -92,6 +92,9 @@ public:
     void Resize(int x, int y, int width);
     [[nodiscard]] int GetHeight() const noexcept { return m_tabBarHeight; }
 
+    // DPI update (call when monitor DPI changes)
+    void UpdateDPI(UINT newDpi);
+
     // Set notification callback
     void SetCallback(TabCallback callback) { m_callback = std::move(callback); }
 
@@ -182,14 +185,15 @@ private:
     TabCallback m_callback;
 
     // Base layout constants (scaled by DPI)
-    static constexpr int BASE_TAB_BAR_HEIGHT = 30;
-    static constexpr int BASE_TAB_MIN_WIDTH = 50;
-    static constexpr int BASE_TAB_MAX_WIDTH = 200;
-    static constexpr int BASE_TAB_PADDING = 12;
-    static constexpr int BASE_CLOSE_BTN_SIZE = 14;
-    static constexpr int BASE_CLOSE_BTN_MARGIN = 6;
-    static constexpr int BASE_NEW_TAB_BTN_WIDTH = 28;
-    static constexpr int BASE_PIN_ICON_WIDTH = 14;
+    static constexpr int BASE_TAB_BAR_HEIGHT = 34;
+    static constexpr int BASE_TAB_MIN_WIDTH = 60;
+    static constexpr int BASE_TAB_MAX_WIDTH = 240;
+    static constexpr int BASE_TAB_PADDING = 14;
+    static constexpr int BASE_CLOSE_BTN_SIZE = 16;
+    static constexpr int BASE_CLOSE_BTN_MARGIN = 8;
+    static constexpr int BASE_NEW_TAB_BTN_WIDTH = 32;
+    static constexpr int BASE_PIN_ICON_WIDTH = 16;
+    static constexpr int BASE_FONT_SIZE = 14;
 
     // Timer IDs
     static constexpr UINT_PTR TOOLTIP_TIMER_ID = 1;

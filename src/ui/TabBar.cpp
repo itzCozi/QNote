@@ -68,7 +68,7 @@ bool TabBar::Create(HWND parent, HINSTANCE hInstance) {
 
     // Create the font
     m_font = CreateFontW(
-        -Scale(13), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        -Scale(BASE_FONT_SIZE), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
         DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
         CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
         L"Segoe UI"
@@ -481,6 +481,22 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
             break;
+
+        case WM_DPICHANGED_AFTERPARENT: {
+            // Child windows receive this when parent DPI changes (Per-Monitor V2)
+            // Re-query DPI from the parent window
+            HMODULE hUser32 = GetModuleHandleW(L"user32.dll");
+            if (hUser32) {
+                using GetDpiForWindowFunc = UINT(WINAPI*)(HWND);
+                auto pGetDpiForWindow = reinterpret_cast<GetDpiForWindowFunc>(
+                    GetProcAddress(hUser32, "GetDpiForWindow"));
+                if (pGetDpiForWindow && m_hwndParent) {
+                    UINT newDpi = pGetDpiForWindow(m_hwndParent);
+                    UpdateDPI(newDpi);
+                }
+            }
+            return 0;
+        }
     }
 
     return DefWindowProcW(m_hwnd, msg, wParam, lParam);
@@ -635,7 +651,7 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
 
         // Draw X - use a dedicated font sized to fit the button
         HFONT closeFont = CreateFontW(
-            -Scale(12), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            -Scale(BASE_FONT_SIZE - 1), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
             DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
             CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
             L"Segoe UI"
@@ -973,6 +989,44 @@ void TabBar::InitializeDPI() {
     m_closeBtnSize = Scale(BASE_CLOSE_BTN_SIZE);
     m_closeBtnMargin = Scale(BASE_CLOSE_BTN_MARGIN);
     m_newTabBtnWidth = Scale(BASE_NEW_TAB_BTN_WIDTH);
+}
+
+//------------------------------------------------------------------------------
+// Update DPI scaling (called when monitor DPI changes)
+//------------------------------------------------------------------------------
+void TabBar::UpdateDPI(UINT newDpi) {
+    if (static_cast<int>(newDpi) == m_dpi) return;
+
+    m_dpi = static_cast<int>(newDpi);
+
+    // Rescale all layout values
+    m_tabBarHeight = Scale(BASE_TAB_BAR_HEIGHT);
+    m_tabMinWidth = Scale(BASE_TAB_MIN_WIDTH);
+    m_tabMaxWidth = Scale(BASE_TAB_MAX_WIDTH);
+    m_tabPadding = Scale(BASE_TAB_PADDING);
+    m_closeBtnSize = Scale(BASE_CLOSE_BTN_SIZE);
+    m_closeBtnMargin = Scale(BASE_CLOSE_BTN_MARGIN);
+    m_newTabBtnWidth = Scale(BASE_NEW_TAB_BTN_WIDTH);
+
+    // Recreate the font at the new DPI
+    if (m_font) {
+        DeleteObject(m_font);
+    }
+    m_font = CreateFontW(
+        -Scale(BASE_FONT_SIZE), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+        L"Segoe UI"
+    );
+
+    // Resize the tab bar window to the new height
+    if (m_hwnd) {
+        RECT rc;
+        GetWindowRect(m_hwnd, &rc);
+        MapWindowPoints(HWND_DESKTOP, GetParent(m_hwnd), reinterpret_cast<LPPOINT>(&rc), 2);
+        MoveWindow(m_hwnd, rc.left, rc.top, rc.right - rc.left, m_tabBarHeight, TRUE);
+        Redraw();
+    }
 }
 
 //------------------------------------------------------------------------------

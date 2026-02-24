@@ -12,6 +12,7 @@
 #define NOMINMAX
 #endif
 #include <Windows.h>
+#include <ShellScalingApi.h>
 #include <Richedit.h>
 #include <string>
 
@@ -53,11 +54,14 @@ public:
     // Update line numbers (call when editor content or scroll changes)
     void Update() noexcept;
     
-    // Update font to match editor
+    // Update font to match editor (extracts font properties and creates own copy)
     void SetFont(HFONT font) noexcept;
     
     // Handle editor scroll notification
     void OnEditorScroll() noexcept;
+
+    // DPI update (call when monitor DPI changes)
+    void UpdateDPI(UINT newDpi);
     
 private:
     // Window procedure
@@ -69,6 +73,14 @@ private:
     
     // Calculate required width based on line count
     void CalculateWidth();
+
+    // DPI helpers
+    void InitializeDPI();
+    int Scale(int value) const noexcept { return MulDiv(value, m_dpi, 96); }
+
+    // Font management
+    void RecreateFont();
+    void UpdateFontMetrics();
     
 private:
     HWND m_hwndGutter = nullptr;
@@ -76,11 +88,24 @@ private:
     HINSTANCE m_hInstance = nullptr;
     Editor* m_editor = nullptr;
     
-    HFONT m_font = nullptr;
-    int m_width = 50;           // Current gutter width
-    int m_charWidth = 8;        // Width of a single character
-    int m_lineHeight = 16;      // Height of a line
+    HFONT m_font = nullptr;         // Owned by gutter - must be deleted
+    bool m_ownsFont = false;          // Whether we created the font ourselves
+    LOGFONTW m_logFont = {};          // Stored font properties for recreation
+    int m_baseFontHeight = 0;         // Unscaled font height (at 96 DPI)
+    int m_dpi = 96;                   // Current DPI
+    int m_width = 50;                 // Current gutter width
+    int m_charWidth = 8;              // Width of a single character
+    int m_lineHeight = 16;            // Height of a line
+    int m_leftPadding = 6;            // Left padding for line numbers
+    int m_rightPadding = 10;          // Right padding for line numbers
+    int m_minWidth = 48;              // Minimum gutter width
     bool m_visible = false;
+    
+    // Base layout constants (scaled by DPI)
+    static constexpr int BASE_LEFT_PADDING = 6;
+    static constexpr int BASE_RIGHT_PADDING = 10;
+    static constexpr int BASE_MIN_WIDTH = 48;
+    static constexpr int BASE_DEFAULT_WIDTH = 50;
     
     // Colors
     COLORREF m_bgColor = RGB(240, 240, 240);

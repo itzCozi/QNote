@@ -120,9 +120,21 @@ private:
     
     // Encoding operations
     void OnEncodingChange(TextEncoding encoding);
+    void OnReopenWithEncoding(TextEncoding encoding);
     
     // Help operations
     void OnHelpAbout();
+    
+    // File operations (additional)
+    void OnFileRevert();
+    void OnFileOpenContainingFolder();
+    
+    // Text manipulation operations
+    void OnEditUppercase();
+    void OnEditLowercase();
+    void OnEditSortLines(bool ascending);
+    void OnEditTrimWhitespace();
+    void OnEditRemoveDuplicateLines();
     
     // Notes operations
     void OnNotesNew();
@@ -155,6 +167,22 @@ private:
     // File auto-save operations
     void AutoSaveFileBackup();
     void DeleteAutoSaveBackup();
+    
+    // File change monitoring
+    void StartFileMonitoring();
+    void CheckFileChanged();
+    FILETIME GetFileLastWriteTime(const std::wstring& path);
+    
+    // Session save/restore
+    void SaveSession();
+    void LoadSession();
+    
+    // System tray
+    void InitializeSystemTray();
+    void CleanupSystemTray();
+    void ShowTrayContextMenu();
+    void MinimizeToTray();
+    void RestoreFromTray();
     
     // Line numbers gutter callback
     static void OnEditorScroll(void* userData);
@@ -195,15 +223,27 @@ private:
     // Print settings
     PAGESETUPDLGW m_pageSetup = {};
     
+    // System tray
+    NOTIFYICONDATAW m_trayIcon = {};
+    bool m_trayIconCreated = false;
+    bool m_minimizedToTray = false;
+    
+    // File change monitoring
+    FILETIME m_lastWriteTime = {};
+    bool m_ignoreNextFileChange = false;
+    
     // Status bar parts widths
-    static constexpr int STATUS_PARTS = 4;
-    int m_statusPartWidths[STATUS_PARTS] = { 200, 100, 80, -1 };
+    static constexpr int STATUS_PARTS = 5;
+    int m_statusPartWidths[STATUS_PARTS] = { 200, 100, 80, 60, -1 };
     
     // Auto-save timer interval (ms)
     static constexpr UINT AUTOSAVE_INTERVAL = 3000;
     
     // File auto-save timer interval (ms) - every 30 seconds
     static constexpr UINT FILEAUTOSAVE_INTERVAL = 30000;
+    
+    // File change monitoring interval (ms) - every 2 seconds
+    static constexpr UINT FILEWATCH_INTERVAL = 2000;
     
     // Window class name
     static constexpr wchar_t WINDOW_CLASS[] = L"QNoteMainWindow";
