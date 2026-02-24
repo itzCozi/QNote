@@ -693,4 +693,91 @@ time_t ParseDate(const std::wstring& dateStr) {
     return 0;
 }
 
+//------------------------------------------------------------------------------
+// Export all notes to a JSON file
+//------------------------------------------------------------------------------
+bool NoteStore::ExportNotes(const std::wstring& filePath) {
+    std::wstring json = ToJson();
+    
+    // Convert to UTF-8
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return false;
+    
+    std::vector<char> utf8Data(utf8Len);
+    WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, utf8Data.data(), utf8Len, nullptr, nullptr);
+    
+    HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_WRITE, 0,
+                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+    
+    DWORD bytesWritten;
+    BOOL result = WriteFile(hFile, utf8Data.data(), static_cast<DWORD>(utf8Len - 1), &bytesWritten, nullptr);
+    CloseHandle(hFile);
+    
+    return result != FALSE;
+}
+
+//------------------------------------------------------------------------------
+// Import notes from a JSON file (merges with existing)
+//------------------------------------------------------------------------------
+bool NoteStore::ImportNotes(const std::wstring& filePath) {
+    // Read file
+    HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (hFile == INVALID_HANDLE_VALUE) return false;
+    
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile, &fileSize)) {
+        CloseHandle(hFile);
+        return false;
+    }
+    
+    std::vector<char> buffer(static_cast<size_t>(fileSize.QuadPart) + 1, 0);
+    DWORD bytesRead;
+    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(fileSize.QuadPart), &bytesRead, nullptr)) {
+        CloseHandle(hFile);
+        return false;
+    }
+    CloseHandle(hFile);
+    
+    // Convert UTF-8 to wstring
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, nullptr, 0);
+    std::wstring json(wideLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, &json[0], wideLen);
+    
+    // Save current notes, parse import, then merge
+    auto savedNotes = m_notes;
+    
+    if (!ParseJson(json)) {
+        m_notes = savedNotes;
+        return false;
+    }
+    
+    auto importedNotes = m_notes;
+    m_notes = savedNotes;
+    
+    // Merge: add imported notes whose IDs don't already exist
+    int addedCount = 0;
+    for (const auto& imported : importedNotes) {
+        bool exists = false;
+        for (const auto& existing : m_notes) {
+            if (existing.id == imported.id) {
+                exists = true;
+                break;
+            }
+        }
+        if (!exists) {
+            m_notes.push_back(imported);
+            addedCount++;
+        }
+    }
+    
+    if (addedCount > 0) {
+        m_dirty = true;
+        (void)Save();
+    }
+    
+    return true;
+}
+
 } // namespace QNote

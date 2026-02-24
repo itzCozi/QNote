@@ -175,6 +175,9 @@ void DocumentManager::SaveCurrentState() {
     doc->cursorEnd = end;
     doc->firstVisibleLine = m_editor->GetFirstVisibleLine();
 
+    // Save bookmarks
+    doc->bookmarks = m_editor->GetBookmarks();
+
     // Update tab bar state
     if (m_tabBar) {
         m_tabBar->SetTabModified(doc->tabId, doc->isModified);
@@ -205,6 +208,9 @@ void DocumentManager::RestoreState(int tabId) {
         // Re-set the cursor to its saved position (GoToLine changes it)
         m_editor->SetSelection(doc->cursorStart, doc->cursorEnd);
     }
+
+    // Restore bookmarks
+    m_editor->SetBookmarks(doc->bookmarks);
 
     m_editor->SetFocus();
 }
@@ -328,6 +334,49 @@ void DocumentManager::SyncModifiedState() {
             m_tabBar->SetTabModified(doc->tabId, modified);
         }
     }
+}
+
+//------------------------------------------------------------------------------
+// Reset the active document to a fresh untitled state
+//------------------------------------------------------------------------------
+void DocumentManager::ResetActiveDocument() {
+    if (!m_editor || !m_tabBar) return;
+
+    DocumentState* doc = GetActiveDocument();
+    if (!doc) return;
+
+    int tabId = doc->tabId;
+
+    // Reset all document state
+    doc->text.clear();
+    doc->filePath.clear();
+    doc->customTitle.clear();
+    doc->isNewFile = true;
+    doc->isModified = false;
+    doc->isPinned = false;
+    doc->encoding = TextEncoding::UTF8;
+    doc->lineEnding = LineEnding::CRLF;
+    doc->cursorStart = 0;
+    doc->cursorEnd = 0;
+    doc->firstVisibleLine = 0;
+    doc->isNoteMode = false;
+    doc->noteId.clear();
+    doc->bookmarks.clear();
+    ApplyDefaults(*doc);
+
+    // Update tab bar
+    m_tabBar->SetTabTitle(tabId, doc->GetDisplayTitle());
+    m_tabBar->SetTabFilePath(tabId, L"");
+    m_tabBar->SetTabModified(tabId, false);
+    m_tabBar->SetTabPinned(tabId, false);
+
+    // Clear editor
+    m_editor->Clear();
+    m_editor->SetEncoding(doc->encoding);
+    m_editor->SetLineEnding(doc->lineEnding);
+    m_editor->SetSelection(0, 0);
+    m_editor->SetBookmarks({});
+    m_editor->SetFocus();
 }
 
 //------------------------------------------------------------------------------

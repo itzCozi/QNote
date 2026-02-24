@@ -128,6 +128,12 @@ public:
     // Force save (normally auto-saved)
     [[nodiscard]] bool Save();
     
+    // Export all notes to a file
+    [[nodiscard]] bool ExportNotes(const std::wstring& filePath);
+    
+    // Import notes from a file (merges with existing)
+    [[nodiscard]] bool ImportNotes(const std::wstring& filePath);
+    
     // Get the store directory path
     [[nodiscard]] const std::wstring& GetStorePath() const { return m_storePath; }
     

@@ -14,6 +14,8 @@
 #include <sstream>
 
 #pragma comment(lib, "comctl32.lib")
+#pragma comment(lib, "Msimg32.lib")
+#pragma comment(lib, "oleaut32.lib")
 
 namespace QNote {
 
@@ -114,6 +116,7 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
     m_font.reset(CreateEditorFont());
     if (m_font.get()) {
         SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), TRUE);
+        ApplyCharFormat();
     }
     
     // Set tab stops
@@ -177,6 +180,7 @@ std::wstring Editor::GetText() const {
 void Editor::SetText(std::wstring_view text) {
     if (m_hwndEdit) {
         SetWindowTextW(m_hwndEdit, std::wstring(text).c_str());
+        ApplyCharFormat();
         SetModified(false);
     }
 }
@@ -417,6 +421,7 @@ void Editor::SetFont(std::wstring_view fontName, int fontSize, int fontWeight, b
     m_font.reset(CreateEditorFont());
     if (m_hwndEdit && m_font.get()) {
         SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), TRUE);
+        ApplyCharFormat();
     }
 }
 
@@ -433,6 +438,7 @@ void Editor::ApplyZoom(int zoomPercent) noexcept {
     m_font.reset(CreateEditorFont());
     if (m_hwndEdit && m_font.get()) {
         SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), TRUE);
+        ApplyCharFormat();
     }
 }
 
@@ -833,6 +839,7 @@ void Editor::RecreateControl() {
         // Apply font
         if (m_font.get()) {
             SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), TRUE);
+            ApplyCharFormat();
         }
         
         // Set tab stops
@@ -852,7 +859,32 @@ void Editor::RecreateControl() {
 }
 
 //------------------------------------------------------------------------------
-// Create editor font with zoom applied
+// Apply font to all text via CHARFORMAT (RichEdit-proper method)
+// WM_SETFONT alone does not reliably set the font for all text in RichEdit.
+//------------------------------------------------------------------------------
+void Editor::ApplyCharFormat() {
+    if (!m_hwndEdit) return;
+    
+    int fontSize = MulDiv(m_baseFontSize, m_zoomPercent, 100);
+    if (fontSize < 6) fontSize = 6;
+    if (fontSize > 144) fontSize = 144;
+    
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_FACE | CFM_SIZE | CFM_WEIGHT | CFM_ITALIC | CFM_CHARSET;
+    cf.yHeight = fontSize * 20;  // twips (1/20 of a point)
+    cf.wWeight = static_cast<WORD>(m_fontWeight);
+    cf.bCharSet = DEFAULT_CHARSET;
+    if (m_fontItalic) cf.dwEffects |= CFE_ITALIC;
+    wcsncpy_s(cf.szFaceName, m_fontName.c_str(), LF_FACESIZE - 1);
+    
+    // Set as default format and apply to all existing text
+    SendMessageW(m_hwndEdit, EM_SETCHARFORMAT, SCF_DEFAULT, reinterpret_cast<LPARAM>(&cf));
+    SendMessageW(m_hwndEdit, EM_SETCHARFORMAT, SCF_ALL, reinterpret_cast<LPARAM>(&cf));
+}
+
+//------------------------------------------------------------------------------
+// Create HFONT from current settings
 //------------------------------------------------------------------------------
 HFONT Editor::CreateEditorFont() {
     // Calculate zoomed font size
@@ -897,6 +929,24 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
     Editor* editor = reinterpret_cast<Editor*>(refData);
     
     switch (msg) {
+        case WM_PAINT: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (editor->m_showWhitespace) {
+                HDC hdc = GetDC(hwnd);
+                editor->DrawWhitespace(hdc);
+                ReleaseDC(hwnd, hdc);
+            }
+            return result;
+        }
+
+        case WM_LBUTTONUP: {
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            if (editor->m_scrollCallback) {
+                editor->m_scrollCallback(editor->m_scrollCallbackData);
+            }
+            return result;
+        }
+
         case WM_MOUSEWHEEL: {
             // Handle Ctrl+Wheel for zoom
             if (GetKeyState(VK_CONTROL) & 0x8000) {
@@ -995,6 +1045,150 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
     }
     
     return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+//------------------------------------------------------------------------------
+// Set show whitespace
+//------------------------------------------------------------------------------
+void Editor::SetShowWhitespace(bool enable) noexcept {
+    m_showWhitespace = enable;
+    if (m_hwndEdit) {
+        InvalidateRect(m_hwndEdit, nullptr, FALSE);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Draw whitespace glyphs (dots for spaces, arrows for tabs)
+//------------------------------------------------------------------------------
+void Editor::DrawWhitespace(HDC hdc) {
+    if (!m_hwndEdit || !m_font.get()) return;
+    
+    int firstLine = GetFirstVisibleLine();
+    
+    RECT clientRect;
+    GetClientRect(m_hwndEdit, &clientRect);
+    
+    // Get font metrics
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, m_font.get()));
+    TEXTMETRICW tm;
+    GetTextMetricsW(hdc, &tm);
+    
+    int visibleLines = (clientRect.bottom - clientRect.top) / tm.tmHeight + 2;
+    int totalLines = GetLineCount();
+    
+    COLORREF wsColor = RGB(180, 180, 180);
+    HPEN wsPen = CreatePen(PS_SOLID, 1, wsColor);
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, wsPen));
+    
+    for (int i = 0; i < visibleLines && (firstLine + i) < totalLines; i++) {
+        int line = firstLine + i;
+        int lineStart = GetLineIndex(line);
+        int lineLen = GetLineLength(line);
+        
+        if (lineLen == 0) continue;
+        
+        // Get line text
+        std::vector<wchar_t> buf(lineLen + 2, 0);
+        *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
+        SendMessageW(m_hwndEdit, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data()));
+        
+        for (int j = 0; j < lineLen; j++) {
+            if (buf[j] == L' ' || buf[j] == L'\t') {
+                POINTL pt = {};
+                SendMessageW(m_hwndEdit, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&pt), lineStart + j);
+                
+                if (pt.x >= clientRect.left && pt.x < clientRect.right && 
+                    pt.y >= clientRect.top && pt.y < clientRect.bottom) {
+                    if (buf[j] == L' ') {
+                        // Draw centered dot for space
+                        int dotX = pt.x + tm.tmAveCharWidth / 2;
+                        int dotY = pt.y + tm.tmHeight / 2;
+                        RECT dotRect = { dotX - 1, dotY - 1, dotX + 1, dotY + 1 };
+                        HBRUSH dotBrush = CreateSolidBrush(wsColor);
+                        FillRect(hdc, &dotRect, dotBrush);
+                        DeleteObject(dotBrush);
+                    } else {
+                        // Draw right arrow for tab
+                        int arrowY = pt.y + tm.tmHeight / 2;
+                        int arrowStart = pt.x + 2;
+                        int arrowEnd = pt.x + tm.tmAveCharWidth * m_tabSize - 2;
+                        if (arrowEnd > arrowStart + 4) {
+                            MoveToEx(hdc, arrowStart, arrowY, nullptr);
+                            LineTo(hdc, arrowEnd, arrowY);
+                            // Arrow head
+                            MoveToEx(hdc, arrowEnd - 3, arrowY - 3, nullptr);
+                            LineTo(hdc, arrowEnd + 1, arrowY);
+                            MoveToEx(hdc, arrowEnd - 3, arrowY + 3, nullptr);
+                            LineTo(hdc, arrowEnd + 1, arrowY);
+                        }
+                    }
+                }
+            }
+        }
+    }
+    
+    SelectObject(hdc, oldPen);
+    DeleteObject(wsPen);
+    SelectObject(hdc, oldFont);
+}
+
+//------------------------------------------------------------------------------
+// Toggle bookmark on current line
+//------------------------------------------------------------------------------
+void Editor::ToggleBookmark() {
+    int line = GetCurrentLine();
+    auto it = m_bookmarks.find(line);
+    if (it != m_bookmarks.end()) {
+        m_bookmarks.erase(it);
+    } else {
+        m_bookmarks.insert(line);
+    }
+    // Notify parent for gutter update
+    PostMessageW(m_hwndParent, WM_APP_UPDATESTATUS, 0, 0);
+}
+
+//------------------------------------------------------------------------------
+// Jump to next bookmark
+//------------------------------------------------------------------------------
+void Editor::NextBookmark() {
+    if (m_bookmarks.empty()) return;
+    
+    int curLine = GetCurrentLine();
+    auto it = m_bookmarks.upper_bound(curLine);
+    if (it == m_bookmarks.end()) {
+        it = m_bookmarks.begin(); // Wrap around
+    }
+    GoToLine(*it);
+}
+
+//------------------------------------------------------------------------------
+// Jump to previous bookmark
+//------------------------------------------------------------------------------
+void Editor::PrevBookmark() {
+    if (m_bookmarks.empty()) return;
+    
+    int curLine = GetCurrentLine();
+    auto it = m_bookmarks.lower_bound(curLine);
+    if (it == m_bookmarks.begin()) {
+        it = m_bookmarks.end();
+    }
+    --it;
+    GoToLine(*it);
+}
+
+//------------------------------------------------------------------------------
+// Clear all bookmarks
+//------------------------------------------------------------------------------
+void Editor::ClearBookmarks() {
+    m_bookmarks.clear();
+    PostMessageW(m_hwndParent, WM_APP_UPDATESTATUS, 0, 0);
+}
+
+//------------------------------------------------------------------------------
+// Set bookmarks (for document restore)
+//------------------------------------------------------------------------------
+void Editor::SetBookmarks(const std::set<int>& bookmarks) {
+    m_bookmarks = bookmarks;
 }
 
 } // namespace QNote

@@ -17,6 +17,7 @@
 #include <unordered_map>
 #include <memory>
 #include <optional>
+#include <set>
 
 #include "Settings.h"
 #include "Editor.h"
@@ -52,6 +53,9 @@ struct DocumentState {
     // Note mode state
     bool isNoteMode = false;
     std::wstring noteId;
+    
+    // Bookmarks
+    std::set<int> bookmarks;
 
     // Get the display title for this document
     [[nodiscard]] std::wstring GetDisplayTitle() const {
@@ -119,6 +123,9 @@ public:
 
     // Update the active document's modified state from the editor
     void SyncModifiedState();
+
+    // Reset the active document to a fresh untitled state
+    void ResetActiveDocument();
 
     // Close helpers for context menu actions
     void CloseOtherDocuments(int keepTabId);

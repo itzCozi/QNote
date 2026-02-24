@@ -17,6 +17,7 @@
 #include <string_view>
 #include <vector>
 #include <memory>
+#include <set>
 #include "Settings.h"
 
 namespace QNote {
@@ -179,6 +180,19 @@ public:
     using ScrollCallback = void(*)(void* userData);
     void SetScrollCallback(ScrollCallback callback, void* userData) noexcept;
     
+    // Show whitespace
+    void SetShowWhitespace(bool enable) noexcept;
+    [[nodiscard]] bool IsShowWhitespace() const noexcept { return m_showWhitespace; }
+    
+    // Bookmarks
+    void ToggleBookmark();
+    void NextBookmark();
+    void PrevBookmark();
+    void ClearBookmarks();
+    [[nodiscard]] bool HasBookmarks() const noexcept { return !m_bookmarks.empty(); }
+    [[nodiscard]] const std::set<int>& GetBookmarks() const noexcept { return m_bookmarks; }
+    void SetBookmarks(const std::set<int>& bookmarks);
+    
 private:
     // Recreate edit control (needed for word wrap toggle)
     void RecreateControl();
@@ -186,10 +200,16 @@ private:
     // Create font from current settings
     HFONT CreateEditorFont();
     
+    // Apply font to all text via EM_SETCHARFORMAT (RichEdit-proper)
+    void ApplyCharFormat();
+    
     // Subclass procedure for additional functionality
     static LRESULT CALLBACK EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, 
                                               LPARAM lParam, UINT_PTR subclassId, 
                                               DWORD_PTR refData);
+    
+    // Paint helpers for overlays
+    void DrawWhitespace(HDC hdc);
     
 private:
     HWND m_hwndEdit = nullptr;
@@ -210,6 +230,12 @@ private:
     TextEncoding m_encoding = TextEncoding::UTF8;
     
     bool m_rtl = false;
+    
+    // Show whitespace
+    bool m_showWhitespace = false;
+    
+    // Bookmarks
+    std::set<int> m_bookmarks;
     
     // Scroll notification callback
     ScrollCallback m_scrollCallback = nullptr;

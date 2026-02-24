@@ -41,6 +41,7 @@ enum class TabNotification {
     CloseOthers,      // Close all tabs except the one right-clicked
     CloseAll,         // Close all tabs
     CloseToRight,     // Close tabs to the right
+    TabReordered,     // Tab was reordered via drag
 };
 
 //------------------------------------------------------------------------------
@@ -180,6 +181,14 @@ private:
 
     // Scroll state for many tabs
     int m_scrollOffset = 0;
+
+    // Drag reorder state
+    bool m_dragging = false;
+    int m_dragTabId = -1;
+    int m_dragStartX = 0;
+    int m_dragStartY = 0;
+    bool m_dragInitiated = false;
+    static constexpr int DRAG_THRESHOLD = 5;
 
     // Callback
     TabCallback m_callback;

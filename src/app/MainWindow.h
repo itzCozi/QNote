@@ -117,6 +117,7 @@ private:
     void OnViewZoomIn();
     void OnViewZoomOut();
     void OnViewZoomReset();
+    void OnViewShowWhitespace();
     
     // Encoding operations
     void OnEncodingChange(TextEncoding encoding);
@@ -136,6 +137,15 @@ private:
     void OnEditTrimWhitespace();
     void OnEditRemoveDuplicateLines();
     
+    // Bookmark operations
+    void OnEditToggleBookmark();
+    void OnEditNextBookmark();
+    void OnEditPrevBookmark();
+    void OnEditClearBookmarks();
+    
+    // Tools operations
+    void OnToolsEditShortcuts();
+    
     // Notes operations
     void OnNotesNew();
     void OnNotesQuickCapture();
@@ -146,6 +156,8 @@ private:
     void OnNotesPinCurrent();
     void OnNotesSaveNow();
     void OnNotesDeleteCurrent();
+    void OnNotesExport();
+    void OnNotesImport();
     void OnHotkey(int hotkeyId);
     
     // Helper methods
@@ -176,6 +188,12 @@ private:
     // Session save/restore
     void SaveSession();
     void LoadSession();
+    
+    // Keyboard shortcuts
+    void LoadKeyboardShortcuts();
+    void CreateDefaultShortcutsFile(const std::wstring& path);
+    WORD ParseVirtualKey(const std::wstring& keyName);
+    std::wstring FormatAccelKey(BYTE fVirt, WORD key);
     
     // System tray
     void InitializeSystemTray();

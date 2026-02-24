@@ -333,10 +333,19 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
 
             // Check for tab click
             int hitId = TabHitTest(x, y);
-            if (hitId >= 0 && hitId != m_activeTabId) {
-                m_activeTabId = hitId;
-                Notify(TabNotification::TabSelected, hitId);
-                Redraw();
+            if (hitId >= 0) {
+                if (hitId != m_activeTabId) {
+                    m_activeTabId = hitId;
+                    Notify(TabNotification::TabSelected, hitId);
+                    Redraw();
+                }
+                // Start potential drag
+                m_dragTabId = hitId;
+                m_dragStartX = x;
+                m_dragStartY = y;
+                m_dragInitiated = false;
+                m_dragging = true;
+                SetCapture(m_hwnd);
             }
             return 0;
         }
@@ -347,6 +356,30 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             int hitId = TabHitTest(x, y);
             if (hitId >= 0) {
                 BeginRename(hitId);
+            }
+            return 0;
+        }
+
+        case WM_LBUTTONUP: {
+            if (m_dragging) {
+                bool wasDragInitiated = m_dragInitiated;
+                m_dragging = false;
+                m_dragTabId = -1;
+                m_dragInitiated = false;
+                ReleaseCapture();
+                SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                if (wasDragInitiated) {
+                    Notify(TabNotification::TabReordered, m_activeTabId);
+                }
+            }
+            return 0;
+        }
+
+        case WM_CAPTURECHANGED: {
+            if (m_dragging) {
+                m_dragging = false;
+                m_dragTabId = -1;
+                m_dragInitiated = false;
             }
             return 0;
         }
@@ -385,6 +418,32 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 tme.hwndTrack = m_hwnd;
                 TrackMouseEvent(&tme);
                 m_trackingMouse = true;
+            }
+
+            // Handle drag reorder
+            if (m_dragging && m_dragTabId >= 0) {
+                int dx = x - m_dragStartX;
+                int dy = y - m_dragStartY;
+                if (!m_dragInitiated && (abs(dx) > DRAG_THRESHOLD || abs(dy) > DRAG_THRESHOLD)) {
+                    m_dragInitiated = true;
+                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+                }
+                if (m_dragInitiated) {
+                    // Determine which tab position the cursor is over
+                    int targetId = TabHitTest(x, y);
+                    if (targetId >= 0 && targetId != m_dragTabId) {
+                        int srcIdx = FindTabIndex(m_dragTabId);
+                        int dstIdx = FindTabIndex(targetId);
+                        if (srcIdx >= 0 && dstIdx >= 0) {
+                            // Swap tabs in the vector
+                            TabItem temp = m_tabs[srcIdx];
+                            m_tabs.erase(m_tabs.begin() + srcIdx);
+                            m_tabs.insert(m_tabs.begin() + dstIdx, temp);
+                            Redraw();
+                        }
+                    }
+                    return 0;
+                }
             }
 
             int oldHovered = m_hoveredTabId;

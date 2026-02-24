@@ -277,9 +277,39 @@ void LineNumbersGutter::OnPaint() {
         // Calculate how many lines fit in the visible area
         int visibleLines = (rc.bottom - rc.top) / m_lineHeight + 2;
         
+        // Get bookmark set for marker drawing
+        const auto& bookmarks = m_editor->GetBookmarks();
+        
+        // Get the current cursor line (0-based) for highlighting
+        int currentLine = m_editor->GetCurrentLine();
+        
         // Draw line numbers
         for (int i = 0; i < visibleLines && (firstVisibleLine + i) < totalLines; i++) {
             int lineNum = firstVisibleLine + i + 1;  // 1-based line numbers
+            int lineIndex = firstVisibleLine + i;     // 0-based for bookmark check
+            
+            // Draw bookmark marker (blue circle in left margin)
+            if (bookmarks.count(lineIndex)) {
+                int cy = i * m_lineHeight + m_lineHeight / 2;
+                int cx = m_leftPadding / 2 + 2;
+                int r = (std::min)(m_lineHeight / 2 - 2, 5);
+                if (r < 2) r = 2;
+                HBRUSH bmBrush = CreateSolidBrush(RGB(60, 130, 214));
+                HPEN noPen2 = static_cast<HPEN>(GetStockObject(NULL_PEN));
+                HBRUSH oldBrush2 = static_cast<HBRUSH>(SelectObject(memDC, bmBrush));
+                HPEN oldPen2 = static_cast<HPEN>(SelectObject(memDC, noPen2));
+                Ellipse(memDC, cx - r, cy - r, cx + r + 1, cy + r + 1);
+                SelectObject(memDC, oldBrush2);
+                SelectObject(memDC, oldPen2);
+                DeleteObject(bmBrush);
+            }
+            
+            // Highlight current line number
+            if (lineIndex == currentLine) {
+                SetTextColor(memDC, RGB(30, 30, 30));
+            } else {
+                SetTextColor(memDC, m_textColor);
+            }
             
             wchar_t buffer[16];
             wsprintfW(buffer, L"%d", lineNum);

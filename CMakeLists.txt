@@ -154,8 +154,10 @@ target_link_libraries(QNote PRIVATE
     comctl32
     advapi32
     ole32
+    oleaut32
     dwmapi
     uxtheme
+    msimg32
 )
 
 #-------------------------------------------------------------------------------

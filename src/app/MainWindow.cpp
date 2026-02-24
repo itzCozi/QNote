@@ -29,6 +29,13 @@
 namespace QNote {
 
 //------------------------------------------------------------------------------
+// Helper: check if a string is empty or contains only whitespace
+//------------------------------------------------------------------------------
+static bool IsWhitespaceOnly(const std::wstring& text) {
+    return text.find_first_not_of(L" \t\r\n") == std::wstring::npos;
+}
+
+//------------------------------------------------------------------------------
 // Constructor
 //------------------------------------------------------------------------------
 MainWindow::MainWindow()
@@ -365,6 +372,12 @@ void MainWindow::OnCreate() {
             case TabNotification::CloseToRight:
                 OnTabCloseToRight(tabId);
                 break;
+            case TabNotification::TabReordered:
+                // Tab order changed via drag - just update document manager state
+                if (m_documentManager) {
+                    m_documentManager->SaveCurrentState();
+                }
+                break;
         }
     });
     
@@ -381,6 +394,12 @@ void MainWindow::OnCreate() {
         m_lineNumbersGutter->SetFont(m_editor->GetFont());
         m_lineNumbersGutter->Show(true);
     }
+    
+    // Apply show whitespace setting
+    m_editor->SetShowWhitespace(settings.showWhitespace);
+    
+    // Load custom keyboard shortcuts (overrides default accelerators)
+    LoadKeyboardShortcuts();
     
     // Create find bar
     if (!m_findBar->Create(m_hwnd, m_hInstance, m_editor.get())) {
@@ -467,6 +486,9 @@ void MainWindow::OnDestroy() {
         
         // Save zoom level
         settings.zoomLevel = m_editor->GetTextLength() > 0 ? m_settingsManager->GetSettings().zoomLevel : 100;
+        
+        // Save editor feature settings
+        settings.showWhitespace = m_editor->IsShowWhitespace();
     }
     
     // Save settings
@@ -501,7 +523,7 @@ void MainWindow::OnClose() {
         auto ids = m_documentManager->GetAllTabIds();
         for (int id : ids) {
             auto* doc = m_documentManager->GetDocument(id);
-            if (doc && doc->isModified) {
+            if (doc && doc->isModified && !(doc->isNewFile && IsWhitespaceOnly(doc->text))) {
                 // Switch to the unsaved tab so user can see it
                 OnTabSelected(id);
                 
@@ -638,6 +660,22 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_EDIT_TRIMWHITESPACE:    OnEditTrimWhitespace(); break;
         case IDM_EDIT_REMOVEDUPLICATES:  OnEditRemoveDuplicateLines(); break;
         
+        // Bookmarks
+        case IDM_EDIT_TOGGLEBOOKMARK:    OnEditToggleBookmark(); break;
+        case IDM_EDIT_NEXTBOOKMARK:      OnEditNextBookmark(); break;
+        case IDM_EDIT_PREVBOOKMARK:      OnEditPrevBookmark(); break;
+        case IDM_EDIT_CLEARBOOKMARKS:    OnEditClearBookmarks(); break;
+        
+        // View menu (additional)
+        case IDM_VIEW_SHOWWHITESPACE:    OnViewShowWhitespace(); break;
+        
+        // Tools menu
+        case IDM_TOOLS_EDITSHORTCUTS:    OnToolsEditShortcuts(); break;
+        
+        // Notes menu (additional)
+        case IDM_NOTES_EXPORT:           OnNotesExport(); break;
+        case IDM_NOTES_IMPORT:           OnNotesImport(); break;
+        
         // System tray
         case IDM_TRAY_SHOW:     RestoreFromTray(); break;
         case IDM_TRAY_CAPTURE:  OnNotesQuickCapture(); break;
@@ -683,6 +721,14 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         // Sync modified state with DocumentManager and TabBar
         if (m_documentManager) {
             m_documentManager->SyncModifiedState();
+            
+            // Suppress modified indicator for new files with whitespace-only content
+            auto* doc = m_documentManager->GetActiveDocument();
+            if (doc && doc->isNewFile && doc->isModified && IsWhitespaceOnly(m_editor->GetText())) {
+                m_editor->SetModified(false);
+                doc->isModified = false;
+                m_tabBar->SetTabModified(doc->tabId, false);
+            }
         }
         UpdateTitle();
     }
@@ -713,7 +759,7 @@ void MainWindow::OnDropFiles(HDROP hDrop) {
             if (i == 0) {
                 auto* activeDoc = m_documentManager->GetActiveDocument();
                 if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
-                    m_editor->GetTextLength() == 0) {
+                    IsWhitespaceOnly(m_editor->GetText())) {
                     LoadFile(filePath);
                     continue;
                 }
@@ -801,7 +847,7 @@ void MainWindow::OnFileOpen() {
         // If current tab is untitled, unmodified, and empty - reuse it
         auto* activeDoc = m_documentManager->GetActiveDocument();
         if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified && 
-            m_editor->GetTextLength() == 0) {
+            IsWhitespaceOnly(m_editor->GetText())) {
             // Reuse current tab
             LoadFile(filePath);
         } else {
@@ -900,7 +946,7 @@ void MainWindow::OnFileOpenRecent(int index) {
         // Open in new tab if current tab has content, otherwise reuse
         auto* activeDoc = m_documentManager->GetActiveDocument();
         if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
-            m_editor->GetTextLength() == 0) {
+            IsWhitespaceOnly(m_editor->GetText())) {
             LoadFile(filePath);
         } else {
             FileReadResult result = FileIO::ReadFile(filePath);
@@ -1283,6 +1329,367 @@ void MainWindow::OnViewZoomReset() {
     UpdateStatusBar();
 }
 
+//------------------------------------------------------------------------------\n// View -> Show Whitespace
+//------------------------------------------------------------------------------
+void MainWindow::OnViewShowWhitespace() {
+    bool newState = !m_editor->IsShowWhitespace();
+    m_editor->SetShowWhitespace(newState);
+    m_settingsManager->GetSettings().showWhitespace = newState;
+}
+
+//------------------------------------------------------------------------------
+// Bookmark operations
+//------------------------------------------------------------------------------
+void MainWindow::OnEditToggleBookmark() {
+    m_editor->ToggleBookmark();
+    if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+        m_lineNumbersGutter->Update();
+    }
+}
+
+void MainWindow::OnEditNextBookmark() {
+    m_editor->NextBookmark();
+}
+
+void MainWindow::OnEditPrevBookmark() {
+    m_editor->PrevBookmark();
+}
+
+void MainWindow::OnEditClearBookmarks() {
+    m_editor->ClearBookmarks();
+    if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+        m_lineNumbersGutter->Update();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Edit Keyboard Shortcuts
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsEditShortcuts() {
+    // Get shortcuts file path
+    std::wstring settingsPath = m_settingsManager->GetSettingsPath();
+    size_t pos = settingsPath.rfind(L"config.ini");
+    if (pos == std::wstring::npos) return;
+    
+    std::wstring shortcutsPath = settingsPath.substr(0, pos) + L"shortcuts.ini";
+    
+    // Create default file if it doesn't exist
+    if (GetFileAttributesW(shortcutsPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        CreateDefaultShortcutsFile(shortcutsPath);
+    }
+    
+    // Open the file in a new tab
+    FileReadResult result = FileIO::ReadFile(shortcutsPath);
+    if (result.success) {
+        // Check if already open
+        int existingTab = m_documentManager->FindDocumentByPath(shortcutsPath);
+        if (existingTab >= 0) {
+            OnTabSelected(existingTab);
+        } else {
+            auto* activeDoc = m_documentManager->GetActiveDocument();
+            if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified && 
+                IsWhitespaceOnly(m_editor->GetText())) {
+                LoadFile(shortcutsPath);
+            } else {
+                m_documentManager->OpenDocument(
+                    shortcutsPath, result.content, result.detectedEncoding, result.detectedLineEnding);
+                m_currentFile = shortcutsPath;
+                m_isNewFile = false;
+                UpdateTitle();
+                UpdateStatusBar();
+            }
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Export Notes
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesExport() {
+    if (!m_noteStore || m_noteStore->GetNoteCount() == 0) {
+        MessageBoxW(m_hwnd, L"There are no notes to export.", L"QNote", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+    
+    OPENFILENAMEW ofn = {};
+    wchar_t filePath[MAX_PATH] = L"notes_export.json";
+    
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = L"JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filePath;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = L"Export Notes";
+    ofn.lpstrDefExt = L"json";
+    ofn.Flags = OFN_OVERWRITEPROMPT | OFN_PATHMUSTEXIST;
+    
+    if (GetSaveFileNameW(&ofn)) {
+        if (m_noteStore->ExportNotes(filePath)) {
+            std::wstring msg = L"Successfully exported " + std::to_wstring(m_noteStore->GetNoteCount()) + L" notes.";
+            MessageBoxW(m_hwnd, msg.c_str(), L"Export Complete", MB_OK | MB_ICONINFORMATION);
+        } else {
+            MessageBoxW(m_hwnd, L"Failed to export notes.", L"Export Error", MB_OK | MB_ICONERROR);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Import Notes
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesImport() {
+    OPENFILENAMEW ofn = {};
+    wchar_t filePath[MAX_PATH] = {};
+    
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = L"JSON Files (*.json)\0*.json\0All Files (*.*)\0*.*\0";
+    ofn.lpstrFile = filePath;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.lpstrTitle = L"Import Notes";
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_PATHMUSTEXIST;
+    
+    if (GetOpenFileNameW(&ofn)) {
+        if (!m_noteStore) {
+            InitializeNoteStore();
+        }
+        
+        size_t countBefore = m_noteStore->GetNoteCount();
+        if (m_noteStore->ImportNotes(filePath)) {
+            size_t added = m_noteStore->GetNoteCount() - countBefore;
+            std::wstring msg = L"Successfully imported " + std::to_wstring(added) + L" new notes.";
+            MessageBoxW(m_hwnd, msg.c_str(), L"Import Complete", MB_OK | MB_ICONINFORMATION);
+        } else {
+            MessageBoxW(m_hwnd, L"Failed to import notes. The file may be invalid.", L"Import Error", MB_OK | MB_ICONERROR);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Keyboard shortcuts - Load custom shortcuts from INI file
+//------------------------------------------------------------------------------
+void MainWindow::LoadKeyboardShortcuts() {
+    std::wstring settingsPath = m_settingsManager->GetSettingsPath();
+    size_t pos = settingsPath.rfind(L"config.ini");
+    if (pos == std::wstring::npos) return;
+    
+    std::wstring shortcutsPath = settingsPath.substr(0, pos) + L"shortcuts.ini";
+    
+    // If no custom shortcuts file exists, keep the default accelerator table
+    if (GetFileAttributesW(shortcutsPath.c_str()) == INVALID_FILE_ATTRIBUTES) {
+        return;
+    }
+    
+    // Define command name to ID mapping
+    struct CmdMapping {
+        const wchar_t* name;
+        WORD cmdId;
+    };
+    
+    static const CmdMapping cmdMap[] = {
+        { L"FileNew",          IDM_FILE_NEW },
+        { L"FileNewWindow",    IDM_FILE_NEWWINDOW },
+        { L"FileOpen",         IDM_FILE_OPEN },
+        { L"FileSave",         IDM_FILE_SAVE },
+        { L"FileSaveAs",       IDM_FILE_SAVEAS },
+        { L"FilePrint",        IDM_FILE_PRINT },
+        { L"EditUndo",         IDM_EDIT_UNDO },
+        { L"EditRedo",         IDM_EDIT_REDO },
+        { L"EditCut",          IDM_EDIT_CUT },
+        { L"EditCopy",         IDM_EDIT_COPY },
+        { L"EditPaste",        IDM_EDIT_PASTE },
+        { L"EditDelete",       IDM_EDIT_DELETE },
+        { L"EditSelectAll",    IDM_EDIT_SELECTALL },
+        { L"EditFind",         IDM_EDIT_FIND },
+        { L"EditFindNext",     IDM_EDIT_FINDNEXT },
+        { L"EditReplace",      IDM_EDIT_REPLACE },
+        { L"EditGoTo",         IDM_EDIT_GOTO },
+        { L"EditDateTime",     IDM_EDIT_DATETIME },
+        { L"ViewZoomIn",       IDM_VIEW_ZOOMIN },
+        { L"ViewZoomOut",      IDM_VIEW_ZOOMOUT },
+        { L"ViewZoomReset",    IDM_VIEW_ZOOMRESET },
+        { L"TabNew",           IDM_TAB_NEW },
+        { L"TabClose",         IDM_TAB_CLOSE },
+        { L"TabNext",          IDM_TAB_NEXT },
+        { L"TabPrev",          IDM_TAB_PREV },
+        { L"NotesCapture",     IDM_NOTES_QUICKCAPTURE },
+        { L"NotesAllNotes",    IDM_NOTES_ALLNOTES },
+        { L"NotesSearch",      IDM_NOTES_SEARCH },
+        { L"ToggleBookmark",   IDM_EDIT_TOGGLEBOOKMARK },
+        { L"NextBookmark",     IDM_EDIT_NEXTBOOKMARK },
+        { L"PrevBookmark",     IDM_EDIT_PREVBOOKMARK },
+        { L"ClearBookmarks",   IDM_EDIT_CLEARBOOKMARKS },
+    };
+    
+    std::vector<ACCEL> accels;
+    
+    for (const auto& cmd : cmdMap) {
+        wchar_t buf[256] = {};
+        GetPrivateProfileStringW(L"Shortcuts", cmd.name, L"", buf, 256, shortcutsPath.c_str());
+        
+        std::wstring shortcut = buf;
+        if (shortcut.empty()) continue;
+        
+        // Parse "Ctrl+Shift+K" style string
+        BYTE fVirt = FVIRTKEY;
+        WORD key = 0;
+        
+        std::wstring remaining = shortcut;
+        // Parse modifiers
+        while (true) {
+            size_t plusPos = remaining.find(L'+');
+            if (plusPos == std::wstring::npos) break;
+            
+            std::wstring modifier = remaining.substr(0, plusPos);
+            remaining = remaining.substr(plusPos + 1);
+            
+            if (_wcsicmp(modifier.c_str(), L"Ctrl") == 0) fVirt |= FCONTROL;
+            else if (_wcsicmp(modifier.c_str(), L"Shift") == 0) fVirt |= FSHIFT;
+            else if (_wcsicmp(modifier.c_str(), L"Alt") == 0) fVirt |= FALT;
+        }
+        
+        // remaining is the key name
+        key = ParseVirtualKey(remaining);
+        if (key == 0) continue;
+        
+        ACCEL accel = {};
+        accel.fVirt = fVirt;
+        accel.key = key;
+        accel.cmd = cmd.cmdId;
+        accels.push_back(accel);
+    }
+    
+    if (!accels.empty()) {
+        HACCEL hNewAccel = CreateAcceleratorTableW(accels.data(), static_cast<int>(accels.size()));
+        if (hNewAccel) {
+            if (m_hAccel) {
+                DestroyAcceleratorTable(m_hAccel);
+            }
+            m_hAccel = hNewAccel;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Create default shortcuts INI file
+//------------------------------------------------------------------------------
+void MainWindow::CreateDefaultShortcutsFile(const std::wstring& path) {
+    std::wstring content;
+    content += L"; QNote Keyboard Shortcuts Configuration\r\n";
+    content += L"; Format: CommandName=Modifier+Key\r\n";
+    content += L"; Modifiers: Ctrl, Shift, Alt (combine with +)\r\n";
+    content += L"; Keys: A-Z, 0-9, F1-F12, Tab, Delete, Escape, Enter, Space, Plus, Minus\r\n";
+    content += L"; Save this file and restart QNote to apply changes.\r\n";
+    content += L"\r\n[Shortcuts]\r\n";
+    content += L"FileNew=Ctrl+N\r\n";
+    content += L"FileNewWindow=Ctrl+Shift+N\r\n";
+    content += L"FileOpen=Ctrl+O\r\n";
+    content += L"FileSave=Ctrl+S\r\n";
+    content += L"FileSaveAs=Ctrl+Shift+S\r\n";
+    content += L"FilePrint=Ctrl+P\r\n";
+    content += L"EditUndo=Ctrl+Z\r\n";
+    content += L"EditRedo=Ctrl+Y\r\n";
+    content += L"EditCut=Ctrl+X\r\n";
+    content += L"EditCopy=Ctrl+C\r\n";
+    content += L"EditPaste=Ctrl+V\r\n";
+    content += L"EditDelete=Delete\r\n";
+    content += L"EditSelectAll=Ctrl+A\r\n";
+    content += L"EditFind=Ctrl+F\r\n";
+    content += L"EditFindNext=F3\r\n";
+    content += L"EditReplace=Ctrl+H\r\n";
+    content += L"EditGoTo=Ctrl+G\r\n";
+    content += L"EditDateTime=F5\r\n";
+    content += L"ViewZoomIn=Ctrl+Plus\r\n";
+    content += L"ViewZoomOut=Ctrl+Minus\r\n";
+    content += L"ViewZoomReset=Ctrl+0\r\n";
+    content += L"TabNew=Ctrl+T\r\n";
+    content += L"TabClose=Ctrl+W\r\n";
+    content += L"TabNext=Ctrl+Tab\r\n";
+    content += L"TabPrev=Ctrl+Shift+Tab\r\n";
+    content += L"NotesCapture=Ctrl+Shift+Q\r\n";
+    content += L"NotesAllNotes=Ctrl+Shift+A\r\n";
+    content += L"NotesSearch=Ctrl+Shift+F\r\n";
+    content += L"ToggleBookmark=F2\r\n";
+    content += L"NextBookmark=Ctrl+F2\r\n";
+    content += L"PrevBookmark=Shift+F2\r\n";
+    content += L"ClearBookmarks=Ctrl+Shift+F2\r\n";
+    
+    (void)FileIO::WriteFile(path, content, TextEncoding::UTF8, LineEnding::CRLF);
+}
+
+//------------------------------------------------------------------------------
+// Parse key name to virtual key code
+//------------------------------------------------------------------------------
+WORD MainWindow::ParseVirtualKey(const std::wstring& keyName) {
+    if (keyName.length() == 1) {
+        wchar_t c = towupper(keyName[0]);
+        if (c >= L'A' && c <= L'Z') return static_cast<WORD>(c);
+        if (c >= L'0' && c <= L'9') return static_cast<WORD>(c);
+    }
+    
+    if (_wcsicmp(keyName.c_str(), L"F1") == 0) return VK_F1;
+    if (_wcsicmp(keyName.c_str(), L"F2") == 0) return VK_F2;
+    if (_wcsicmp(keyName.c_str(), L"F3") == 0) return VK_F3;
+    if (_wcsicmp(keyName.c_str(), L"F4") == 0) return VK_F4;
+    if (_wcsicmp(keyName.c_str(), L"F5") == 0) return VK_F5;
+    if (_wcsicmp(keyName.c_str(), L"F6") == 0) return VK_F6;
+    if (_wcsicmp(keyName.c_str(), L"F7") == 0) return VK_F7;
+    if (_wcsicmp(keyName.c_str(), L"F8") == 0) return VK_F8;
+    if (_wcsicmp(keyName.c_str(), L"F9") == 0) return VK_F9;
+    if (_wcsicmp(keyName.c_str(), L"F10") == 0) return VK_F10;
+    if (_wcsicmp(keyName.c_str(), L"F11") == 0) return VK_F11;
+    if (_wcsicmp(keyName.c_str(), L"F12") == 0) return VK_F12;
+    if (_wcsicmp(keyName.c_str(), L"Tab") == 0) return VK_TAB;
+    if (_wcsicmp(keyName.c_str(), L"Delete") == 0) return VK_DELETE;
+    if (_wcsicmp(keyName.c_str(), L"Escape") == 0) return VK_ESCAPE;
+    if (_wcsicmp(keyName.c_str(), L"Enter") == 0) return VK_RETURN;
+    if (_wcsicmp(keyName.c_str(), L"Space") == 0) return VK_SPACE;
+    if (_wcsicmp(keyName.c_str(), L"Plus") == 0) return VK_OEM_PLUS;
+    if (_wcsicmp(keyName.c_str(), L"Minus") == 0) return VK_OEM_MINUS;
+    if (_wcsicmp(keyName.c_str(), L"Home") == 0) return VK_HOME;
+    if (_wcsicmp(keyName.c_str(), L"End") == 0) return VK_END;
+    if (_wcsicmp(keyName.c_str(), L"PageUp") == 0) return VK_PRIOR;
+    if (_wcsicmp(keyName.c_str(), L"PageDown") == 0) return VK_NEXT;
+    if (_wcsicmp(keyName.c_str(), L"Insert") == 0) return VK_INSERT;
+    if (_wcsicmp(keyName.c_str(), L"Backspace") == 0) return VK_BACK;
+    
+    return 0;
+}
+
+//------------------------------------------------------------------------------
+// Format accelerator key to display string
+//------------------------------------------------------------------------------
+std::wstring MainWindow::FormatAccelKey(BYTE fVirt, WORD key) {
+    std::wstring result;
+    if (fVirt & FCONTROL) result += L"Ctrl+";
+    if (fVirt & FSHIFT) result += L"Shift+";
+    if (fVirt & FALT) result += L"Alt+";
+    
+    if (key >= 'A' && key <= 'Z') result += static_cast<wchar_t>(key);
+    else if (key >= '0' && key <= '9') result += static_cast<wchar_t>(key);
+    else if (key == VK_F1) result += L"F1";
+    else if (key == VK_F2) result += L"F2";
+    else if (key == VK_F3) result += L"F3";
+    else if (key == VK_F4) result += L"F4";
+    else if (key == VK_F5) result += L"F5";
+    else if (key == VK_F6) result += L"F6";
+    else if (key == VK_F7) result += L"F7";
+    else if (key == VK_F8) result += L"F8";
+    else if (key == VK_F9) result += L"F9";
+    else if (key == VK_F10) result += L"F10";
+    else if (key == VK_F11) result += L"F11";
+    else if (key == VK_F12) result += L"F12";
+    else if (key == VK_TAB) result += L"Tab";
+    else if (key == VK_DELETE) result += L"Delete";
+    else if (key == VK_ESCAPE) result += L"Escape";
+    else if (key == VK_RETURN) result += L"Enter";
+    else if (key == VK_SPACE) result += L"Space";
+    else if (key == VK_OEM_PLUS) result += L"Plus";
+    else if (key == VK_OEM_MINUS) result += L"Minus";
+    else result += L"?";
+    
+    return result;
+}
+
 //------------------------------------------------------------------------------
 // Encoding change handler
 //------------------------------------------------------------------------------
@@ -1520,6 +1927,8 @@ void MainWindow::UpdateMenuState() {
                   MF_BYCOMMAND | (m_settingsManager->GetSettings().showStatusBar ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(hMenu, IDM_VIEW_LINENUMBERS,
                   MF_BYCOMMAND | (m_settingsManager->GetSettings().showLineNumbers ? MF_CHECKED : MF_UNCHECKED));
+    CheckMenuItem(hMenu, IDM_VIEW_SHOWWHITESPACE,
+                  MF_BYCOMMAND | (m_editor->IsShowWhitespace() ? MF_CHECKED : MF_UNCHECKED));
     
     // Encoding checkmarks
     TextEncoding enc = m_editor->GetEncoding();
@@ -1594,6 +2003,11 @@ void MainWindow::UpdateRecentFilesMenu() {
 //------------------------------------------------------------------------------
 bool MainWindow::PromptSaveChanges() {
     if (!m_editor->IsModified()) {
+        return true;
+    }
+    
+    // An untitled file with whitespace-only content has nothing to save
+    if (m_isNewFile && IsWhitespaceOnly(m_editor->GetText())) {
         return true;
     }
     
@@ -1712,16 +2126,24 @@ bool MainWindow::SaveFile(const std::wstring& filePath) {
 // Create new document
 //------------------------------------------------------------------------------
 void MainWindow::NewDocument() {
-    m_editor->Clear();
-    m_editor->SetModified(false);
-    m_editor->SetEncoding(m_settingsManager->GetSettings().defaultEncoding);
-    m_editor->SetLineEnding(m_settingsManager->GetSettings().defaultLineEnding);
+    // Reset the document state in the DocumentManager (text, path, title, etc.)
+    if (m_documentManager) {
+        m_documentManager->ResetActiveDocument();
+    }
     
     m_currentFile.clear();
     m_isNewFile = true;
+    m_isNoteMode = false;
+    m_currentNoteId.clear();
     
+    StartFileMonitoring();
     UpdateTitle();
     UpdateStatusBar();
+    
+    // Update line numbers gutter
+    if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+        m_lineNumbersGutter->Update();
+    }
     
     m_editor->SetFocus();
 }
@@ -2342,7 +2764,7 @@ void MainWindow::SaveSession() {
     // Don't save session if there's only one empty untitled tab
     if (ids.size() == 1) {
         auto* doc = m_documentManager->GetDocument(ids[0]);
-        if (doc && doc->isNewFile && !doc->isModified && doc->text.empty()) {
+        if (doc && doc->isNewFile && !doc->isModified && IsWhitespaceOnly(doc->text)) {
             return;
         }
     }
@@ -2382,6 +2804,16 @@ void MainWindow::SaveSession() {
         writeInt(L"FirstVisibleLine", doc->firstVisibleLine);
         writeInt(L"IsNoteMode", doc->isNoteMode ? 1 : 0);
         writeStr(L"NoteId", doc->noteId);
+        
+        // Save bookmarks as comma-separated line numbers
+        std::wstring bmStr;
+        for (int bm : doc->bookmarks) {
+            if (!bmStr.empty()) bmStr += L",";
+            bmStr += std::to_wstring(bm);
+        }
+        writeStr(L"Bookmarks", bmStr);
+        
+        writeInt(L"IsModified", doc->isModified ? 1 : 0);
         
         // For untitled or modified tabs, save content to sidecar file
         if (doc->isNewFile || doc->isModified) {
@@ -2433,6 +2865,20 @@ void MainWindow::LoadSession() {
         GetPrivateProfileStringW(section.c_str(), L"NoteId", L"", buf, 4096, sessionPath.c_str());
         std::wstring noteId = buf;
         
+        // Parse bookmarks
+        GetPrivateProfileStringW(section.c_str(), L"Bookmarks", L"", buf, 4096, sessionPath.c_str());
+        std::set<int> bookmarks;
+        {
+            std::wstring bmStr = buf;
+            std::wistringstream bmStream(bmStr);
+            std::wstring token;
+            while (std::getline(bmStream, token, L',')) {
+                if (!token.empty()) {
+                    try { bookmarks.insert(std::stoi(token)); } catch (...) {}
+                }
+            }
+        }
+        
         bool hasSavedContent = GetPrivateProfileIntW(section.c_str(), L"HasSavedContent", 0, sessionPath.c_str()) != 0;
         
         std::wstring content;
@@ -2469,7 +2915,8 @@ void MainWindow::LoadSession() {
                 doc->isNoteMode = isNoteMode;
                 doc->noteId = noteId;
                 doc->text = content;
-                doc->isModified = hasSavedContent && isNewFile;
+                doc->isModified = GetPrivateProfileIntW(section.c_str(), L"IsModified", 0, sessionPath.c_str()) != 0;
+                doc->bookmarks = bookmarks;
                 
                 m_tabBar->SetTabTitle(tabId, doc->GetDisplayTitle());
                 if (!filePath.empty()) m_tabBar->SetTabFilePath(tabId, filePath);
@@ -2480,6 +2927,7 @@ void MainWindow::LoadSession() {
                 m_editor->SetEncoding(encoding);
                 m_editor->SetLineEnding(lineEnding);
                 m_editor->SetModified(doc->isModified);
+                m_editor->SetBookmarks(bookmarks);
                 
                 m_currentFile = filePath;
                 m_isNewFile = isNewFile;
@@ -2498,9 +2946,10 @@ void MainWindow::LoadSession() {
                 doc->firstVisibleLine = firstVisibleLine;
                 doc->isNoteMode = isNoteMode;
                 doc->noteId = noteId;
+                doc->bookmarks = bookmarks;
                 
-                if (hasSavedContent && isNewFile) {
-                    doc->isModified = true;
+                doc->isModified = GetPrivateProfileIntW(section.c_str(), L"IsModified", 0, sessionPath.c_str()) != 0;
+                if (doc->isModified) {
                     m_tabBar->SetTabModified(tabId, true);
                 }
                 if (!customTitle.empty()) m_tabBar->SetTabTitle(tabId, customTitle);
@@ -2591,8 +3040,13 @@ void MainWindow::OnTabNew() {
         m_isNewFile = true;
         m_isNoteMode = false;
         m_currentNoteId.clear();
+        StartFileMonitoring();
         UpdateTitle();
         UpdateStatusBar();
+        
+        if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+            m_lineNumbersGutter->Update();
+        }
     }
 }
 
@@ -2622,6 +3076,9 @@ void MainWindow::OnTabSelected(int tabId) {
         m_isNoteMode = doc->isNoteMode;
         m_currentNoteId = doc->noteId;
     }
+    
+    // Update file monitoring for the newly active file
+    StartFileMonitoring();
     
     UpdateTitle();
     UpdateStatusBar();
@@ -2759,8 +3216,16 @@ void MainWindow::OnTabCloseToRight(int tabId) {
 bool MainWindow::PromptSaveTab(int tabId) {
     if (!m_documentManager) return true;
     
+    // Sync editor content to document state if this is the active tab
+    if (tabId == m_documentManager->GetActiveTabId()) {
+        m_documentManager->SaveCurrentState();
+    }
+    
     auto* doc = m_documentManager->GetDocument(tabId);
     if (!doc || !doc->isModified) return true;
+    
+    // An untitled file with whitespace-only content has nothing to save
+    if (doc->isNewFile && IsWhitespaceOnly(doc->text)) return true;
     
     // Switch to the tab so user can see it
     if (tabId != m_documentManager->GetActiveTabId()) {

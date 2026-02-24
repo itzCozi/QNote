@@ -108,6 +108,23 @@
 #define IDM_ENCODING_REOPEN_UTF16BE     5104
 #define IDM_ENCODING_REOPEN_ANSI        5105
 
+// View menu (additional)
+#define IDM_VIEW_HIGHLIGHTLINE          4006
+#define IDM_VIEW_SHOWWHITESPACE         4007
+
+// Edit menu (bookmarks)
+#define IDM_EDIT_TOGGLEBOOKMARK         2030
+#define IDM_EDIT_NEXTBOOKMARK           2031
+#define IDM_EDIT_PREVBOOKMARK           2032
+#define IDM_EDIT_CLEARBOOKMARKS         2033
+
+// Tools menu
+#define IDM_TOOLS_EDITSHORTCUTS         10002
+
+// Notes menu (additional)
+#define IDM_NOTES_EXPORT                7010
+#define IDM_NOTES_IMPORT                7011
+
 // System tray
 #define IDM_TRAY_SHOW                   9001
 #define IDM_TRAY_CAPTURE                9002

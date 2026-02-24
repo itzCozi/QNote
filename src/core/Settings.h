@@ -61,6 +61,7 @@ struct AppSettings {
     int zoomLevel = 100;  // Percentage (25-500)
     bool showStatusBar = true;
     bool showLineNumbers = false;  // Line numbers gutter
+    bool showWhitespace = false;     // Show whitespace characters
     bool fileAutoSave = true;      // Auto-save backup files (.autosave)
     bool rightToLeft = false;  // Right-to-left reading order
     

@@ -66,6 +66,14 @@ BEGIN
             MENUITEM "&Trim Trailing Whitespace",   IDM_EDIT_TRIMWHITESPACE
             MENUITEM "Remove &Duplicate Lines",     IDM_EDIT_REMOVEDUPLICATES
         END
+        POPUP "&Bookmarks"
+        BEGIN
+            MENUITEM "&Toggle Bookmark\tF2",           IDM_EDIT_TOGGLEBOOKMARK
+            MENUITEM "&Next Bookmark\tCtrl+F2",        IDM_EDIT_NEXTBOOKMARK
+            MENUITEM "&Previous Bookmark\tShift+F2",   IDM_EDIT_PREVBOOKMARK
+            MENUITEM SEPARATOR
+            MENUITEM "&Clear All Bookmarks\tCtrl+Shift+F2", IDM_EDIT_CLEARBOOKMARKS
+        END
     END
     POPUP "F&ormat"
     BEGIN
@@ -85,6 +93,7 @@ BEGIN
     BEGIN
         MENUITEM "&Status Bar",                 IDM_VIEW_STATUSBAR
         MENUITEM "&Line Numbers",               IDM_VIEW_LINENUMBERS
+        MENUITEM "Show &Whitespace",             IDM_VIEW_SHOWWHITESPACE
         MENUITEM SEPARATOR
         MENUITEM "Zoom &In\tCtrl++",            IDM_VIEW_ZOOMIN
         MENUITEM "Zoom &Out\tCtrl+-",           IDM_VIEW_ZOOMOUT
@@ -121,6 +130,13 @@ BEGIN
         MENUITEM "Pin/Unpin &Current Note",     IDM_NOTES_PINNOTE
         MENUITEM "Save Note Now",               IDM_NOTES_SAVENOW
         MENUITEM "&Delete Current Note",        IDM_NOTES_DELETENOTE
+        MENUITEM SEPARATOR
+        MENUITEM "E&xport Notes...",            IDM_NOTES_EXPORT
+        MENUITEM "&Import Notes...",            IDM_NOTES_IMPORT
+    END
+    POPUP "&Tools"
+    BEGIN
+        MENUITEM "Edit &Keyboard Shortcuts...", IDM_TOOLS_EDITSHORTCUTS
     END
     POPUP "&Help"
     BEGIN
@@ -167,6 +183,12 @@ BEGIN
     "Q",        IDM_NOTES_QUICKCAPTURE, VIRTKEY, CONTROL, SHIFT
     "A",        IDM_NOTES_ALLNOTES,     VIRTKEY, CONTROL, SHIFT
     "F",        IDM_NOTES_SEARCH,       VIRTKEY, CONTROL, SHIFT
+    
+    // Bookmark accelerators
+    VK_F2,      IDM_EDIT_TOGGLEBOOKMARK, VIRTKEY
+    VK_F2,      IDM_EDIT_NEXTBOOKMARK,   VIRTKEY, CONTROL
+    VK_F2,      IDM_EDIT_PREVBOOKMARK,   VIRTKEY, SHIFT
+    VK_F2,      IDM_EDIT_CLEARBOOKMARKS, VIRTKEY, CONTROL, SHIFT
 END
 
 //------------------------------------------------------------------------------
