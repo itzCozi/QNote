@@ -1,0 +1,165 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>QNote — Downloads</title>
+    <meta name="description" content="Download QNote releases: small, fast, open-source notepad replacement for Windows. No telemetry, minimal footprint.">
+    <meta name="keywords" content="QNote download, notepad download, windows text editor, releases">
+    <meta name="author" content="QNote contributors">
+    <meta name="robots" content="index,follow">
+    <meta name="theme-color" content="#ffffff">
+
+    <meta property="og:site_name" content="QNote">
+    <meta property="og:title" content="QNote — Downloads">
+    <meta property="og:description" content="Download QNote releases: small, fast, open-source notepad replacement for Windows.">
+    <meta property="og:type" content="website">
+    <meta property="og:url" content="https://qnote.ar0.eu/download.html">
+    <meta property="og:image" content="https://qnote.ar0.eu/assets/header.jpg">
+
+    <meta name="twitter:card" content="summary_large_image">
+    <meta name="twitter:site" content="@QNoteApp">
+    <meta name="twitter:title" content="QNote — Downloads">
+    <meta name="twitter:description" content="Download QNote releases: small, fast, open-source notepad replacement for Windows.">
+    <meta name="twitter:image" content="https://qnote.ar0.eu/assets/header.jpg">
+
+    <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
+    <link rel="stylesheet" type="text/css" href="styles.css" />
+
+    <script type="application/ld+json">
+    {
+      "@context": "https://schema.org",
+      "@type": "SoftwareApplication",
+      "name": "QNote",
+      "description": "Download QNote releases: a small, fast, open-source notepad replacement for Windows.",
+      "operatingSystem": "Windows",
+      "applicationCategory": "DesktopApplication",
+      "url": "https://qnote.ar0.eu/download.html",
+      "image": "https://qnote.ar0.eu/assets/header.jpg"
+    }
+    </script>
+  </head>
+
+  <body>
+    <h1>Downloads</h1>
+
+    <nav class="site-links">
+      <a href="index.html">Home</a>
+      <a href="source.html">Source</a>
+      <a href="more.html">Learn more</a>
+    </nav>
+
+    <meta name="github-repo" content="itzcozi/qnote" />
+
+    <div id="releases">Loading releases...</div>
+
+    <script>
+      (function () {
+        const container = document.getElementById("releases");
+
+        function getRepoFromMeta() {
+          const m = document.querySelector('meta[name="github-repo"]');
+          return m && m.content ? m.content.trim() : null;
+        }
+
+        const repo = getRepoFromMeta();
+
+        if (!repo) {
+          container.innerHTML = `No GitHub repo configured. Add a meta tag <meta name="github-repo" content="owner/repo"> to the document <head>.`;
+          return;
+        }
+
+        const [owner, repoName] = repo.split("/");
+        const apiUrl = `https://api.github.com/repos/${owner}/${repoName}/releases?per_page=5`;
+
+        function fmtDate(iso) {
+          try {
+            return new Date(iso).toLocaleString();
+          } catch (e) {
+            return iso;
+          }
+        }
+
+        function createLink(href, text) {
+          const a = document.createElement("a");
+          a.href = href;
+          a.textContent = text;
+          a.target = "_blank";
+          return a;
+        }
+
+        fetch(apiUrl)
+          .then((resp) => {
+            if (!resp.ok) throw new Error(`GitHub API error: ${resp.status}`);
+            return resp.json();
+          })
+          .then((releases) => {
+            if (!Array.isArray(releases) || releases.length === 0) {
+              container.innerHTML = "No releases found.";
+              return;
+            }
+
+            const list = document.createElement("div");
+            list.className = "releases-list";
+
+            releases.forEach((rel) => {
+              const card = document.createElement("article");
+              card.className = "release";
+
+              const h2 = document.createElement("h2");
+              h2.textContent = rel.name || rel.tag_name || "Unnamed release";
+              card.appendChild(h2);
+
+              const meta = document.createElement("div");
+              meta.className = "release-meta";
+              meta.textContent = `Published: ${fmtDate(rel.published_at || rel.created_at || "")}`;
+              card.appendChild(meta);
+
+              if (rel.body) {
+                const notes = document.createElement("p");
+                notes.className = "release-notes";
+                notes.innerText =
+                  rel.body.length > 800
+                    ? rel.body.slice(0, 800) + "…"
+                    : rel.body;
+                card.appendChild(notes);
+              }
+
+              const assets = document.createElement("div");
+              assets.className = "release-assets";
+
+              if (Array.isArray(rel.assets) && rel.assets.length) {
+                rel.assets.forEach((a) => {
+                  const link = createLink(
+                    a.browser_download_url || a.url,
+                    `${a.name} (${a.size || 0} bytes)`,
+                  );
+                  assets.appendChild(link);
+                  assets.appendChild(document.createTextNode(" "));
+                });
+              } else {
+                const relUrl =
+                  rel.html_url ||
+                  `https://github.com/${owner}/${repoName}/releases/tag/${rel.tag_name}`;
+                assets.appendChild(createLink(relUrl, "View release page"));
+              }
+
+              card.appendChild(assets);
+              list.appendChild(card);
+            });
+
+            container.innerHTML = "";
+            container.appendChild(list);
+          })
+          .catch((err) => {
+            container.innerHTML = `Failed to load releases: ${err.message}.`;
+          });
+      })();
+    </script>
+
+    <hr />
+
+    <em>Tiny. Quick. Simple. Efficient.</em>
+    <sub>Never anything more. Never anything less.</sub>
+  </body>
+</html>

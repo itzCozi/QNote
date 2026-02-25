@@ -1,0 +1,57 @@
+body {
+  font-family: Tahoma, sans-serif;
+  line-height: 1.5;
+  padding: 1rem;
+  max-width: 48rem;
+  margin: auto;
+}
+
+sub {
+  display: block;
+  font-size: 0.68rem;
+}
+
+a {
+  color: blue;
+  text-decoration: none;
+}
+
+a:hover {
+  text-decoration: underline;
+}
+
+.site-links {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  margin-bottom: 1em;
+  padding: 0;
+}
+
+.site-links a:not(:last-child)::after {
+  content: "|";
+  margin-left: 0.5rem;
+  color: #666;
+  display: inline-block;
+  text-decoration: none;
+}
+
+@media (max-width: 480px) {
+  .site-links {
+    flex-direction: column;
+    gap: 0.25rem;
+  }
+
+  .site-links a:not(:last-child)::after {
+    content: "";
+    text-decoration: none;
+  }
+}
+
+/* Header image inside h1 — keep it small and aligned with text */
+h1 img {
+  max-height: 1.2em;
+  width: auto;
+  vertical-align: middle;
+  margin-right: 0.5rem;
+}
