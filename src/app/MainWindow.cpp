@@ -2223,12 +2223,14 @@ void MainWindow::LoadKeyboardShortcuts() {
     };
     
     static const CmdMapping cmdMap[] = {
+        // File
         { L"FileNew",          IDM_FILE_NEW },
         { L"FileNewWindow",    IDM_FILE_NEWWINDOW },
         { L"FileOpen",         IDM_FILE_OPEN },
         { L"FileSave",         IDM_FILE_SAVE },
         { L"FileSaveAs",       IDM_FILE_SAVEAS },
         { L"FilePrint",        IDM_FILE_PRINT },
+        // Edit
         { L"EditUndo",         IDM_EDIT_UNDO },
         { L"EditRedo",         IDM_EDIT_REDO },
         { L"EditCut",          IDM_EDIT_CUT },
@@ -2241,16 +2243,23 @@ void MainWindow::LoadKeyboardShortcuts() {
         { L"EditReplace",      IDM_EDIT_REPLACE },
         { L"EditGoTo",         IDM_EDIT_GOTO },
         { L"EditDateTime",     IDM_EDIT_DATETIME },
+        // Text Operations
+        { L"EditUppercase",    IDM_EDIT_UPPERCASE },
+        { L"EditLowercase",    IDM_EDIT_LOWERCASE },
+        // View
         { L"ViewZoomIn",       IDM_VIEW_ZOOMIN },
         { L"ViewZoomOut",      IDM_VIEW_ZOOMOUT },
         { L"ViewZoomReset",    IDM_VIEW_ZOOMRESET },
+        // Tabs
         { L"TabNew",           IDM_TAB_NEW },
         { L"TabClose",         IDM_TAB_CLOSE },
         { L"TabNext",          IDM_TAB_NEXT },
         { L"TabPrev",          IDM_TAB_PREV },
+        // Notes
         { L"NotesCapture",     IDM_NOTES_QUICKCAPTURE },
         { L"NotesAllNotes",    IDM_NOTES_ALLNOTES },
         { L"NotesSearch",      IDM_NOTES_SEARCH },
+        // Bookmarks
         { L"ToggleBookmark",   IDM_EDIT_TOGGLEBOOKMARK },
         { L"NextBookmark",     IDM_EDIT_NEXTBOOKMARK },
         { L"PrevBookmark",     IDM_EDIT_PREVBOOKMARK },
@@ -2311,18 +2320,30 @@ void MainWindow::LoadKeyboardShortcuts() {
 //------------------------------------------------------------------------------
 void MainWindow::CreateDefaultShortcutsFile(const std::wstring& path) {
     std::wstring content;
-    content += L"; QNote Keyboard Shortcuts Configuration\r\n";
-    content += L"; Format: CommandName=Modifier+Key\r\n";
+    content += L"; =============================================================================\r\n";
+    content += L"; QNote - Keyboard Shortcuts Configuration\r\n";
+    content += L"; =============================================================================\r\n";
+    content += L";\r\n";
+    content += L"; Format:    CommandName=Modifier+Key\r\n";
     content += L"; Modifiers: Ctrl, Shift, Alt (combine with +)\r\n";
-    content += L"; Keys: A-Z, 0-9, F1-F12, Tab, Delete, Escape, Enter, Space, Plus, Minus\r\n";
+    content += L"; Keys:      A-Z, 0-9, F1-F12, Tab, Delete, Escape, Enter, Space,\r\n";
+    content += L";            Plus, Minus, Home, End, PageUp, PageDown, Insert, Backspace\r\n";
+    content += L";\r\n";
+    content += L"; To customize a shortcut, change the value after the = sign.\r\n";
+    content += L"; To disable a shortcut, delete the value (e.g., FileNew=).\r\n";
     content += L"; Save this file and restart QNote to apply changes.\r\n";
+    content += L";\r\n";
     content += L"\r\n[Shortcuts]\r\n";
+    content += L"\r\n";
+    content += L"; --- File ---\r\n";
     content += L"FileNew=Ctrl+N\r\n";
     content += L"FileNewWindow=Ctrl+Shift+N\r\n";
     content += L"FileOpen=Ctrl+O\r\n";
     content += L"FileSave=Ctrl+S\r\n";
     content += L"FileSaveAs=Ctrl+Shift+S\r\n";
     content += L"FilePrint=Ctrl+P\r\n";
+    content += L"\r\n";
+    content += L"; --- Edit ---\r\n";
     content += L"EditUndo=Ctrl+Z\r\n";
     content += L"EditRedo=Ctrl+Y\r\n";
     content += L"EditCut=Ctrl+X\r\n";
@@ -2335,16 +2356,28 @@ void MainWindow::CreateDefaultShortcutsFile(const std::wstring& path) {
     content += L"EditReplace=Ctrl+H\r\n";
     content += L"EditGoTo=Ctrl+G\r\n";
     content += L"EditDateTime=F5\r\n";
+    content += L"\r\n";
+    content += L"; --- Text Operations ---\r\n";
+    content += L"EditUppercase=Ctrl+Shift+U\r\n";
+    content += L"EditLowercase=Ctrl+U\r\n";
+    content += L"\r\n";
+    content += L"; --- View ---\r\n";
     content += L"ViewZoomIn=Ctrl+Plus\r\n";
     content += L"ViewZoomOut=Ctrl+Minus\r\n";
     content += L"ViewZoomReset=Ctrl+0\r\n";
+    content += L"\r\n";
+    content += L"; --- Tabs ---\r\n";
     content += L"TabNew=Ctrl+T\r\n";
     content += L"TabClose=Ctrl+W\r\n";
     content += L"TabNext=Ctrl+Tab\r\n";
     content += L"TabPrev=Ctrl+Shift+Tab\r\n";
+    content += L"\r\n";
+    content += L"; --- Notes ---\r\n";
     content += L"NotesCapture=Ctrl+Shift+Q\r\n";
     content += L"NotesAllNotes=Ctrl+Shift+A\r\n";
     content += L"NotesSearch=Ctrl+Shift+F\r\n";
+    content += L"\r\n";
+    content += L"; --- Bookmarks ---\r\n";
     content += L"ToggleBookmark=F2\r\n";
     content += L"NextBookmark=Ctrl+F2\r\n";
     content += L"PrevBookmark=Shift+F2\r\n";
@@ -2422,6 +2455,12 @@ std::wstring MainWindow::FormatAccelKey(BYTE fVirt, WORD key) {
     else if (key == VK_SPACE) result += L"Space";
     else if (key == VK_OEM_PLUS) result += L"Plus";
     else if (key == VK_OEM_MINUS) result += L"Minus";
+    else if (key == VK_HOME) result += L"Home";
+    else if (key == VK_END) result += L"End";
+    else if (key == VK_PRIOR) result += L"PageUp";
+    else if (key == VK_NEXT) result += L"PageDown";
+    else if (key == VK_INSERT) result += L"Insert";
+    else if (key == VK_BACK) result += L"Backspace";
     else result += L"?";
     
     return result;
@@ -3925,7 +3964,7 @@ void MainWindow::CleanupSystemTray() {
 void MainWindow::ShowTrayContextMenu() {
     HMENU hMenu = CreatePopupMenu();
     AppendMenuW(hMenu, MF_STRING, IDM_TRAY_SHOW, L"&Show QNote");
-    AppendMenuW(hMenu, MF_STRING, IDM_TRAY_CAPTURE, L"Quick &Capture");
+    AppendMenuW(hMenu, MF_STRING, IDM_TRAY_CAPTURE, L"Quick &Capture\tCtrl+Shift+Q");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
     AppendMenuW(hMenu, MF_STRING, IDM_TRAY_EXIT, L"E&xit");
     

@@ -20,22 +20,24 @@ BEGIN
     BEGIN
         MENUITEM "&New\tCtrl+N",                IDM_FILE_NEW
         MENUITEM "New &Window\tCtrl+Shift+N",   IDM_FILE_NEWWINDOW
+        MENUITEM "New &Tab\tCtrl+T",            IDM_TAB_NEW
+        MENUITEM SEPARATOR
         MENUITEM "&Open...\tCtrl+O",            IDM_FILE_OPEN
-        MENUITEM "&Save\tCtrl+S",               IDM_FILE_SAVE
-        MENUITEM "Save &As...\tCtrl+Shift+S",   IDM_FILE_SAVEAS
-        MENUITEM "Re&vert to Saved",              IDM_FILE_REVERT
-        MENUITEM SEPARATOR
-        MENUITEM "Open Containing &Folder",       IDM_FILE_OPENCONTAINING
-        MENUITEM SEPARATOR
-        POPUP "Recent Files"
+        POPUP "&Recent Files"
         BEGIN
             MENUITEM "(Empty)",                 IDM_FILE_RECENT_BASE, GRAYED
         END
         MENUITEM SEPARATOR
+        MENUITEM "&Save\tCtrl+S",               IDM_FILE_SAVE
+        MENUITEM "Save &As...\tCtrl+Shift+S",   IDM_FILE_SAVEAS
+        MENUITEM "Re&vert to Saved",            IDM_FILE_REVERT
+        MENUITEM SEPARATOR
+        MENUITEM "Open Containing &Folder",     IDM_FILE_OPENCONTAINING
+        MENUITEM SEPARATOR
         MENUITEM "Page Set&up...",              IDM_FILE_PAGESETUP
         MENUITEM "&Print...\tCtrl+P",           IDM_FILE_PRINT
         MENUITEM SEPARATOR
-        MENUITEM "E&xit\tAlt+F4",               IDM_FILE_EXIT
+        MENUITEM "E&xit\tAlt+F4",              IDM_FILE_EXIT
     END
     POPUP "&Edit"
     BEGIN
@@ -55,10 +57,10 @@ BEGIN
         MENUITEM "Select &All\tCtrl+A",         IDM_EDIT_SELECTALL
         MENUITEM "Time/&Date\tF5",              IDM_EDIT_DATETIME
         MENUITEM SEPARATOR
-        POPUP "Text &Operations"
+        POPUP "Te&xt Operations"
         BEGIN
-            MENUITEM "&Uppercase Selection",        IDM_EDIT_UPPERCASE
-            MENUITEM "&Lowercase Selection",        IDM_EDIT_LOWERCASE
+            MENUITEM "&Uppercase Selection\tCtrl+Shift+U", IDM_EDIT_UPPERCASE
+            MENUITEM "&Lowercase Selection\tCtrl+U",       IDM_EDIT_LOWERCASE
             MENUITEM SEPARATOR
             MENUITEM "Sort Lines (&Ascending)",     IDM_EDIT_SORTLINES_ASC
             MENUITEM "Sort Lines (&Descending)",    IDM_EDIT_SORTLINES_DESC
@@ -118,13 +120,12 @@ BEGIN
     END
     POPUP "&Notes"
     BEGIN
-        MENUITEM "&New Note\tCtrl+Shift+N",     IDM_NOTES_NEW
+        MENUITEM "&New Note",                   IDM_NOTES_NEW
         MENUITEM "&Quick Capture\tCtrl+Shift+Q", IDM_NOTES_QUICKCAPTURE
         MENUITEM SEPARATOR
         MENUITEM "&All Notes...\tCtrl+Shift+A", IDM_NOTES_ALLNOTES
         MENUITEM "&Pinned Notes...",            IDM_NOTES_PINNED
         MENUITEM "&Timeline...",                IDM_NOTES_TIMELINE
-        MENUITEM SEPARATOR
         MENUITEM "&Search Notes...\tCtrl+Shift+F", IDM_NOTES_SEARCH
         MENUITEM SEPARATOR
         MENUITEM "Pin/Unpin &Current Note",     IDM_NOTES_PINNOTE
@@ -136,15 +137,7 @@ BEGIN
     END
     POPUP "&Tools"
     BEGIN
-        POPUP "&Encoding/Decoding"
-        BEGIN
-            MENUITEM "&URL Encode Selection",        IDM_TOOLS_URLENCODE
-            MENUITEM "URL &Decode Selection",         IDM_TOOLS_URLDECODE
-            MENUITEM SEPARATOR
-            MENUITEM "&Base64 Encode Selection",      IDM_TOOLS_BASE64ENCODE
-            MENUITEM "Base64 D&ecode Selection",      IDM_TOOLS_BASE64DECODE
-        END
-        POPUP "&Text Tools"
+        POPUP "Te&xt Tools"
         BEGIN
             MENUITEM "&Split Lines at Column...",     IDM_TOOLS_SPLITLINES
             MENUITEM "&Join Lines",                   IDM_TOOLS_JOINLINES
@@ -153,6 +146,14 @@ BEGIN
             MENUITEM SEPARATOR
             MENUITEM "Tabs to S&paces",               IDM_TOOLS_TABSTOSPACES
             MENUITEM "Spaces to &Tabs",               IDM_TOOLS_SPACESTOTABS
+        END
+        POPUP "&Encoding/Decoding"
+        BEGIN
+            MENUITEM "&URL Encode Selection",        IDM_TOOLS_URLENCODE
+            MENUITEM "URL &Decode Selection",         IDM_TOOLS_URLDECODE
+            MENUITEM SEPARATOR
+            MENUITEM "&Base64 Encode Selection",      IDM_TOOLS_BASE64ENCODE
+            MENUITEM "Base64 D&ecode Selection",      IDM_TOOLS_BASE64DECODE
         END
         POPUP "&JSON"
         BEGIN
@@ -167,7 +168,7 @@ BEGIN
         MENUITEM "Open &Terminal Here",               IDM_TOOLS_OPENTERMINAL
         MENUITEM SEPARATOR
         MENUITEM "&Auto-Save Options...",             IDM_TOOLS_AUTOSAVEOPTIONS
-        MENUITEM "Edit &Keyboard Shortcuts...",       IDM_TOOLS_EDITSHORTCUTS
+        MENUITEM "Customize &Keyboard Shortcuts...",  IDM_TOOLS_EDITSHORTCUTS
     END
     POPUP "&Help"
     BEGIN
@@ -182,6 +183,7 @@ END
 //------------------------------------------------------------------------------
 IDR_ACCELERATORS ACCELERATORS
 BEGIN
+    // File operations
     "N",        IDM_FILE_NEW,       VIRTKEY, CONTROL
     "N",        IDM_FILE_NEWWINDOW, VIRTKEY, CONTROL, SHIFT
     "O",        IDM_FILE_OPEN,      VIRTKEY, CONTROL
@@ -189,6 +191,7 @@ BEGIN
     "S",        IDM_FILE_SAVEAS,    VIRTKEY, CONTROL, SHIFT
     "P",        IDM_FILE_PRINT,     VIRTKEY, CONTROL
     
+    // Edit operations
     "Z",        IDM_EDIT_UNDO,      VIRTKEY, CONTROL
     "Y",        IDM_EDIT_REDO,      VIRTKEY, CONTROL
     "X",        IDM_EDIT_CUT,       VIRTKEY, CONTROL
@@ -202,22 +205,27 @@ BEGIN
     "G",        IDM_EDIT_GOTO,      VIRTKEY, CONTROL
     VK_F5,      IDM_EDIT_DATETIME,  VIRTKEY
     
+    // Text operations
+    "U",        IDM_EDIT_UPPERCASE, VIRTKEY, CONTROL, SHIFT
+    "U",        IDM_EDIT_LOWERCASE, VIRTKEY, CONTROL
+    
+    // View operations
     VK_OEM_PLUS,    IDM_VIEW_ZOOMIN,    VIRTKEY, CONTROL
     VK_OEM_MINUS,   IDM_VIEW_ZOOMOUT,   VIRTKEY, CONTROL
     "0",            IDM_VIEW_ZOOMRESET, VIRTKEY, CONTROL
     
-    // Tab accelerators
+    // Tab operations
     "T",        IDM_TAB_NEW,            VIRTKEY, CONTROL
     "W",        IDM_TAB_CLOSE,          VIRTKEY, CONTROL
     VK_TAB,     IDM_TAB_NEXT,           VIRTKEY, CONTROL
     VK_TAB,     IDM_TAB_PREV,           VIRTKEY, CONTROL, SHIFT
     
-    // Notes accelerators
+    // Notes operations
     "Q",        IDM_NOTES_QUICKCAPTURE, VIRTKEY, CONTROL, SHIFT
     "A",        IDM_NOTES_ALLNOTES,     VIRTKEY, CONTROL, SHIFT
     "F",        IDM_NOTES_SEARCH,       VIRTKEY, CONTROL, SHIFT
     
-    // Bookmark accelerators
+    // Bookmark operations
     VK_F2,      IDM_EDIT_TOGGLEBOOKMARK, VIRTKEY
     VK_F2,      IDM_EDIT_NEXTBOOKMARK,   VIRTKEY, CONTROL
     VK_F2,      IDM_EDIT_PREVBOOKMARK,   VIRTKEY, SHIFT

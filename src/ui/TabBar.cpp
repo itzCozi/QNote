@@ -1029,14 +1029,16 @@ void TabBar::ShowContextMenu(int tabId, int x, int y) {
 
     const TabItem& tab = m_tabs[idx];
 
-    AppendMenuW(hMenu, MF_STRING, 1, tab.isPinned ? L"Unpin Tab" : L"Pin Tab");
-    AppendMenuW(hMenu, MF_STRING, 2, L"Rename Tab...");
+    AppendMenuW(hMenu, MF_STRING, 7, L"&New Tab");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, 3, L"Close Tab");
-    AppendMenuW(hMenu, MF_STRING, 4, L"Close Other Tabs");
-    AppendMenuW(hMenu, MF_STRING, 5, L"Close Tabs to the Right");
+    AppendMenuW(hMenu, MF_STRING, 1, tab.isPinned ? L"Unp&in Tab" : L"P&in Tab");
+    AppendMenuW(hMenu, MF_STRING, 2, L"Rena&me Tab...");
     AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-    AppendMenuW(hMenu, MF_STRING, 6, L"Close All Tabs");
+    AppendMenuW(hMenu, MF_STRING, 3, L"&Close Tab");
+    AppendMenuW(hMenu, MF_STRING, 4, L"Close &Other Tabs");
+    AppendMenuW(hMenu, MF_STRING, 5, L"Close Tabs to the &Right");
+    AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+    AppendMenuW(hMenu, MF_STRING, 6, L"Close &All Tabs");
 
     int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON, x, y, 0, m_hwnd, nullptr);
     DestroyMenu(hMenu);
@@ -1059,6 +1061,9 @@ void TabBar::ShowContextMenu(int tabId, int x, int y) {
             break;
         case 6: // Close All
             Notify(TabNotification::CloseAll, tabId);
+            break;
+        case 7: // New Tab
+            Notify(TabNotification::NewTabRequested, tabId);
             break;
     }
 }
