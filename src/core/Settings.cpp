@@ -105,6 +105,7 @@ bool SettingsManager::Load() {
     m_settings.showWhitespace = ParseBool(L"Editor", L"ShowWhitespace", false);
     m_settings.fileAutoSave = ParseBool(L"Editor", L"FileAutoSave", true);
     m_settings.rightToLeft = ParseBool(L"Editor", L"RightToLeft", false);
+    m_settings.scrollLines = ParseInt(L"Editor", L"ScrollLines", 0);
     
     // Validate zoom level (25-500%)
     if (m_settings.zoomLevel < 25) m_settings.zoomLevel = 25;
@@ -113,6 +114,10 @@ bool SettingsManager::Load() {
     // Validate tab size (1-16)
     if (m_settings.tabSize < 1) m_settings.tabSize = 1;
     if (m_settings.tabSize > 16) m_settings.tabSize = 16;
+    
+    // Validate scroll lines (0-20, 0 = system default)
+    if (m_settings.scrollLines < 0) m_settings.scrollLines = 0;
+    if (m_settings.scrollLines > 20) m_settings.scrollLines = 20;
     
     // Encoding section
     std::wstring encodingStr = ParseString(L"Encoding", L"Default", L"UTF8");
@@ -174,6 +179,7 @@ bool SettingsManager::Save() {
     WriteBool(L"Editor", L"ShowWhitespace", m_settings.showWhitespace);
     WriteBool(L"Editor", L"FileAutoSave", m_settings.fileAutoSave);
     WriteBool(L"Editor", L"RightToLeft", m_settings.rightToLeft);
+    WriteInt(L"Editor", L"ScrollLines", m_settings.scrollLines);
     
     // Encoding section
     WriteString(L"Encoding", L"Default", EncodingToString(m_settings.defaultEncoding));

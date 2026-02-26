@@ -76,6 +76,7 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
     m_tabSize = settings.tabSize;
     m_zoomPercent = settings.zoomLevel;
     m_rtl = settings.rightToLeft;
+    m_scrollLines = settings.scrollLines;
     
     // Determine edit control style
     DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL;
@@ -183,9 +184,16 @@ std::wstring Editor::GetText() const {
 //------------------------------------------------------------------------------
 void Editor::SetText(std::wstring_view text) {
     if (m_hwndEdit) {
+        // Temporarily suppress EN_CHANGE notifications so that programmatic
+        // text loads are not misinterpreted as user edits.
+        DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+
         SetWindowTextW(m_hwndEdit, std::wstring(text).c_str());
         ApplyCharFormat();
         SetModified(false);
+
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
     }
 }
 
@@ -194,8 +202,14 @@ void Editor::SetText(std::wstring_view text) {
 //------------------------------------------------------------------------------
 void Editor::Clear() noexcept {
     if (m_hwndEdit) {
+        // Suppress EN_CHANGE so clearing is not treated as a user edit
+        DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+
         SetWindowTextW(m_hwndEdit, L"");
         SetModified(false);
+
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
     }
 }
 
@@ -292,19 +306,53 @@ void Editor::Redo() noexcept {
 }
 
 //------------------------------------------------------------------------------
-// Cut
+// Cut (VS Code: cuts entire line when no selection)
 //------------------------------------------------------------------------------
 void Editor::Cut() noexcept {
-    if (m_hwndEdit) {
-        SendMessageW(m_hwndEdit, WM_CUT, 0, 0);
+    if (!m_hwndEdit) return;
+    
+    DWORD start, end;
+    GetSelection(start, end);
+    if (start == end) {
+        // No selection - select the entire line including line ending
+        int line = GetLineFromChar(start);
+        int lineCount = GetLineCount();
+        int lineStart = GetLineIndex(line);
+        
+        if (line + 1 < lineCount) {
+            SetSelection(lineStart, GetLineIndex(line + 1));
+        } else if (line > 0) {
+            // Last line: include preceding line break
+            int prevEnd = GetLineIndex(line - 1) + GetLineLength(line - 1);
+            SetSelection(prevEnd, GetTextLength());
+        } else {
+            SetSelection(0, GetTextLength());
+        }
     }
+    
+    SendMessageW(m_hwndEdit, WM_CUT, 0, 0);
 }
 
 //------------------------------------------------------------------------------
-// Copy
+// Copy (VS Code: copies entire line when no selection)
 //------------------------------------------------------------------------------
 void Editor::Copy() noexcept {
-    if (m_hwndEdit) {
+    if (!m_hwndEdit) return;
+    
+    DWORD start, end;
+    GetSelection(start, end);
+    
+    if (start == end) {
+        // No selection - temporarily select line, copy, then restore cursor
+        int line = GetLineFromChar(start);
+        int lineCount = GetLineCount();
+        int lineStart = GetLineIndex(line);
+        int selectEnd = (line + 1 < lineCount) ? GetLineIndex(line + 1) : GetTextLength();
+        
+        SetSelection(lineStart, selectEnd);
+        SendMessageW(m_hwndEdit, WM_COPY, 0, 0);
+        SetSelection(start, end);
+    } else {
         SendMessageW(m_hwndEdit, WM_COPY, 0, 0);
     }
 }
@@ -424,8 +472,16 @@ void Editor::SetFont(std::wstring_view fontName, int fontSize, int fontWeight, b
     // Recreate font with zoom applied
     m_font.reset(CreateEditorFont());
     if (m_hwndEdit && m_font.get()) {
+        // Suppress EN_CHANGE so font changes don't mark the document modified
+        DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+        bool wasModified = IsModified();
+
         SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), TRUE);
         ApplyCharFormat();
+
+        SetModified(wasModified);
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
     }
 }
 
@@ -441,8 +497,16 @@ void Editor::ApplyZoom(int zoomPercent) noexcept {
     // Recreate font with new zoom
     m_font.reset(CreateEditorFont());
     if (m_hwndEdit && m_font.get()) {
+        // Suppress EN_CHANGE so zoom changes don't mark the document modified
+        DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+        bool wasModified = IsModified();
+
         SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), TRUE);
         ApplyCharFormat();
+
+        SetModified(wasModified);
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
     }
 }
 
@@ -789,6 +853,13 @@ void Editor::SetScrollCallback(ScrollCallback callback, void* userData) noexcept
 }
 
 //------------------------------------------------------------------------------
+// Set scroll lines per wheel notch (0 = system default)
+//------------------------------------------------------------------------------
+void Editor::SetScrollLines(int lines) noexcept {
+    m_scrollLines = (lines < 0) ? 0 : (lines > 20) ? 20 : lines;
+}
+
+//------------------------------------------------------------------------------
 // Recreate edit control (for word wrap toggle)
 //------------------------------------------------------------------------------
 void Editor::RecreateControl() {
@@ -854,6 +925,11 @@ void Editor::RecreateControl() {
         SetSelection(selStart, selEnd);
         SetModified(modified);
         
+        // Re-enable EN_CHANGE notifications (must be done after restoring text
+        // so the restore itself does not trigger a false modification)
+        DWORD eventMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, eventMask | ENM_CHANGE | ENM_SCROLL);
+
         // Re-subclass
         SetWindowSubclass(m_hwndEdit, EditSubclassProc, EDIT_SUBCLASS_ID,
                           reinterpret_cast<DWORD_PTR>(this));
@@ -925,6 +1001,450 @@ HFONT Editor::CreateEditorFont() {
 }
 
 //------------------------------------------------------------------------------
+// Get text of a specific line (0-based, without line ending)
+//------------------------------------------------------------------------------
+std::wstring Editor::GetLineText(int line) const {
+    if (!m_hwndEdit) return L"";
+    int lineLen = GetLineLength(line);
+    if (lineLen == 0) return L"";
+    
+    std::vector<wchar_t> buf(lineLen + 2, 0);
+    *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
+    SendMessageW(m_hwndEdit, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data()));
+    return std::wstring(buf.data(), lineLen);
+}
+
+//------------------------------------------------------------------------------
+// Delete current line(s) - Ctrl+Shift+K
+//------------------------------------------------------------------------------
+void Editor::DeleteLine() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    int lineCount = GetLineCount();
+    
+    // Adjust if selection ends at the very start of a line
+    if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    int blockStart = GetLineIndex(startLine);
+    
+    if (endLine + 1 < lineCount) {
+        SetSelection(blockStart, GetLineIndex(endLine + 1));
+    } else if (startLine > 0) {
+        int prevEnd = GetLineIndex(startLine - 1) + GetLineLength(startLine - 1);
+        SetSelection(prevEnd, GetTextLength());
+    } else {
+        SetSelection(0, GetTextLength());
+    }
+    
+    ReplaceSelection(L"");
+}
+
+//------------------------------------------------------------------------------
+// Duplicate current line(s) below - Ctrl+D / Alt+Shift+Down
+//------------------------------------------------------------------------------
+void Editor::DuplicateLine() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    int lineCount = GetLineCount();
+    
+    if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    // Read block text via temporary selection
+    int blockStart = GetLineIndex(startLine);
+    int blockEnd = (endLine + 1 < lineCount) ? GetLineIndex(endLine + 1) : GetTextLength();
+    
+    SetSelection(blockStart, blockEnd);
+    std::wstring blockText = GetSelectedText();
+    SetSelection(selStart, selEnd);
+    
+    bool isLastLine = (endLine + 1 >= lineCount);
+    
+    // Insert duplicate after block
+    SetSelection(blockEnd, blockEnd);
+    if (isLastLine) {
+        ReplaceSelection(L"\r" + blockText);
+    } else {
+        ReplaceSelection(blockText);
+    }
+    
+    // Position cursor in the duplicate at same relative offset
+    int newBlockStart = blockEnd + (isLastLine ? 1 : 0);
+    int relStart = static_cast<int>(selStart) - blockStart;
+    int relEnd = static_cast<int>(selEnd) - blockStart;
+    SetSelection(newBlockStart + relStart, newBlockStart + relEnd);
+}
+
+//------------------------------------------------------------------------------
+// Move current line(s) up - Alt+Up
+//------------------------------------------------------------------------------
+void Editor::MoveLineUp() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    int lineCount = GetLineCount();
+    
+    if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    if (startLine == 0) return;
+    
+    int prevLineStart = GetLineIndex(startLine - 1);
+    int blockStart = GetLineIndex(startLine);
+    int blockEnd = (endLine + 1 < lineCount) ? GetLineIndex(endLine + 1) : GetTextLength();
+    
+    // Read the entire range (previous line + block)
+    SetSelection(prevLineStart, blockEnd);
+    std::wstring entireRange = GetSelectedText();
+    
+    int splitPos = blockStart - prevLineStart;
+    std::wstring prevText = entireRange.substr(0, splitPos);
+    std::wstring blockText = entireRange.substr(splitPos);
+    
+    // Adjust newlines when block is at the end of file
+    if (endLine + 1 >= lineCount) {
+        if (!blockText.empty() && blockText.back() != L'\r') blockText += L'\r';
+        if (!prevText.empty() && prevText.back() == L'\r') prevText.pop_back();
+    }
+    
+    ReplaceSelection(blockText + prevText);
+    
+    // Restore selection on moved block
+    int relStart = static_cast<int>(selStart) - blockStart;
+    int relEnd = static_cast<int>(selEnd) - blockStart;
+    SetSelection(prevLineStart + relStart, prevLineStart + relEnd);
+}
+
+//------------------------------------------------------------------------------
+// Move current line(s) down - Alt+Down
+//------------------------------------------------------------------------------
+void Editor::MoveLineDown() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    int lineCount = GetLineCount();
+    
+    if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    if (endLine >= lineCount - 1) return;
+    
+    int blockStart = GetLineIndex(startLine);
+    int blockEnd = GetLineIndex(endLine + 1);
+    int nextLineEnd = (endLine + 2 < lineCount) ? GetLineIndex(endLine + 2) : GetTextLength();
+    
+    // Read the entire range (block + next line)
+    SetSelection(blockStart, nextLineEnd);
+    std::wstring entireRange = GetSelectedText();
+    
+    int splitPos = blockEnd - blockStart;
+    std::wstring blockText = entireRange.substr(0, splitPos);
+    std::wstring nextText = entireRange.substr(splitPos);
+    
+    // Adjust newlines when next line is the last
+    if (endLine + 2 >= lineCount) {
+        if (!nextText.empty() && nextText.back() != L'\r') nextText += L'\r';
+        if (!blockText.empty() && blockText.back() == L'\r') blockText.pop_back();
+    }
+    
+    ReplaceSelection(nextText + blockText);
+    
+    // Restore selection on moved block
+    int newBlockStart = blockStart + static_cast<int>(nextText.length());
+    int relStart = static_cast<int>(selStart) - blockStart;
+    int relEnd = static_cast<int>(selEnd) - blockStart;
+    SetSelection(newBlockStart + relStart, newBlockStart + relEnd);
+}
+
+//------------------------------------------------------------------------------
+// Copy current line(s) up - Alt+Shift+Up
+//------------------------------------------------------------------------------
+void Editor::CopyLineUp() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    int lineCount = GetLineCount();
+    
+    if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    int blockStart = GetLineIndex(startLine);
+    int blockEnd = (endLine + 1 < lineCount) ? GetLineIndex(endLine + 1) : GetTextLength();
+    
+    SetSelection(blockStart, blockEnd);
+    std::wstring blockText = GetSelectedText();
+    
+    bool endsWithNewline = !blockText.empty() && blockText.back() == L'\r';
+    
+    // Insert copy above the block
+    SetSelection(blockStart, blockStart);
+    ReplaceSelection(endsWithNewline ? blockText : (blockText + L"\r"));
+    
+    // Cursor stays at original relative position (now on the upper copy)
+    int relStart = static_cast<int>(selStart) - blockStart;
+    int relEnd = static_cast<int>(selEnd) - blockStart;
+    SetSelection(blockStart + relStart, blockStart + relEnd);
+}
+
+//------------------------------------------------------------------------------
+// Copy current line(s) down - Alt+Shift+Down
+//------------------------------------------------------------------------------
+void Editor::CopyLineDown() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    int lineCount = GetLineCount();
+    
+    if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    int blockStart = GetLineIndex(startLine);
+    int blockEnd = (endLine + 1 < lineCount) ? GetLineIndex(endLine + 1) : GetTextLength();
+    
+    SetSelection(blockStart, blockEnd);
+    std::wstring blockText = GetSelectedText();
+    
+    bool isLastLine = (endLine + 1 >= lineCount);
+    
+    // Insert duplicate after block
+    SetSelection(blockEnd, blockEnd);
+    if (isLastLine) {
+        ReplaceSelection(L"\r" + blockText);
+    } else {
+        ReplaceSelection(blockText);
+    }
+    
+    // Position cursor on the lower copy
+    int newBlockStart = blockEnd + (isLastLine ? 1 : 0);
+    int relStart = static_cast<int>(selStart) - blockStart;
+    int relEnd = static_cast<int>(selEnd) - blockStart;
+    SetSelection(newBlockStart + relStart, newBlockStart + relEnd);
+}
+
+//------------------------------------------------------------------------------
+// Insert blank line below with auto-indent - Ctrl+Enter
+//------------------------------------------------------------------------------
+void Editor::InsertLineBelow() {
+    if (!m_hwndEdit) return;
+    
+    int curLine = GetCurrentLine();
+    int lineStart = GetLineIndex(curLine);
+    int lineLen = GetLineLength(curLine);
+    
+    // Copy leading whitespace for auto-indent
+    std::wstring lineText = GetLineText(curLine);
+    std::wstring indent;
+    for (wchar_t ch : lineText) {
+        if (ch == L' ' || ch == L'\t') indent += ch;
+        else break;
+    }
+    
+    // Insert newline + indent at end of current line
+    SetSelection(lineStart + lineLen, lineStart + lineLen);
+    ReplaceSelection(L"\r" + indent);
+}
+
+//------------------------------------------------------------------------------
+// Insert blank line above with auto-indent - Ctrl+Shift+Enter
+//------------------------------------------------------------------------------
+void Editor::InsertLineAbove() {
+    if (!m_hwndEdit) return;
+    
+    int curLine = GetCurrentLine();
+    int lineStart = GetLineIndex(curLine);
+    
+    // Copy leading whitespace for auto-indent
+    std::wstring lineText = GetLineText(curLine);
+    std::wstring indent;
+    for (wchar_t ch : lineText) {
+        if (ch == L' ' || ch == L'\t') indent += ch;
+        else break;
+    }
+    
+    // Insert indent + newline at start of current line
+    SetSelection(lineStart, lineStart);
+    ReplaceSelection(indent + L"\r");
+    
+    // Position cursor at end of indent on the new line
+    int pos = lineStart + static_cast<int>(indent.length());
+    SetSelection(pos, pos);
+}
+
+//------------------------------------------------------------------------------
+// Select current line - Ctrl+L
+//------------------------------------------------------------------------------
+void Editor::SelectLine() {
+    if (!m_hwndEdit) return;
+    
+    int curLine = GetCurrentLine();
+    int lineStart = GetLineIndex(curLine);
+    int lineCount = GetLineCount();
+    
+    int selectEnd = (curLine + 1 < lineCount) ? GetLineIndex(curLine + 1) : GetTextLength();
+    SetSelection(lineStart, selectEnd);
+}
+
+//------------------------------------------------------------------------------
+// Indent selected lines (add tab) - Tab with selection
+//------------------------------------------------------------------------------
+void Editor::IndentSelection() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    
+    if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    // Add tab at start of each line, working bottom-up to preserve positions
+    for (int line = endLine; line >= startLine; line--) {
+        int ls = GetLineIndex(line);
+        SetSelection(ls, ls);
+        ReplaceSelection(L"\t");
+    }
+    
+    // Reselect the affected lines
+    int newStart = GetLineIndex(startLine);
+    int newEnd = (endLine + 1 < GetLineCount()) ? GetLineIndex(endLine + 1) : GetTextLength();
+    SetSelection(newStart, newEnd);
+}
+
+//------------------------------------------------------------------------------
+// Unindent selected lines (remove one indent level) - Shift+Tab
+//------------------------------------------------------------------------------
+void Editor::UnindentSelection() {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    int startLine = GetLineFromChar(selStart);
+    int endLine = GetLineFromChar(selEnd);
+    
+    // For single cursor, unindent current line
+    if (selStart == selEnd) {
+        startLine = endLine = GetCurrentLine();
+    } else if (selEnd > selStart && selEnd == static_cast<DWORD>(GetLineIndex(endLine)) && endLine > startLine) {
+        endLine--;
+    }
+    
+    // Remove leading indent from each line, working bottom-up
+    for (int line = endLine; line >= startLine; line--) {
+        int ls = GetLineIndex(line);
+        int ll = GetLineLength(line);
+        if (ll == 0) continue;
+        
+        std::wstring lt = GetLineText(line);
+        
+        if (lt[0] == L'\t') {
+            SetSelection(ls, ls + 1);
+            ReplaceSelection(L"");
+        } else if (lt[0] == L' ') {
+            int spaces = 0;
+            for (int j = 0; j < m_tabSize && j < ll; j++) {
+                if (lt[j] == L' ') spaces++;
+                else break;
+            }
+            if (spaces > 0) {
+                SetSelection(ls, ls + spaces);
+                ReplaceSelection(L"");
+            }
+        }
+    }
+    
+    // Reselect the affected lines
+    int newStart = GetLineIndex(startLine);
+    int newEnd = (endLine + 1 < GetLineCount()) ? GetLineIndex(endLine + 1) : GetTextLength();
+    SetSelection(newStart, newEnd);
+}
+
+//------------------------------------------------------------------------------
+// Smart Home: toggle between first non-whitespace and column 0
+//------------------------------------------------------------------------------
+void Editor::SmartHome(bool extendSelection) {
+    if (!m_hwndEdit) return;
+    
+    DWORD selStart, selEnd;
+    GetSelection(selStart, selEnd);
+    
+    // Determine caret position
+    DWORD caretPos = selStart;
+    if (selStart != selEnd) {
+        int caretLine = static_cast<int>(SendMessageW(m_hwndEdit, EM_LINEFROMCHAR, static_cast<WPARAM>(-1), 0));
+        int endLine = GetLineFromChar(selEnd);
+        if (caretLine == endLine && caretLine != GetLineFromChar(selStart)) {
+            caretPos = selEnd;
+        }
+    }
+    
+    int line = GetLineFromChar(caretPos);
+    int lineStart = GetLineIndex(line);
+    int lineLen = GetLineLength(line);
+    int currentCol = static_cast<int>(caretPos) - lineStart;
+    
+    // Find first non-whitespace position
+    int firstNonWS = 0;
+    if (lineLen > 0) {
+        std::wstring lineText = GetLineText(line);
+        for (int j = 0; j < lineLen; j++) {
+            if (lineText[j] != L' ' && lineText[j] != L'\t') {
+                firstNonWS = j;
+                break;
+            }
+        }
+    }
+    
+    int targetCol = (currentCol == firstNonWS) ? 0 : firstNonWS;
+    DWORD targetPos = static_cast<DWORD>(lineStart + targetCol);
+    
+    if (extendSelection) {
+        DWORD anchor = (caretPos == selStart) ? selEnd : selStart;
+        if (selStart == selEnd) anchor = caretPos;
+        SendMessageW(m_hwndEdit, EM_SETSEL, anchor, targetPos);
+        SendMessageW(m_hwndEdit, EM_SCROLLCARET, 0, 0);
+    } else {
+        SetSelection(targetPos, targetPos);
+    }
+}
+
+//------------------------------------------------------------------------------
 // Edit control subclass procedure
 //------------------------------------------------------------------------------
 LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam, 
@@ -939,6 +1459,11 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 HDC hdc = GetDC(hwnd);
                 editor->DrawWhitespace(hdc);
                 ReleaseDC(hwnd, hdc);
+            }
+            // Sync line-number gutter on every repaint so it tracks
+            // smooth/animated scrolling that continues after WM_MOUSEWHEEL.
+            if (editor->m_scrollCallback) {
+                editor->m_scrollCallback(editor->m_scrollCallbackData);
             }
             return result;
         }
@@ -962,6 +1487,17 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 PostMessageW(GetParent(hwnd), WM_APP_UPDATESTATUS, 0, 0);
                 return 0;
             }
+            // Custom scroll lines: if set, manually scroll the editor instead
+            // of letting the default handler use the system setting.
+            if (editor->m_scrollLines > 0) {
+                short delta = GET_WHEEL_DELTA_WPARAM(wParam);
+                int linesToScroll = -((int)delta / WHEEL_DELTA) * editor->m_scrollLines;
+                SendMessageW(hwnd, EM_LINESCROLL, 0, linesToScroll);
+                if (editor->m_scrollCallback) {
+                    editor->m_scrollCallback(editor->m_scrollCallbackData);
+                }
+                return 0;
+            }
             // Fall through to default handler, then notify scroll
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
             if (editor->m_scrollCallback) {
@@ -981,7 +1517,101 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
         }
         
         case WM_KEYDOWN: {
-            // Handle key, then notify for potential scroll
+            bool ctrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
+            bool shiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
+            bool altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
+            
+            // --- VS Code-like keyboard shortcuts ---
+            
+            // Ctrl+Shift+K: Delete line
+            if (ctrlDown && shiftDown && !altDown && wParam == 'K') {
+                editor->DeleteLine();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Ctrl+D: Duplicate line/selection
+            if (ctrlDown && !shiftDown && !altDown && wParam == 'D') {
+                editor->DuplicateLine();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Ctrl+L: Select line
+            if (ctrlDown && !shiftDown && !altDown && wParam == 'L') {
+                editor->SelectLine();
+                return 0;
+            }
+            
+            // Alt+Up: Move line up
+            if (altDown && !ctrlDown && !shiftDown && wParam == VK_UP) {
+                editor->MoveLineUp();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Alt+Down: Move line down
+            if (altDown && !ctrlDown && !shiftDown && wParam == VK_DOWN) {
+                editor->MoveLineDown();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Alt+Shift+Up: Copy line up
+            if (altDown && shiftDown && !ctrlDown && wParam == VK_UP) {
+                editor->CopyLineUp();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Alt+Shift+Down: Copy line down
+            if (altDown && shiftDown && !ctrlDown && wParam == VK_DOWN) {
+                editor->CopyLineDown();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Ctrl+Enter: Insert line below
+            if (ctrlDown && !shiftDown && !altDown && wParam == VK_RETURN) {
+                editor->InsertLineBelow();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Ctrl+Shift+Enter: Insert line above
+            if (ctrlDown && shiftDown && !altDown && wParam == VK_RETURN) {
+                editor->InsertLineAbove();
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return 0;
+            }
+            
+            // Tab/Shift+Tab: Indent/Unindent
+            if (!ctrlDown && !altDown && wParam == VK_TAB) {
+                if (shiftDown) {
+                    // Shift+Tab: Always unindent
+                    editor->UnindentSelection();
+                    if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                    return 0;
+                } else {
+                    // Tab: Indent if there's any selection
+                    DWORD tabSelStart, tabSelEnd;
+                    editor->GetSelection(tabSelStart, tabSelEnd);
+                    if (tabSelStart != tabSelEnd) {
+                        editor->IndentSelection();
+                        if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                        return 0;
+                    }
+                    // Otherwise fall through for normal tab insertion
+                }
+            }
+            
+            // Home: Smart Home (toggle first non-whitespace / column 0)
+            if (!ctrlDown && !altDown && wParam == VK_HOME) {
+                editor->SmartHome(shiftDown);
+                return 0;
+            }
+            
+            // --- Default handling ---
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
             // Arrow keys, Page Up/Down, Home/End can cause scrolling
             if (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_PRIOR || 
@@ -1013,6 +1643,12 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
         }
 
         case WM_CHAR: {
+            // Suppress control characters from keyboard shortcuts handled in WM_KEYDOWN
+            // 0x04 = Ctrl+D, 0x0A = Ctrl+Enter(LF), 0x0B = Ctrl+K, 0x0C = Ctrl+L
+            if (wParam == 0x04 || wParam == 0x0A || wParam == 0x0B || wParam == 0x0C) {
+                return 0;
+            }
+            
             // Auto-indent: when Enter is pressed, copy leading whitespace from current line
             if (wParam == L'\r') {
                 // Get current line's leading whitespace before the newline is inserted

@@ -133,6 +133,21 @@ bool DialogManager::ShowTabSizeDialog(int& tabSize) {
 }
 
 //------------------------------------------------------------------------------
+// Show Scroll Lines dialog
+//------------------------------------------------------------------------------
+bool DialogManager::ShowScrollLinesDialog(int& scrollLines) {
+    INT_PTR result = DialogBoxParamW(
+        m_hInstance,
+        MAKEINTRESOURCEW(IDD_SCROLLLINES),
+        m_hwndParent,
+        ScrollLinesDlgProc,
+        reinterpret_cast<LPARAM>(&scrollLines)
+    );
+    
+    return result == IDOK;
+}
+
+//------------------------------------------------------------------------------
 // Show Font dialog
 //------------------------------------------------------------------------------
 bool DialogManager::ShowFontDialog(std::wstring& fontName, int& fontSize, int& fontWeight, bool& italic) {
@@ -475,6 +490,61 @@ INT_PTR CALLBACK DialogManager::TabSizeDlgProc(HWND hwnd, UINT msg, WPARAM wPara
                         } else {
                             MessageBoxW(hwnd, L"Tab size must be between 1 and 16.",
                                         L"Tab Size", MB_OK | MB_ICONWARNING);
+                        }
+                    }
+                    return TRUE;
+                }
+                
+                case IDCANCEL:
+                    EndDialog(hwnd, IDCANCEL);
+                    return TRUE;
+            }
+            break;
+        }
+    }
+    
+    return FALSE;
+}
+
+//------------------------------------------------------------------------------
+// Scroll Lines dialog procedure
+//------------------------------------------------------------------------------
+INT_PTR CALLBACK DialogManager::ScrollLinesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+    static int* pScrollLines = nullptr;
+    
+    switch (msg) {
+        case WM_INITDIALOG: {
+            pScrollLines = reinterpret_cast<int*>(lParam);
+            
+            if (pScrollLines) {
+                SetDlgItemInt(hwnd, IDC_SCROLLLINES_EDIT, *pScrollLines, FALSE);
+            }
+            
+            SendDlgItemMessageW(hwnd, IDC_SCROLLLINES_EDIT, EM_SETSEL, 0, -1);
+            
+            // Center dialog
+            RECT parentRect, dlgRect;
+            GetWindowRect(GetParent(hwnd), &parentRect);
+            GetWindowRect(hwnd, &dlgRect);
+            int x = parentRect.left + (parentRect.right - parentRect.left - (dlgRect.right - dlgRect.left)) / 2;
+            int y = parentRect.top + (parentRect.bottom - parentRect.top - (dlgRect.bottom - dlgRect.top)) / 2;
+            SetWindowPos(hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            
+            return TRUE;
+        }
+        
+        case WM_COMMAND: {
+            switch (LOWORD(wParam)) {
+                case IDOK: {
+                    if (pScrollLines) {
+                        BOOL translated = FALSE;
+                        int val = GetDlgItemInt(hwnd, IDC_SCROLLLINES_EDIT, &translated, FALSE);
+                        if (translated && val >= 0 && val <= 20) {
+                            *pScrollLines = val;
+                            EndDialog(hwnd, IDOK);
+                        } else {
+                            MessageBoxW(hwnd, L"Scroll lines must be between 0 and 20.\n0 uses the system default.",
+                                        L"Scroll Lines", MB_OK | MB_ICONWARNING);
                         }
                     }
                     return TRUE;

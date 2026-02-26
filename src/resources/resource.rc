@@ -1,5 +1,5 @@
 //==============================================================================
-// QNote - A Lightweight Notepad Clone
+// QNote - A Better Notepad for Windows
 // resource.rc - Windows resources (menus, accelerators, dialogs, version info)
 //==============================================================================
 
@@ -82,6 +82,7 @@ BEGIN
         MENUITEM "&Word Wrap",                  IDM_FORMAT_WORDWRAP
         MENUITEM "&Font...",                    IDM_FORMAT_FONT
         MENUITEM "&Tab Size...",                IDM_FORMAT_TABSIZE
+        MENUITEM "&Scroll Lines...",              IDM_FORMAT_SCROLLLINES
         MENUITEM "&Right-to-Left Reading Order", IDM_FORMAT_RTL
         MENUITEM SEPARATOR
         POPUP "Line &Endings"
@@ -169,10 +170,13 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "&Auto-Save Options...",             IDM_TOOLS_AUTOSAVEOPTIONS
         MENUITEM "Customize &Keyboard Shortcuts...",  IDM_TOOLS_EDITSHORTCUTS
+        MENUITEM SEPARATOR
+        MENUITEM "&Settings...",                        IDM_TOOLS_SETTINGS
     END
     POPUP "&Help"
     BEGIN
         MENUITEM "Check for &Updates...",    IDM_HELP_CHECKUPDATE
+        MENUITEM "Visit &Website",            IDM_HELP_WEBSITE
         MENUITEM SEPARATOR
         MENUITEM "&About QNote",             IDM_HELP_ABOUT
     END
@@ -336,6 +340,58 @@ BEGIN
 END
 
 //------------------------------------------------------------------------------
+// Scroll Lines Dialog
+//------------------------------------------------------------------------------
+IDD_SCROLLLINES DIALOGEX 0, 0, 180, 65
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Scroll Lines"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "&Lines per scroll (0-20, 0 = system):",IDC_STATIC,7,9,130,8
+    EDITTEXT        IDC_SCROLLLINES_EDIT,7,22,60,14,ES_AUTOHSCROLL | ES_NUMBER
+    DEFPUSHBUTTON   "OK",IDOK,123,7,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,123,24,50,14
+END
+
+//------------------------------------------------------------------------------
+// Settings Dialog (tabbed)
+//------------------------------------------------------------------------------
+IDD_SETTINGS DIALOGEX 0, 0, 320, 280
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Settings"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    CONTROL         "",IDC_SETTINGS_TAB,"SysTabControl32",WS_TABSTOP,7,7,306,243
+    DEFPUSHBUTTON   "OK",IDOK,208,256,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,262,256,50,14
+
+    // === Editor Page ===
+    AUTOCHECKBOX    "Word Wrap",IDC_SET_WORDWRAP,18,32,140,10
+    LTEXT           "Tab Size (1-16):",IDC_SET_LBL_TABSIZE,18,50,65,8
+    EDITTEXT        IDC_SET_TABSIZE,88,48,30,14,ES_AUTOHSCROLL | ES_NUMBER
+    LTEXT           "Lines per scroll (0-20, 0 = system default):",IDC_SET_LBL_SCROLLLINES,18,70,175,8
+    EDITTEXT        IDC_SET_SCROLLLINES,196,68,30,14,ES_AUTOHSCROLL | ES_NUMBER
+    AUTOCHECKBOX    "Auto-save file backups",IDC_SET_AUTOSAVE,18,90,140,10
+    AUTOCHECKBOX    "Right-to-left reading order",IDC_SET_RTL,18,108,140,10
+
+    // === Appearance Page ===
+    LTEXT           "Font:",IDC_SET_LBL_FONT,18,32,20,8
+    LTEXT           "",IDC_SET_FONTPREVIEW,44,32,220,8
+    PUSHBUTTON      "Change Font...",IDC_SET_FONTBUTTON,18,46,75,14
+    AUTOCHECKBOX    "Show Status Bar",IDC_SET_STATUSBAR,18,68,140,10
+    AUTOCHECKBOX    "Show Line Numbers",IDC_SET_LINENUMBERS,18,84,140,10
+    AUTOCHECKBOX    "Show Whitespace Characters",IDC_SET_WHITESPACE,18,100,150,10
+    LTEXT           "Zoom Level (25-500%):",IDC_SET_LBL_ZOOM,18,120,90,8
+    EDITTEXT        IDC_SET_ZOOM,112,118,30,14,ES_AUTOHSCROLL | ES_NUMBER
+
+    // === Defaults Page ===
+    LTEXT           "Default Encoding:",IDC_SET_LBL_ENCODING,18,32,70,8
+    COMBOBOX        IDC_SET_ENCODING,95,30,120,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Default Line Ending:",IDC_SET_LBL_LINEENDING,18,54,75,8
+    COMBOBOX        IDC_SET_LINEENDING,95,52,120,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+END
+
+//------------------------------------------------------------------------------
 // About Dialog
 //------------------------------------------------------------------------------
 IDD_ABOUT DIALOGEX 0, 0, 200, 90
@@ -346,7 +402,7 @@ BEGIN
     ICON            IDI_APP_ICON,IDC_STATIC,14,14,21,20
     LTEXT           "QNote",IDC_STATIC,45,14,114,8
     LTEXT           "Version 1.0.0",IDC_STATIC,45,26,114,8
-    LTEXT           "A lightweight Notepad replacement",IDC_STATIC,45,38,140,8
+    LTEXT           "A Better Notepad for Windows",IDC_STATIC,45,38,140,8
     LTEXT           "Copyright (c) 2026 - MIT License",IDC_STATIC,45,50,140,8
     DEFPUSHBUTTON   "OK",IDOK,75,68,50,14,WS_GROUP
 END
@@ -368,7 +424,7 @@ BEGIN
         BLOCK "040904B0"
         BEGIN
             VALUE "CompanyName",      "QNote Project (github.com/itzcozi/qnote)"
-            VALUE "FileDescription",  "QNote - Lightweight Notepad Replacement"
+            VALUE "FileDescription",  "QNote - A Better Notepad for Windows"
             VALUE "FileVersion",      VER_STRING
             VALUE "InternalName",     "QNote"
             VALUE "LegalCopyright",   "Copyright (c) 2026 - MIT License"

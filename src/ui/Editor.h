@@ -176,6 +176,10 @@ public:
     // Get first visible line (for line numbers sync)
     [[nodiscard]] int GetFirstVisibleLine() const noexcept;
     
+    // Scroll lines per wheel notch (0 = system default)
+    void SetScrollLines(int lines) noexcept;
+    [[nodiscard]] int GetScrollLines() const noexcept { return m_scrollLines; }
+    
     // Scroll notification callback
     using ScrollCallback = void(*)(void* userData);
     void SetScrollCallback(ScrollCallback callback, void* userData) noexcept;
@@ -192,6 +196,20 @@ public:
     [[nodiscard]] bool HasBookmarks() const noexcept { return !m_bookmarks.empty(); }
     [[nodiscard]] const std::set<int>& GetBookmarks() const noexcept { return m_bookmarks; }
     void SetBookmarks(const std::set<int>& bookmarks);
+    
+    // Line operations (VS Code-like editing)
+    void DeleteLine();
+    void DuplicateLine();
+    void MoveLineUp();
+    void MoveLineDown();
+    void CopyLineUp();
+    void CopyLineDown();
+    void InsertLineBelow();
+    void InsertLineAbove();
+    void SelectLine();
+    void IndentSelection();
+    void UnindentSelection();
+    void SmartHome(bool extendSelection);
     
 private:
     // Recreate edit control (needed for word wrap toggle)
@@ -210,6 +228,9 @@ private:
     
     // Paint helpers for overlays
     void DrawWhitespace(HDC hdc);
+    
+    // Helper to get line text content (without line ending)
+    [[nodiscard]] std::wstring GetLineText(int line) const;
     
 private:
     HWND m_hwndEdit = nullptr;
@@ -236,6 +257,8 @@ private:
     
     // Bookmarks
     std::set<int> m_bookmarks;
+    
+    int m_scrollLines = 0;  // Lines per wheel notch (0 = system default)
     
     // Scroll notification callback
     ScrollCallback m_scrollCallback = nullptr;

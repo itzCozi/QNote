@@ -238,6 +238,12 @@ void LineNumbersGutter::OnPaint() {
     RECT rc;
     GetClientRect(m_hwndGutter, &rc);
     
+    // Skip painting if client area is empty (e.g. window minimized)
+    if (rc.right <= 0 || rc.bottom <= 0) {
+        EndPaint(m_hwndGutter, &ps);
+        return;
+    }
+
     // Create double buffer
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
@@ -274,8 +280,23 @@ void LineNumbersGutter::OnPaint() {
         // Get total line count
         int totalLines = m_editor->GetLineCount();
         
-        // Calculate how many lines fit in the visible area
-        int visibleLines = (rc.bottom - rc.top) / m_lineHeight + 2;
+        // Get the pixel Y-offset of the first visible line so the gutter
+        // tracks sub-line smooth scrolling in the RichEdit control.
+        int yOffset = 0;
+        {
+            int charIdx = static_cast<int>(
+                SendMessageW(hwndEdit, EM_LINEINDEX, firstVisibleLine, 0));
+            if (charIdx >= 0) {
+                POINTL pt = {};
+                SendMessageW(hwndEdit, EM_POSFROMCHAR,
+                             reinterpret_cast<WPARAM>(&pt),
+                             static_cast<LPARAM>(charIdx));
+                yOffset = pt.y;  // negative when partially scrolled above top
+            }
+        }
+        
+        // Calculate how many lines fit in the visible area (+ partial lines)
+        int visibleLines = (rc.bottom - rc.top + abs(yOffset)) / m_lineHeight + 2;
         
         // Get bookmark set for marker drawing
         const auto& bookmarks = m_editor->GetBookmarks();
@@ -287,10 +308,11 @@ void LineNumbersGutter::OnPaint() {
         for (int i = 0; i < visibleLines && (firstVisibleLine + i) < totalLines; i++) {
             int lineNum = firstVisibleLine + i + 1;  // 1-based line numbers
             int lineIndex = firstVisibleLine + i;     // 0-based for bookmark check
+            int lineY = i * m_lineHeight + yOffset;   // pixel-accurate position
             
             // Draw bookmark marker (blue circle in left margin)
             if (bookmarks.count(lineIndex)) {
-                int cy = i * m_lineHeight + m_lineHeight / 2;
+                int cy = lineY + m_lineHeight / 2;
                 int cx = m_leftPadding / 2 + 2;
                 int r = (std::min)(m_lineHeight / 2 - 2, 5);
                 if (r < 2) r = 2;
@@ -316,9 +338,9 @@ void LineNumbersGutter::OnPaint() {
             
             RECT textRect;
             textRect.left = m_leftPadding;
-            textRect.top = i * m_lineHeight;
+            textRect.top = lineY;
             textRect.right = rc.right - m_rightPadding;
-            textRect.bottom = textRect.top + m_lineHeight;
+            textRect.bottom = lineY + m_lineHeight;
             
             DrawTextW(memDC, buffer, -1, &textRect, DT_RIGHT | DT_VCENTER | DT_SINGLELINE);
         }

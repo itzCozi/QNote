@@ -54,6 +54,7 @@
 #define IDM_FORMAT_EOL_LF               3005
 #define IDM_FORMAT_EOL_CR               3006
 #define IDM_FORMAT_RTL                  3007
+#define IDM_FORMAT_SCROLLLINES          3008
 
 // View menu
 #define IDM_VIEW_STATUSBAR              4001
@@ -72,6 +73,7 @@
 // Help menu
 #define IDM_HELP_ABOUT                  6001
 #define IDM_HELP_CHECKUPDATE            6002
+#define IDM_HELP_WEBSITE                6003
 
 // Notes menu (new features)
 #define IDM_NOTES_NEW                   7001
@@ -142,6 +144,9 @@
 #define IDM_NOTES_EXPORT                7010
 #define IDM_NOTES_IMPORT                7011
 
+// Tools menu (Settings)
+#define IDM_TOOLS_SETTINGS              10020
+
 // System tray
 #define IDM_TRAY_SHOW                   9001
 #define IDM_TRAY_CAPTURE                9002
@@ -171,6 +176,39 @@
 
 // Tab size dialog controls
 #define IDC_TABSIZE_EDIT                1012
+
+// Scroll lines dialog
+#define IDD_SCROLLLINES                 207
+#define IDC_SCROLLLINES_EDIT            1023
+
+// Settings dialog
+#define IDD_SETTINGS                    208
+#define IDC_SETTINGS_TAB                1200
+
+// Settings dialog - Editor page
+#define IDC_SET_WORDWRAP                1210
+#define IDC_SET_TABSIZE                 1211
+#define IDC_SET_LBL_TABSIZE             1212
+#define IDC_SET_SCROLLLINES             1213
+#define IDC_SET_LBL_SCROLLLINES         1214
+#define IDC_SET_AUTOSAVE                1215
+#define IDC_SET_RTL                     1216
+
+// Settings dialog - Appearance page
+#define IDC_SET_LBL_FONT                1220
+#define IDC_SET_FONTPREVIEW             1221
+#define IDC_SET_FONTBUTTON              1222
+#define IDC_SET_STATUSBAR               1223
+#define IDC_SET_LINENUMBERS             1224
+#define IDC_SET_WHITESPACE              1225
+#define IDC_SET_LBL_ZOOM                1226
+#define IDC_SET_ZOOM                    1227
+
+// Settings dialog - Defaults page
+#define IDC_SET_LBL_ENCODING            1230
+#define IDC_SET_ENCODING                1231
+#define IDC_SET_LBL_LINEENDING          1232
+#define IDC_SET_LINEENDING              1233
 
 // Auto-save options dialog controls
 #define IDD_AUTOSAVE                    205

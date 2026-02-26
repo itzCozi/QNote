@@ -27,6 +27,7 @@
 #include "LineNumbersGutter.h"
 #include "TabBar.h"
 #include "DocumentManager.h"
+#include "SettingsWindow.h"
 
 namespace QNote {
 
@@ -108,6 +109,7 @@ private:
     void OnFormatWordWrap();
     void OnFormatFont();
     void OnFormatTabSize();
+    void OnFormatScrollLines();
     void OnFormatLineEnding(LineEnding ending);
     void OnFormatRTL();
     
@@ -162,6 +164,7 @@ private:
     void OnToolsFormatJson();
     void OnToolsMinifyJson();
     void OnToolsOpenTerminal();
+    void OnToolsSettings();
     
     // Tools dialog procs
     static INT_PTR CALLBACK AutoSaveDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);

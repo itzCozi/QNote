@@ -131,6 +131,10 @@ private:
 
     // Scroll overflow helpers
     int CalcTabWidth() const;
+    int CalcPinnedTabWidth() const;
+    int GetTabWidthByIndex(int index) const;
+    int GetTabLeftOffset(int index) const;
+    int CalcTotalTabsWidth() const;
     void ClampScrollOffset();
     void EnsureTabVisible(int tabId);
 
@@ -168,6 +172,7 @@ private:
     int m_tabBarHeight = 30;
     int m_tabMinWidth = 50;
     int m_tabMaxWidth = 200;
+    int m_pinnedTabMaxWidth = 120;
     int m_tabPadding = 12;
     int m_closeBtnSize = 14;
     int m_closeBtnMargin = 6;
@@ -206,6 +211,7 @@ private:
     static constexpr int BASE_TAB_BAR_HEIGHT = 34;
     static constexpr int BASE_TAB_MIN_WIDTH = 60;
     static constexpr int BASE_TAB_MAX_WIDTH = 240;
+    static constexpr int BASE_PINNED_TAB_MAX_WIDTH = 120;
     static constexpr int BASE_TAB_PADDING = 14;
     static constexpr int BASE_CLOSE_BTN_SIZE = 16;
     static constexpr int BASE_CLOSE_BTN_MARGIN = 8;

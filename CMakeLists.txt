@@ -1,5 +1,5 @@
 #===============================================================================
-# QNote - A Lightweight Notepad Clone
+# QNote - A Better Notepad for Windows
 # CMakeLists.txt - CMake build configuration
 #===============================================================================
 
@@ -7,7 +7,7 @@ cmake_minimum_required(VERSION 3.16)
 
 project(QNote
     VERSION 1.0.0
-    DESCRIPTION "Lightweight Notepad replacement for Windows"
+    DESCRIPTION "A Better Notepad for Windows"
     LANGUAGES CXX
 )
 
@@ -45,24 +45,29 @@ if(MSVC)
     # Warning level
     add_compile_options(/W3)
     
+    # Strip /GR from default CXX flags (we add /GR- below to disable RTTI)
+    string(REGEX REPLACE "/GR " "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
+    
     # Runtime library (static for release, dynamic for debug)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     
-    # Optimization for release - maximize speed and minimize size
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} /O2 /GL /Gy /Gw /GF /Oi")
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} /LTCG /OPT:REF /OPT:ICF=3")
+    # Optimization for release - maximize speed with full optimization
+    # /O2 = /Os- /Ot /Oy /Ob2 /GF /Gy /Gs (maximize speed)
+    # /GL = whole program optimization
+    # /Gw = optimize global data
+    # /Oi = enable intrinsic functions
+    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /GL /Gw /Oi /DNDEBUG")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "/LTCG /OPT:REF /OPT:ICF=5 /INCREMENTAL:NO /MERGE:.rdata=.text /MERGE:.pdata=.text /EMITTOOLVERSIONINFO:NO")
     
     # Remove unreferenced COMDAT data and enable string pooling
     add_compile_options(/Zc:inline)
     
-    # Favor small code in release builds
-    add_compile_options("$<$<CONFIG:Release>:/Os>")
+    # Disable thread-safe statics init overhead in release (single-threaded UI app)
+    add_compile_options("$<$<CONFIG:Release>:/Zc:threadSafeInit->")
     
-    # Enable intrinsic functions
-    add_compile_options("$<$<CONFIG:Release>:/Oi>")
-    
-    # Additional security flags
-    add_compile_options(/GS)
+    # Security flags (debug only for size; release relies on /DYNAMICBASE /NXCOMPAT)
+    add_compile_options("$<$<CONFIG:Debug>:/GS>")
+    add_compile_options("$<$<CONFIG:Release>:/GS->")
     add_link_options(/DYNAMICBASE /NXCOMPAT)
     
     # Use our custom manifest instead of auto-generated one
@@ -71,8 +76,8 @@ if(MSVC)
     # Disable RTTI (not needed - we don't use dynamic_cast or typeid)
     add_compile_options(/GR-)
     
-    # Disable exceptions if not used (uncomment if no exceptions are thrown)
-    # add_compile_options(/EHs-c-)
+    # Ensure no debug info in release builds
+    add_link_options("$<$<CONFIG:Release>:/DEBUG:NONE>")
     
 elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
     # MinGW-w64 / Clang settings
@@ -83,14 +88,18 @@ elseif(CMAKE_CXX_COMPILER_ID STREQUAL "GNU" OR CMAKE_CXX_COMPILER_ID STREQUAL "C
     # Static linking of runtime libraries
     add_link_options(-static -static-libgcc -static-libstdc++)
     
-    # Optimization for release - size and speed balance
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -O2 -ffunction-sections -fdata-sections -flto")
+    # Optimization for release - maximize speed
+    set(CMAKE_CXX_FLAGS_RELEASE "-O2 -ffunction-sections -fdata-sections -flto -DNDEBUG")
     
     # Strip symbols and remove unused sections in release
-    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "${CMAKE_EXE_LINKER_FLAGS_RELEASE} -s -Wl,--gc-sections -flto")
+    set(CMAKE_EXE_LINKER_FLAGS_RELEASE "-s -Wl,--gc-sections -flto")
     
     # Disable RTTI (not needed)
     add_compile_options(-fno-rtti)
+    
+    # Remove unwind tables (not needed for release)
+    add_compile_options("$<$<CONFIG:Release>:-fno-unwind-tables>")
+    add_compile_options("$<$<CONFIG:Release>:-fno-asynchronous-unwind-tables>")
     
     # Windows subsystem
     add_link_options(-mwindows)
@@ -117,6 +126,7 @@ set(SOURCES
     src/ui/LineNumbersGutter.cpp
     src/ui/TabBar.cpp
     src/ui/DocumentManager.cpp
+    src/ui/SettingsWindow.cpp
     src/core/Settings.cpp
     src/core/FileIO.cpp
     src/core/NoteStore.cpp
@@ -132,6 +142,7 @@ set(HEADERS
     src/ui/LineNumbersGutter.h
     src/ui/TabBar.h
     src/ui/DocumentManager.h
+    src/ui/SettingsWindow.h
     src/core/Settings.h
     src/core/FileIO.h
     src/core/NoteStore.h

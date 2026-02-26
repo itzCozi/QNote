@@ -64,6 +64,7 @@ struct AppSettings {
     bool showWhitespace = false;     // Show whitespace characters
     bool fileAutoSave = true;      // Auto-save backup files (.autosave)
     bool rightToLeft = false;  // Right-to-left reading order
+    int scrollLines = 0;          // Lines per scroll wheel notch (0 = system default)
     
     // Default encoding for new files
     TextEncoding defaultEncoding = TextEncoding::UTF8;

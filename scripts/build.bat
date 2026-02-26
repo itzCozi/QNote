@@ -99,6 +99,31 @@ if errorlevel 1 (
 
 cd ..
 
+:: Compress with UPX for release builds (if available)
+if /i "%BUILD_TYPE%"=="Release" (
+    set "UPX_EXE="
+    where upx >nul 2>&1
+    if not errorlevel 1 (
+        set "UPX_EXE=upx"
+    ) else (
+        :: Search common install locations
+        for /f "delims=" %%P in ('dir /s /b "%LOCALAPPDATA%\Microsoft\WinGet\Packages\upx*.exe" 2^>nul') do set "UPX_EXE=%%P"
+        if not defined UPX_EXE if exist "%ProgramFiles%\upx\upx.exe" set "UPX_EXE=%ProgramFiles%\upx\upx.exe"
+    )
+    if defined UPX_EXE (
+        echo.
+        echo Compressing with UPX...
+        "!UPX_EXE!" --best --lzma "build\QNote.exe" >nul 2>&1
+        if not errorlevel 1 (
+            echo   UPX compression applied.
+        ) else (
+            echo   UPX compression failed, using uncompressed binary.
+        )
+    ) else (
+        echo   UPX not found - install with: winget install upx.upx
+    )
+)
+
 :: Copy exe to root folder (keep original in build directory)
 echo Copying QNote.exe to root folder...
 if exist "build\QNote.exe" (

@@ -325,15 +325,14 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             {
                 RECT clientRc;
                 GetClientRect(m_hwnd, &clientRc);
-                int tabWidth = CalcTabWidth();
-                int totalTabs = static_cast<int>(m_tabs.size());
-                int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+                int scrollStep = CalcTabWidth();  // scroll by one normal tab width
+                int totalContentWidth = CalcTotalTabsWidth() + m_newTabBtnWidth;
                 POINT pt = { x, y };
 
                 if (m_scrollOffset > 0) {
                     RECT leftRc = { 0, 0, m_scrollArrowWidth, clientRc.bottom - 1 };
                     if (PtInRect(&leftRc, pt)) {
-                        m_scrollOffset -= tabWidth;
+                        m_scrollOffset -= scrollStep;
                         ClampScrollOffset();
                         Redraw();
                         return 0;
@@ -342,7 +341,7 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 if (totalContentWidth - m_scrollOffset > clientRc.right) {
                     RECT rightRc = { clientRc.right - m_scrollArrowWidth, 0, clientRc.right, clientRc.bottom - 1 };
                     if (PtInRect(&rightRc, pt)) {
-                        m_scrollOffset += tabWidth;
+                        m_scrollOffset += scrollStep;
                         ClampScrollOffset();
                         Redraw();
                         return 0;
@@ -356,9 +355,9 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 return 0;
             }
 
-            // Check for close button click
+            // Check for close button click (not on pinned tabs)
             for (int i = 0; i < static_cast<int>(m_tabs.size()); i++) {
-                if (CloseButtonHitTest(m_tabs[i].id, x, y)) {
+                if (!m_tabs[i].isPinned && CloseButtonHitTest(m_tabs[i].id, x, y)) {
                     Notify(TabNotification::TabCloseRequested, m_tabs[i].id);
                     return 0;
                 }
@@ -492,16 +491,18 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             m_rightArrowHovered = false;
 
             if (m_hoveredTabId >= 0) {
-                m_closeHovered = CloseButtonHitTest(m_hoveredTabId, x, y);
+                // Don't show close hover on pinned tabs
+                int hovIdx = FindTabIndex(m_hoveredTabId);
+                if (hovIdx >= 0 && !m_tabs[hovIdx].isPinned) {
+                    m_closeHovered = CloseButtonHitTest(m_hoveredTabId, x, y);
+                }
             }
 
             // Track scroll arrow hover
             {
                 RECT clientRc;
                 GetClientRect(m_hwnd, &clientRc);
-                int tabWidth = CalcTabWidth();
-                int totalTabs = static_cast<int>(m_tabs.size());
-                int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+                int totalContentWidth = CalcTotalTabsWidth() + m_newTabBtnWidth;
                 POINT pt = { x, y };
 
                 if (m_scrollOffset > 0) {
@@ -631,6 +632,12 @@ void TabBar::OnPaint() {
     RECT rc;
     GetClientRect(m_hwnd, &rc);
 
+    // Skip painting if client area is empty (e.g. window minimized)
+    if (rc.right <= 0 || rc.bottom <= 0) {
+        EndPaint(m_hwnd, &ps);
+        return;
+    }
+
     // Double buffer
     HDC memDC = CreateCompatibleDC(hdc);
     HBITMAP memBitmap = CreateCompatibleBitmap(hdc, rc.right, rc.bottom);
@@ -679,9 +686,7 @@ void TabBar::OnPaint() {
 
     // Draw scroll arrows if tabs overflow
     {
-        int tabWidth = CalcTabWidth();
-        int totalTabs = static_cast<int>(m_tabs.size());
-        int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+        int totalContentWidth = CalcTotalTabsWidth() + m_newTabBtnWidth;
 
         if (m_scrollOffset > 0) {
             RECT arrowRc = { 0, 0, m_scrollArrowWidth, rc.bottom - 1 };
@@ -724,7 +729,11 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
     // Text area
     RECT textRc = tabRect;
     textRc.left += m_tabPadding;
-    textRc.right -= (m_closeBtnSize + m_closeBtnMargin * 2);
+    if (!tab.isPinned) {
+        textRc.right -= (m_closeBtnSize + m_closeBtnMargin * 2);
+    } else {
+        textRc.right -= m_tabPadding;
+    }
 
     // Draw modified indicator as a perfectly centered filled circle
     if (tab.isModified) {
@@ -762,8 +771,8 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
     DrawTextW(hdc, displayText.c_str(), static_cast<int>(displayText.length()), 
               &textRc, DT_LEFT | DT_VCENTER | DT_SINGLELINE | DT_END_ELLIPSIS | DT_NOPREFIX);
 
-    // Draw close button (X) - only show on active or hovered tabs
-    if (isActive || isHovered) {
+    // Draw close button (X) - only show on active or hovered tabs, not on pinned tabs
+    if ((isActive || isHovered) && !tab.isPinned) {
         RECT closeRc = GetCloseButtonRect(tabRect);
 
         if (isCloseHovered) {
@@ -880,8 +889,8 @@ RECT TabBar::GetTabRect(int index) const {
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
 
-    int tabWidth = CalcTabWidth();
-    int left = index * tabWidth - m_scrollOffset;
+    int left = GetTabLeftOffset(index) - m_scrollOffset;
+    int tabWidth = GetTabWidthByIndex(index);
 
     RECT rc;
     rc.left = left;
@@ -913,9 +922,7 @@ RECT TabBar::GetNewTabButtonRect() const {
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
 
-    int tabWidth = CalcTabWidth();
-    int totalTabs = static_cast<int>(m_tabs.size());
-    int left = totalTabs * tabWidth - m_scrollOffset;
+    int left = CalcTotalTabsWidth() - m_scrollOffset;
 
     RECT rc;
     rc.left = left;
@@ -933,9 +940,57 @@ int TabBar::CalcTabWidth() const {
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
     int totalTabs = static_cast<int>(m_tabs.size());
+    int pinnedCount = 0;
+    for (const auto& t : m_tabs) { if (t.isPinned) ++pinnedCount; }
+    int normalCount = totalTabs - pinnedCount;
+    int pinnedWidth = CalcPinnedTabWidth();
+    int availWidth = clientRc.right - m_newTabBtnWidth - pinnedCount * pinnedWidth;
+    if (normalCount <= 0) return m_tabMaxWidth;  // all pinned, fallback
+    int tabWidth = availWidth / normalCount;
+    return (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_tabMaxWidth));
+}
+
+//------------------------------------------------------------------------------
+// Calculate pinned tab width (smaller max)
+//------------------------------------------------------------------------------
+int TabBar::CalcPinnedTabWidth() const {
+    if (!m_hwnd || m_tabs.empty()) return m_pinnedTabMaxWidth;
+    RECT clientRc;
+    GetClientRect(m_hwnd, &clientRc);
+    int totalTabs = static_cast<int>(m_tabs.size());
     int availWidth = clientRc.right - m_newTabBtnWidth;
     int tabWidth = availWidth / totalTabs;
-    return (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_tabMaxWidth));
+    return (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_pinnedTabMaxWidth));
+}
+
+//------------------------------------------------------------------------------
+// Get the width of a specific tab by index
+//------------------------------------------------------------------------------
+int TabBar::GetTabWidthByIndex(int index) const {
+    if (index < 0 || index >= static_cast<int>(m_tabs.size())) return CalcTabWidth();
+    return m_tabs[index].isPinned ? CalcPinnedTabWidth() : CalcTabWidth();
+}
+
+//------------------------------------------------------------------------------
+// Get the left offset of a tab by index (sum of all previous tab widths)
+//------------------------------------------------------------------------------
+int TabBar::GetTabLeftOffset(int index) const {
+    int left = 0;
+    for (int i = 0; i < index && i < static_cast<int>(m_tabs.size()); ++i) {
+        left += GetTabWidthByIndex(i);
+    }
+    return left;
+}
+
+//------------------------------------------------------------------------------
+// Calculate total width of all tabs
+//------------------------------------------------------------------------------
+int TabBar::CalcTotalTabsWidth() const {
+    int total = 0;
+    for (int i = 0; i < static_cast<int>(m_tabs.size()); ++i) {
+        total += GetTabWidthByIndex(i);
+    }
+    return total;
 }
 
 //------------------------------------------------------------------------------
@@ -945,9 +1000,7 @@ void TabBar::ClampScrollOffset() {
     if (!m_hwnd) return;
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
-    int tabWidth = CalcTabWidth();
-    int totalTabs = static_cast<int>(m_tabs.size());
-    int totalContentWidth = totalTabs * tabWidth + m_newTabBtnWidth;
+    int totalContentWidth = CalcTotalTabsWidth() + m_newTabBtnWidth;
     int maxScroll = totalContentWidth - clientRc.right;
     if (maxScroll < 0) maxScroll = 0;
     m_scrollOffset = (std::max)(0, (std::min)(m_scrollOffset, maxScroll));
@@ -961,9 +1014,8 @@ void TabBar::EnsureTabVisible(int tabId) {
     if (idx < 0 || !m_hwnd) return;
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
-    int tabWidth = CalcTabWidth();
-    int tabLeft = idx * tabWidth;
-    int tabRight = tabLeft + tabWidth;
+    int tabLeft = GetTabLeftOffset(idx);
+    int tabRight = tabLeft + GetTabWidthByIndex(idx);
     int visibleRight = clientRc.right;
     if (tabLeft < m_scrollOffset) {
         m_scrollOffset = tabLeft;
@@ -1139,6 +1191,15 @@ void TabBar::EndRename(bool accept) {
         GetWindowTextW(m_hwndRenameEdit, buf, 256);
         std::wstring newTitle = buf;
 
+        // Trim leading and trailing whitespace
+        size_t start = newTitle.find_first_not_of(L" \t\r\n");
+        size_t end = newTitle.find_last_not_of(L" \t\r\n");
+        if (start != std::wstring::npos) {
+            newTitle = newTitle.substr(start, end - start + 1);
+        } else {
+            newTitle.clear();
+        }
+
         if (!newTitle.empty()) {
             int idx = FindTabIndex(m_renamingTabId);
             if (idx >= 0) {
@@ -1214,6 +1275,7 @@ void TabBar::InitializeDPI() {
     m_tabBarHeight = Scale(BASE_TAB_BAR_HEIGHT);
     m_tabMinWidth = Scale(BASE_TAB_MIN_WIDTH);
     m_tabMaxWidth = Scale(BASE_TAB_MAX_WIDTH);
+    m_pinnedTabMaxWidth = Scale(BASE_PINNED_TAB_MAX_WIDTH);
     m_tabPadding = Scale(BASE_TAB_PADDING);
     m_closeBtnSize = Scale(BASE_CLOSE_BTN_SIZE);
     m_closeBtnMargin = Scale(BASE_CLOSE_BTN_MARGIN);
@@ -1233,6 +1295,7 @@ void TabBar::UpdateDPI(UINT newDpi) {
     m_tabBarHeight = Scale(BASE_TAB_BAR_HEIGHT);
     m_tabMinWidth = Scale(BASE_TAB_MIN_WIDTH);
     m_tabMaxWidth = Scale(BASE_TAB_MAX_WIDTH);
+    m_pinnedTabMaxWidth = Scale(BASE_PINNED_TAB_MAX_WIDTH);
     m_tabPadding = Scale(BASE_TAB_PADDING);
     m_closeBtnSize = Scale(BASE_CLOSE_BTN_SIZE);
     m_closeBtnMargin = Scale(BASE_CLOSE_BTN_MARGIN);

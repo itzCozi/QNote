@@ -166,9 +166,13 @@ int MainWindow::Run() {
             continue;
         }
         
-        // Translate accelerators
-        if (m_hAccel && TranslateAcceleratorW(m_hwnd, m_hAccel, &msg)) {
-            continue;
+        // Translate accelerators only when the main window or its children have focus.
+        // Sub-windows (NoteListWindow, CaptureWindow, etc.) are independent top-level
+        // windows and need to receive their own keyboard messages (DEL, Ctrl+A, etc.)
+        if (m_hAccel && (msg.hwnd == m_hwnd || IsChild(m_hwnd, msg.hwnd))) {
+            if (TranslateAcceleratorW(m_hwnd, m_hAccel, &msg)) {
+                continue;
+            }
         }
         
         TranslateMessage(&msg);
@@ -219,7 +223,9 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
             
         case WM_SIZE:
-            OnSize(LOWORD(lParam), HIWORD(lParam));
+            if (wParam != SIZE_MINIMIZED) {
+                OnSize(LOWORD(lParam), HIWORD(lParam));
+            }
             return 0;
             
         case WM_SETFOCUS:
@@ -612,6 +618,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_FORMAT_WORDWRAP:   OnFormatWordWrap(); break;
         case IDM_FORMAT_FONT:       OnFormatFont(); break;
         case IDM_FORMAT_TABSIZE:    OnFormatTabSize(); break;
+        case IDM_FORMAT_SCROLLLINES: OnFormatScrollLines(); break;
         case IDM_FORMAT_RTL:        OnFormatRTL(); break;
         case IDM_FORMAT_EOL_CRLF:   OnFormatLineEnding(LineEnding::CRLF); break;
         case IDM_FORMAT_EOL_LF:     OnFormatLineEnding(LineEnding::LF); break;
@@ -641,6 +648,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         // Help menu
         case IDM_HELP_ABOUT: OnHelpAbout(); break;
         case IDM_HELP_CHECKUPDATE: OnHelpCheckUpdate(); break;
+        case IDM_HELP_WEBSITE: ShellExecuteW(m_hwnd, L"open", L"https://qnote.ar0.eu/", nullptr, nullptr, SW_SHOWNORMAL); break;
         
         // Notes menu
         case IDM_NOTES_NEW:          OnNotesNew(); break;
@@ -692,6 +700,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_TOOLS_FORMATJSON:       OnToolsFormatJson(); break;
         case IDM_TOOLS_MINIFYJSON:       OnToolsMinifyJson(); break;
         case IDM_TOOLS_OPENTERMINAL:     OnToolsOpenTerminal(); break;
+        case IDM_TOOLS_SETTINGS:         OnToolsSettings(); break;
         
         // Notes menu (additional)
         case IDM_NOTES_EXPORT:           OnNotesExport(); break;
@@ -1087,6 +1096,15 @@ void MainWindow::OnFormatTabSize() {
     if (m_dialogManager->ShowTabSizeDialog(tabSize)) {
         m_settingsManager->GetSettings().tabSize = tabSize;
         m_editor->SetTabSize(tabSize);
+    }
+}
+
+void MainWindow::OnFormatScrollLines() {
+    int scrollLines = m_settingsManager->GetSettings().scrollLines;
+    
+    if (m_dialogManager->ShowScrollLinesDialog(scrollLines)) {
+        m_settingsManager->GetSettings().scrollLines = scrollLines;
+        m_editor->SetScrollLines(scrollLines);
     }
 }
 
@@ -2137,6 +2155,61 @@ void MainWindow::OnToolsOpenTerminal() {
     
     // Open PowerShell in the directory
     ShellExecuteW(nullptr, L"open", L"powershell.exe", nullptr, dir.c_str(), SW_SHOWNORMAL);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Settings
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsSettings() {
+    AppSettings& settings = m_settingsManager->GetSettings();
+    AppSettings oldSettings = settings;
+    
+    if (SettingsWindow::Show(m_hwnd, m_hInstance, settings)) {
+        // Apply font changes
+        if (settings.fontName != oldSettings.fontName ||
+            settings.fontSize != oldSettings.fontSize ||
+            settings.fontWeight != oldSettings.fontWeight ||
+            settings.fontItalic != oldSettings.fontItalic) {
+            m_editor->SetFont(settings.fontName, settings.fontSize,
+                              settings.fontWeight, settings.fontItalic);
+        }
+        
+        // Apply editor behavior changes
+        if (settings.wordWrap != oldSettings.wordWrap) {
+            m_editor->SetWordWrap(settings.wordWrap);
+        }
+        if (settings.tabSize != oldSettings.tabSize) {
+            m_editor->SetTabSize(settings.tabSize);
+        }
+        if (settings.scrollLines != oldSettings.scrollLines) {
+            m_editor->SetScrollLines(settings.scrollLines);
+        }
+        if (settings.rightToLeft != oldSettings.rightToLeft) {
+            m_editor->SetRTL(settings.rightToLeft);
+        }
+        
+        // Apply view changes
+        if (settings.showStatusBar != oldSettings.showStatusBar) {
+            ShowWindow(m_hwndStatus, settings.showStatusBar ? SW_SHOW : SW_HIDE);
+            ResizeControls();
+        }
+        if (settings.showLineNumbers != oldSettings.showLineNumbers) {
+            if (m_lineNumbersGutter) {
+                m_lineNumbersGutter->SetFont(m_editor->GetFont());
+                m_lineNumbersGutter->Show(settings.showLineNumbers);
+            }
+            ResizeControls();
+        }
+        if (settings.showWhitespace != oldSettings.showWhitespace) {
+            m_editor->SetShowWhitespace(settings.showWhitespace);
+        }
+        if (settings.zoomLevel != oldSettings.zoomLevel) {
+            m_editor->ApplyZoom(settings.zoomLevel);
+        }
+        
+        UpdateStatusBar();
+        UpdateMenuState();
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -3687,8 +3760,11 @@ void MainWindow::CheckFileChanged() {
 
 FILETIME MainWindow::GetFileLastWriteTime(const std::wstring& path) {
     FILETIME ft = {};
-    HANDLE hFile = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ | FILE_SHARE_WRITE,
-                               nullptr, OPEN_EXISTING, 0, nullptr);
+    // Use FILE_READ_ATTRIBUTES instead of GENERIC_READ to avoid triggering
+    // access time updates or antivirus scans that could modify timestamps
+    HANDLE hFile = CreateFileW(path.c_str(), FILE_READ_ATTRIBUTES, 
+                               FILE_SHARE_READ | FILE_SHARE_WRITE | FILE_SHARE_DELETE,
+                               nullptr, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, nullptr);
     if (hFile != INVALID_HANDLE_VALUE) {
         GetFileTime(hFile, nullptr, nullptr, &ft);
         CloseHandle(hFile);

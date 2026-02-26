@@ -69,6 +69,9 @@ public:
     // Show Tab Size dialog (modal)
     [[nodiscard]] bool ShowTabSizeDialog(int& tabSize);
     
+    // Show Scroll Lines dialog (modal)
+    [[nodiscard]] bool ShowScrollLinesDialog(int& scrollLines);
+    
     // Show Font chooser dialog (modal)
     [[nodiscard]] bool ShowFontDialog(std::wstring& fontName, int& fontSize, int& fontWeight, bool& italic);
     
@@ -98,6 +101,7 @@ private:
     static INT_PTR CALLBACK ReplaceDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK GoToDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK TabSizeDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
+    static INT_PTR CALLBACK ScrollLinesDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK AboutDlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam);
     
     // Internal handlers
