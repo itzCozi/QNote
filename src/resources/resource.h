@@ -143,6 +143,32 @@
 // Notes menu (additional)
 #define IDM_NOTES_EXPORT                7010
 #define IDM_NOTES_IMPORT                7011
+#define IDM_NOTES_FAVORITES             7012
+#define IDM_NOTES_DUPLICATE             7013
+
+// File menu (additional 2)
+#define IDM_FILE_SAVEALL                1011
+#define IDM_FILE_CLOSEALL               1012
+#define IDM_FILE_OPENFROMCLIPBOARD      1013
+
+// Edit menu (additional 2)
+#define IDM_EDIT_TITLECASE              2026
+#define IDM_EDIT_REVERSELINES           2027
+#define IDM_EDIT_NUMBERLINES            2028
+#define IDM_EDIT_TOGGLECOMMENT          2029
+
+// View menu (additional 2)
+#define IDM_VIEW_ALWAYSONTOP            4008
+#define IDM_VIEW_FULLSCREEN             4009
+#define IDM_VIEW_TOGGLEMENUBAR          4010
+
+// Tools menu (additional 2)
+#define IDM_TOOLS_CALCULATE             10021
+#define IDM_TOOLS_INSERTGUID            10022
+#define IDM_TOOLS_INSERTFILEPATH        10023
+#define IDM_TOOLS_CONVERTEOL_SEL        10024
+#define IDM_TOOLS_CHECKSUM              10025
+#define IDM_TOOLS_RUNSELECTION          10026
 
 // Tools menu (Settings)
 #define IDM_TOOLS_SETTINGS              10020
@@ -209,6 +235,38 @@
 #define IDC_SET_ENCODING                1231
 #define IDC_SET_LBL_LINEENDING          1232
 #define IDC_SET_LINEENDING              1233
+
+// Settings dialog - Behavior page
+#define IDC_SET_MINIMIZE_MODE           1240
+#define IDC_SET_LBL_MINIMIZE            1241
+#define IDC_SET_AUTOUPDATE              1242
+#define IDC_SET_PORTABLE                1243
+
+// Settings dialog - File Associations page
+#define IDC_SET_ASSOC_TXT               1250
+#define IDC_SET_ASSOC_LOG               1251
+#define IDC_SET_ASSOC_MD                1252
+#define IDC_SET_ASSOC_INI               1253
+#define IDC_SET_ASSOC_CFG               1254
+#define IDC_SET_ASSOC_JSON              1255
+#define IDC_SET_ASSOC_XML               1256
+#define IDC_SET_ASSOC_CSV               1257
+#define IDC_SET_ASSOC_APPLY             1258
+
+// Convert EOL selection dialog
+#define IDD_CONVERTEOL                  209
+#define IDC_EOL_CRLF                    1260
+#define IDC_EOL_LF                      1261
+#define IDC_EOL_CR                      1262
+
+// Checksum dialog
+#define IDD_CHECKSUM                    210
+#define IDC_CHECKSUM_MD5                1270
+#define IDC_CHECKSUM_SHA256             1271
+
+// Run output dialog
+#define IDD_RUNOUTPUT                   211
+#define IDC_RUNOUTPUT_EDIT              1280
 
 // Auto-save options dialog controls
 #define IDD_AUTOSAVE                    205

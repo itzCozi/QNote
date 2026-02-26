@@ -42,6 +42,7 @@ private:
     void OnTabChanged();
     void OnOK();
     void OnFontButton();
+    void OnApplyAssociations();
     
     // Page management
     void ShowPage(int pageIndex);
@@ -71,7 +72,7 @@ private:
     int m_currentPage = 0;
     
     // Number of tab pages
-    static constexpr int PAGE_COUNT = 3;
+    static constexpr int PAGE_COUNT = 5;
     
     // Static instance for dialog proc callback
     static SettingsWindow* s_instance;

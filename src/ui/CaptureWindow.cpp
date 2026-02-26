@@ -42,7 +42,7 @@ bool CaptureWindow::Create(HINSTANCE hInstance, NoteStore* noteStore) {
     // Register window class
     WNDCLASSEXW wc = {};
     wc.cbSize = sizeof(wc);
-    wc.style = CS_HREDRAW | CS_VREDRAW;
+    wc.style = 0;
     wc.lpfnWndProc = WindowProc;
     wc.hInstance = hInstance;
     wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);

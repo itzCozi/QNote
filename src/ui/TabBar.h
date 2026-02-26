@@ -42,6 +42,7 @@ enum class TabNotification {
     CloseAll,         // Close all tabs
     CloseToRight,     // Close tabs to the right
     TabReordered,     // Tab was reordered via drag
+    TabDetached,      // Tab dragged outside tab bar (for tear-off to new window)
 };
 
 //------------------------------------------------------------------------------
@@ -96,6 +97,9 @@ public:
     // DPI update (call when monitor DPI changes)
     void UpdateDPI(UINT newDpi);
 
+    // Get the screen position where the last tab detach occurred
+    [[nodiscard]] POINT GetLastDetachPosition() const noexcept { return m_lastDetachPos; }
+
     // Set notification callback
     void SetCallback(TabCallback callback) { m_callback = std::move(callback); }
 
@@ -129,6 +133,10 @@ private:
     // Tab rename (inline edit)
     void BeginRename(int tabId);
 
+    // Drag preview for tear-off visual feedback
+    void ShowDragPreview(int tabId, int screenX, int screenY);
+    void HideDragPreview();
+
     // Scroll overflow helpers
     int CalcTabWidth() const;
     int CalcPinnedTabWidth() const;
@@ -137,6 +145,7 @@ private:
     int CalcTotalTabsWidth() const;
     void ClampScrollOffset();
     void EnsureTabVisible(int tabId);
+    void RecalcCachedWidths() const;  // Recompute m_cachedTabWidth/m_cachedPinnedTabWidth
 
     // Emit notification
     void Notify(TabNotification notification, int tabId);
@@ -166,6 +175,10 @@ private:
     std::vector<TabItem> m_tabs;
     int m_activeTabId = -1;
     int m_nextTabId = 1;
+
+    // Cached tab widths to avoid redundant recalculation (mutable for const methods)
+    mutable int m_cachedTabWidth = -1;
+    mutable int m_cachedPinnedTabWidth = -1;
 
     // DPI scaling
     int m_dpi = 96;
@@ -204,8 +217,18 @@ private:
     bool m_dragInitiated = false;
     static constexpr int DRAG_THRESHOLD = 5;
 
+    // Drag preview (ghost window for tear-off)
+    HWND m_hwndDragPreview = nullptr;
+
+    // Last detach screen position (set just before TabDetached notification)
+    POINT m_lastDetachPos = { 0, 0 };
+
     // Callback
     TabCallback m_callback;
+
+    // Cached fonts for painting (avoid creating/destroying per frame)
+    HFONT m_closeFont = nullptr;
+    HFONT m_arrowFont = nullptr;
 
     // Base layout constants (scaled by DPI)
     static constexpr int BASE_TAB_BAR_HEIGHT = 34;

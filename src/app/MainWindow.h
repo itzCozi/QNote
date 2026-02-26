@@ -44,7 +44,9 @@ public:
     MainWindow& operator=(const MainWindow&) = delete;
     
     // Initialize and create the main window
-    [[nodiscard]] bool Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile = L"");
+    // posX/posY: optional window position override (CW_USEDEFAULT to ignore)
+    [[nodiscard]] bool Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile = L"",
+                              int posX = CW_USEDEFAULT, int posY = CW_USEDEFAULT);
     
     // Run the message loop
     [[nodiscard]] int Run();
@@ -79,6 +81,7 @@ private:
     void OnTabCloseOthers(int tabId);
     void OnTabCloseAll();
     void OnTabCloseToRight(int tabId);
+    void OnTabDetached(int tabId);
     bool PromptSaveTab(int tabId);
 
     // File operations
@@ -90,6 +93,9 @@ private:
     void OnFileOpenRecent(int index);
     void OnFilePageSetup();
     void OnFilePrint();
+    void OnFileSaveAll();
+    void OnFileCloseAll();
+    void OnFileOpenFromClipboard();
     
     // Edit operations
     void OnEditUndo();
@@ -120,6 +126,9 @@ private:
     void OnViewZoomOut();
     void OnViewZoomReset();
     void OnViewShowWhitespace();
+    void OnViewAlwaysOnTop();
+    void OnViewFullScreen();
+    void OnViewToggleMenuBar();
     
     // Encoding operations
     void OnEncodingChange(TextEncoding encoding);
@@ -136,9 +145,13 @@ private:
     // Text manipulation operations
     void OnEditUppercase();
     void OnEditLowercase();
+    void OnEditTitleCase();
     void OnEditSortLines(bool ascending);
     void OnEditTrimWhitespace();
     void OnEditRemoveDuplicateLines();
+    void OnEditReverseLines();
+    void OnEditNumberLines();
+    void OnEditToggleComment();
     
     // Bookmark operations
     void OnEditToggleBookmark();
@@ -165,10 +178,18 @@ private:
     void OnToolsMinifyJson();
     void OnToolsOpenTerminal();
     void OnToolsSettings();
+    void OnToolsCalculate();
+    void OnToolsInsertGuid();
+    void OnToolsInsertFilePath();
+    void OnToolsConvertEolSelection();
+    void OnToolsChecksum();
+    void OnToolsRunSelection();
     
     // Tools dialog procs
     static INT_PTR CALLBACK AutoSaveDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
     static INT_PTR CALLBACK SplitLinesDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
+    static INT_PTR CALLBACK ConvertEolDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
+    static INT_PTR CALLBACK RunOutputDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
     
     // Notes operations
     void OnNotesNew();
@@ -182,6 +203,8 @@ private:
     void OnNotesDeleteCurrent();
     void OnNotesExport();
     void OnNotesImport();
+    void OnNotesFavorites();
+    void OnNotesDuplicate();
     void OnHotkey(int hotkeyId);
     
     // Helper methods
@@ -269,6 +292,12 @@ private:
     NOTIFYICONDATAW m_trayIcon = {};
     bool m_trayIconCreated = false;
     bool m_minimizedToTray = false;
+    
+    // Full screen state
+    bool m_isFullScreen = false;
+    LONG m_preFullScreenStyle = 0;
+    RECT m_preFullScreenRect = {};
+    HMENU m_savedMenu = nullptr;
     
     // File change monitoring
     FILETIME m_lastWriteTime = {};

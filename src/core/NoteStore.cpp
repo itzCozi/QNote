@@ -1,9 +1,10 @@
-//==============================================================================
+﻿//==============================================================================
 // QNote - A Lightweight Notepad Clone
 // NoteStore.cpp - Note storage and management implementation
 //==============================================================================
 
 #include "NoteStore.h"
+#include "FileIO.h"
 #include <ShlObj.h>
 #include <algorithm>
 #include <sstream>
@@ -284,26 +285,24 @@ bool NoteStore::LoadFromFile() {
     }
     
     // Read file
-    HANDLE hFile = CreateFileW(m_storePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
+    HandleGuard hFile(CreateFileW(m_storePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!hFile.valid()) {
         return false;
     }
     
     LARGE_INTEGER fileSize;
-    if (!GetFileSizeEx(hFile, &fileSize)) {
-        CloseHandle(hFile);
+    if (!GetFileSizeEx(hFile.get(), &fileSize)) {
         return false;
     }
     
     // Read as UTF-8
     std::vector<char> buffer(static_cast<size_t>(fileSize.QuadPart) + 1, 0);
     DWORD bytesRead;
-    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(fileSize.QuadPart), &bytesRead, nullptr)) {
-        CloseHandle(hFile);
+    if (!ReadFile(hFile.get(), buffer.data(), static_cast<DWORD>(fileSize.QuadPart), &bytesRead, nullptr)) {
         return false;
     }
-    CloseHandle(hFile);
+    hFile = HandleGuard();
     
     // Convert UTF-8 to wstring
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, nullptr, 0);
@@ -322,15 +321,14 @@ bool NoteStore::SaveToFile() {
     WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, utf8Data.data(), utf8Len, nullptr, nullptr);
     
     // Write to file
-    HANDLE hFile = CreateFileW(m_storePath.c_str(), GENERIC_WRITE, 0,
-                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) {
+    HandleGuard hFile(CreateFileW(m_storePath.c_str(), GENERIC_WRITE, 0,
+                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!hFile.valid()) {
         return false;
     }
     
     DWORD bytesWritten;
-    BOOL result = WriteFile(hFile, utf8Data.data(), static_cast<DWORD>(utf8Len - 1), &bytesWritten, nullptr);
-    CloseHandle(hFile);
+    BOOL result = WriteFile(hFile.get(), utf8Data.data(), static_cast<DWORD>(utf8Len - 1), &bytesWritten, nullptr);
     
     return result != FALSE;
 }
@@ -708,13 +706,12 @@ bool NoteStore::ExportNotes(const std::wstring& filePath) {
     std::vector<char> utf8Data(utf8Len);
     WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, utf8Data.data(), utf8Len, nullptr, nullptr);
     
-    HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_WRITE, 0,
-                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) return false;
+    HandleGuard hFile(CreateFileW(filePath.c_str(), GENERIC_WRITE, 0,
+                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!hFile.valid()) return false;
     
     DWORD bytesWritten;
-    BOOL result = WriteFile(hFile, utf8Data.data(), static_cast<DWORD>(utf8Len - 1), &bytesWritten, nullptr);
-    CloseHandle(hFile);
+    BOOL result = WriteFile(hFile.get(), utf8Data.data(), static_cast<DWORD>(utf8Len - 1), &bytesWritten, nullptr);
     
     return result != FALSE;
 }
@@ -724,23 +721,21 @@ bool NoteStore::ExportNotes(const std::wstring& filePath) {
 //------------------------------------------------------------------------------
 bool NoteStore::ImportNotes(const std::wstring& filePath) {
     // Read file
-    HANDLE hFile = CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
-                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr);
-    if (hFile == INVALID_HANDLE_VALUE) return false;
+    HandleGuard hFile(CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!hFile.valid()) return false;
     
     LARGE_INTEGER fileSize;
-    if (!GetFileSizeEx(hFile, &fileSize)) {
-        CloseHandle(hFile);
+    if (!GetFileSizeEx(hFile.get(), &fileSize)) {
         return false;
     }
     
     std::vector<char> buffer(static_cast<size_t>(fileSize.QuadPart) + 1, 0);
     DWORD bytesRead;
-    if (!ReadFile(hFile, buffer.data(), static_cast<DWORD>(fileSize.QuadPart), &bytesRead, nullptr)) {
-        CloseHandle(hFile);
+    if (!ReadFile(hFile.get(), buffer.data(), static_cast<DWORD>(fileSize.QuadPart), &bytesRead, nullptr)) {
         return false;
     }
-    CloseHandle(hFile);
+    hFile = HandleGuard();
     
     // Convert UTF-8 to wstring
     int wideLen = MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, nullptr, 0);

@@ -35,7 +35,7 @@ bool FindBar::Create(HWND parent, HINSTANCE hInstance, Editor* editor) {
     if (!s_classRegistered) {
         WNDCLASSEXW wc = {};
         wc.cbSize = sizeof(wc);
-        wc.style = CS_HREDRAW | CS_VREDRAW;
+        wc.style = 0;
         wc.lpfnWndProc = FindBarProc;
         wc.hInstance = hInstance;
         wc.hCursor = LoadCursorW(nullptr, IDC_ARROW);

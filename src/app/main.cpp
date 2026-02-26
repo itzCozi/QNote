@@ -73,10 +73,21 @@ static bool IsNotepadExe(const std::wstring& path) {
 }
 
 //------------------------------------------------------------------------------
-// Parse command line to get the file to open
-// Handles IFEO redirect where first arg is notepad.exe
+// Parsed command-line results
 //------------------------------------------------------------------------------
-static std::wstring ParseCommandLine() {
+struct CommandLineArgs {
+    std::wstring filePath;
+    int posX = CW_USEDEFAULT;
+    int posY = CW_USEDEFAULT;
+};
+
+//------------------------------------------------------------------------------
+// Parse command line to get the file to open and optional position
+// Handles IFEO redirect where first arg is notepad.exe
+// Supports: QNote.exe [file] [--pos X,Y]
+//------------------------------------------------------------------------------
+static CommandLineArgs ParseCommandLine() {
+    CommandLineArgs result;
     int argc = 0;
     LPWSTR* argv = CommandLineToArgvW(GetCommandLineW(), &argc);
     
@@ -91,32 +102,57 @@ static std::wstring ParseCommandLine() {
             fileArgIndex = 2;
         }
         
-        if (argc > fileArgIndex) {
-            // Get the file path
-            filePath = argv[fileArgIndex];
-            
-            // Handle quoted paths
-            if (!filePath.empty() && filePath.front() == L'"') {
-                filePath = filePath.substr(1);
-            }
-            if (!filePath.empty() && filePath.back() == L'"') {
-                filePath.pop_back();
-            }
-            
-            // If it's a relative path, make it absolute
-            if (!filePath.empty() && filePath[0] != L'\\' && 
-                (filePath.length() < 2 || filePath[1] != L':')) {
-                wchar_t currentDir[MAX_PATH];
-                if (GetCurrentDirectoryW(MAX_PATH, currentDir)) {
-                    std::wstring fullPath = currentDir;
-                    fullPath += L"\\";
-                    fullPath += filePath;
-                    
-                    wchar_t absolutePath[MAX_PATH];
-                    if (GetFullPathNameW(fullPath.c_str(), MAX_PATH, absolutePath, nullptr)) {
-                        filePath = absolutePath;
+        // Scan for --pos argument
+        for (int i = 1; i < argc; i++) {
+            std::wstring arg = argv[i];
+            if (arg == L"--pos" && i + 1 < argc) {
+                std::wstring posArg = argv[i + 1];
+                size_t comma = posArg.find(L',');
+                if (comma != std::wstring::npos) {
+                    try {
+                        result.posX = std::stoi(posArg.substr(0, comma));
+                        result.posY = std::stoi(posArg.substr(comma + 1));
+                    } catch (...) {
+                        // Invalid numbers, ignore
                     }
                 }
+                // Mark these args so they're not treated as file path
+                // If the file arg would be at i, skip it
+                if (i == fileArgIndex) fileArgIndex = i + 2;
+                i++; // skip the value arg
+                continue;
+            }
+        }
+        
+        if (argc > fileArgIndex) {
+            // Get the file path (skip --pos and its value)
+            std::wstring candidate = argv[fileArgIndex];
+            if (candidate != L"--pos") {
+                filePath = candidate;
+            }
+        }
+    }
+    
+    // Handle quoted paths
+    if (!filePath.empty() && filePath.front() == L'"') {
+        filePath = filePath.substr(1);
+    }
+    if (!filePath.empty() && filePath.back() == L'"') {
+        filePath.pop_back();
+    }
+    
+    // If it's a relative path, make it absolute
+    if (!filePath.empty() && filePath[0] != L'\\' && 
+        (filePath.length() < 2 || filePath[1] != L':')) {
+        wchar_t currentDir[MAX_PATH];
+        if (GetCurrentDirectoryW(MAX_PATH, currentDir)) {
+            std::wstring fullPath = currentDir;
+            fullPath += L"\\";
+            fullPath += filePath;
+            
+            wchar_t absolutePath[MAX_PATH];
+            if (GetFullPathNameW(fullPath.c_str(), MAX_PATH, absolutePath, nullptr)) {
+                filePath = absolutePath;
             }
         }
     }
@@ -125,7 +161,8 @@ static std::wstring ParseCommandLine() {
         LocalFree(argv);
     }
     
-    return filePath;
+    result.filePath = filePath;
+    return result;
 }
 
 //------------------------------------------------------------------------------
@@ -194,13 +231,13 @@ int WINAPI wWinMain(
         return 1;
     }
     
-    // Parse command line for initial file
-    std::wstring initialFile = ParseCommandLine();
+    // Parse command line for initial file and position
+    auto args = ParseCommandLine();
     
     // Create and run main window
     QNote::MainWindow mainWindow;
     
-    if (!mainWindow.Create(hInstance, nCmdShow, initialFile)) {
+    if (!mainWindow.Create(hInstance, nCmdShow, args.filePath, args.posX, args.posY)) {
         CoUninitialize();
         return 1;
     }

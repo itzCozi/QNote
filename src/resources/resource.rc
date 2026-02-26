@@ -23,6 +23,7 @@ BEGIN
         MENUITEM "New &Tab\tCtrl+T",            IDM_TAB_NEW
         MENUITEM SEPARATOR
         MENUITEM "&Open...\tCtrl+O",            IDM_FILE_OPEN
+        MENUITEM "Open from &Clipboard",        IDM_FILE_OPENFROMCLIPBOARD
         POPUP "&Recent Files"
         BEGIN
             MENUITEM "(Empty)",                 IDM_FILE_RECENT_BASE, GRAYED
@@ -30,12 +31,16 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "&Save\tCtrl+S",               IDM_FILE_SAVE
         MENUITEM "Save &As...\tCtrl+Shift+S",   IDM_FILE_SAVEAS
+        MENUITEM "Save A&ll\tCtrl+Shift+Alt+S", IDM_FILE_SAVEALL
         MENUITEM "Re&vert to Saved",            IDM_FILE_REVERT
         MENUITEM SEPARATOR
+        MENUITEM "Close A&ll Tabs",             IDM_FILE_CLOSEALL
         MENUITEM "Open Containing &Folder",     IDM_FILE_OPENCONTAINING
         MENUITEM SEPARATOR
         MENUITEM "Page Set&up...",              IDM_FILE_PAGESETUP
         MENUITEM "&Print...\tCtrl+P",           IDM_FILE_PRINT
+        MENUITEM SEPARATOR
+        MENUITEM "&Settings...",              IDM_TOOLS_SETTINGS
         MENUITEM SEPARATOR
         MENUITEM "E&xit\tAlt+F4",              IDM_FILE_EXIT
     END
@@ -61,12 +66,18 @@ BEGIN
         BEGIN
             MENUITEM "&Uppercase Selection\tCtrl+Shift+U", IDM_EDIT_UPPERCASE
             MENUITEM "&Lowercase Selection\tCtrl+U",       IDM_EDIT_LOWERCASE
+            MENUITEM "&Title Case Selection",               IDM_EDIT_TITLECASE
             MENUITEM SEPARATOR
             MENUITEM "Sort Lines (&Ascending)",     IDM_EDIT_SORTLINES_ASC
             MENUITEM "Sort Lines (&Descending)",    IDM_EDIT_SORTLINES_DESC
             MENUITEM SEPARATOR
+            MENUITEM "&Reverse Lines",              IDM_EDIT_REVERSELINES
+            MENUITEM "&Number Lines",               IDM_EDIT_NUMBERLINES
+            MENUITEM SEPARATOR
             MENUITEM "&Trim Trailing Whitespace",   IDM_EDIT_TRIMWHITESPACE
             MENUITEM "Remove &Duplicate Lines",     IDM_EDIT_REMOVEDUPLICATES
+            MENUITEM SEPARATOR
+            MENUITEM "Comment/Uncomment\tCtrl+/",  IDM_EDIT_TOGGLECOMMENT
         END
         POPUP "&Bookmarks"
         BEGIN
@@ -97,6 +108,10 @@ BEGIN
         MENUITEM "&Status Bar",                 IDM_VIEW_STATUSBAR
         MENUITEM "&Line Numbers",               IDM_VIEW_LINENUMBERS
         MENUITEM "Show &Whitespace",             IDM_VIEW_SHOWWHITESPACE
+        MENUITEM SEPARATOR
+        MENUITEM "&Always on Top",              IDM_VIEW_ALWAYSONTOP
+        MENUITEM "&Full Screen\tF11",           IDM_VIEW_FULLSCREEN
+        MENUITEM "Toggle &Menu Bar\tAlt",       IDM_VIEW_TOGGLEMENUBAR
         MENUITEM SEPARATOR
         MENUITEM "Zoom &In\tCtrl++",            IDM_VIEW_ZOOMIN
         MENUITEM "Zoom &Out\tCtrl+-",           IDM_VIEW_ZOOMOUT
@@ -133,6 +148,9 @@ BEGIN
         MENUITEM "Save Note Now",               IDM_NOTES_SAVENOW
         MENUITEM "&Delete Current Note",        IDM_NOTES_DELETENOTE
         MENUITEM SEPARATOR
+        MENUITEM "&Favorites...",               IDM_NOTES_FAVORITES
+        MENUITEM "D&uplicate Note",             IDM_NOTES_DUPLICATE
+        MENUITEM SEPARATOR
         MENUITEM "E&xport Notes...",            IDM_NOTES_EXPORT
         MENUITEM "&Import Notes...",            IDM_NOTES_IMPORT
     END
@@ -162,16 +180,27 @@ BEGIN
             MENUITEM "&Minify JSON",                  IDM_TOOLS_MINIFYJSON
         END
         MENUITEM SEPARATOR
+        POPUP "&Checksums"
+        BEGIN
+            MENUITEM "MD5 Hash...",                  IDM_TOOLS_CHECKSUM
+            MENUITEM "SHA-256 Hash...",               IDM_TOOLS_CHECKSUM
+        END
+        MENUITEM SEPARATOR
         MENUITEM "&Word Count...",                    IDM_TOOLS_WORDCOUNT
-        MENUITEM "&Insert Lorem Ipsum",               IDM_TOOLS_INSERTLOREM
+        MENUITEM "Insert &Lorem Ipsum",               IDM_TOOLS_INSERTLOREM
+        MENUITEM "Insert &GUID/UUID",                 IDM_TOOLS_INSERTGUID
+        MENUITEM "Insert &File Path...",               IDM_TOOLS_INSERTFILEPATH
+        MENUITEM SEPARATOR
+        MENUITEM "&Calculate Selection",               IDM_TOOLS_CALCULATE
+        MENUITEM "Convert Line Endings (Selection)",  IDM_TOOLS_CONVERTEOL_SEL
+        MENUITEM "Checksum (File/Selection)...",       IDM_TOOLS_CHECKSUM
+        MENUITEM "&Run Selection as Command",          IDM_TOOLS_RUNSELECTION
         MENUITEM SEPARATOR
         MENUITEM "&Copy File Path to Clipboard",      IDM_TOOLS_COPYFILEPATH
         MENUITEM "Open &Terminal Here",               IDM_TOOLS_OPENTERMINAL
         MENUITEM SEPARATOR
         MENUITEM "&Auto-Save Options...",             IDM_TOOLS_AUTOSAVEOPTIONS
         MENUITEM "Customize &Keyboard Shortcuts...",  IDM_TOOLS_EDITSHORTCUTS
-        MENUITEM SEPARATOR
-        MENUITEM "&Settings...",                        IDM_TOOLS_SETTINGS
     END
     POPUP "&Help"
     BEGIN
@@ -234,6 +263,11 @@ BEGIN
     VK_F2,      IDM_EDIT_NEXTBOOKMARK,   VIRTKEY, CONTROL
     VK_F2,      IDM_EDIT_PREVBOOKMARK,   VIRTKEY, SHIFT
     VK_F2,      IDM_EDIT_CLEARBOOKMARKS, VIRTKEY, CONTROL, SHIFT
+    
+    // New features
+    "S",        IDM_FILE_SAVEALL,    VIRTKEY, CONTROL, SHIFT, ALT
+    VK_F11,     IDM_VIEW_FULLSCREEN, VIRTKEY
+    VK_OEM_2,   IDM_EDIT_TOGGLECOMMENT, VIRTKEY, CONTROL
 END
 
 //------------------------------------------------------------------------------
@@ -356,14 +390,14 @@ END
 //------------------------------------------------------------------------------
 // Settings Dialog (tabbed)
 //------------------------------------------------------------------------------
-IDD_SETTINGS DIALOGEX 0, 0, 320, 280
+IDD_SETTINGS DIALOGEX 0, 0, 320, 310
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Settings"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
-    CONTROL         "",IDC_SETTINGS_TAB,"SysTabControl32",WS_TABSTOP,7,7,306,243
-    DEFPUSHBUTTON   "OK",IDOK,208,256,50,14
-    PUSHBUTTON      "Cancel",IDCANCEL,262,256,50,14
+    CONTROL         "",IDC_SETTINGS_TAB,"SysTabControl32",WS_TABSTOP,7,7,306,273
+    DEFPUSHBUTTON   "OK",IDOK,208,286,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,262,286,50,14
 
     // === Editor Page ===
     AUTOCHECKBOX    "Word Wrap",IDC_SET_WORDWRAP,18,32,140,10
@@ -389,6 +423,50 @@ BEGIN
     COMBOBOX        IDC_SET_ENCODING,95,30,120,80,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     LTEXT           "Default Line Ending:",IDC_SET_LBL_LINEENDING,18,54,75,8
     COMBOBOX        IDC_SET_LINEENDING,95,52,120,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+
+    // === Behavior Page ===
+    LTEXT           "On minimize:",IDC_SET_LBL_MINIMIZE,18,32,55,8
+    COMBOBOX        IDC_SET_MINIMIZE_MODE,78,30,140,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    AUTOCHECKBOX    "Automatically check for updates on startup",IDC_SET_AUTOUPDATE,18,54,200,10
+    AUTOCHECKBOX    "Portable mode (use config.ini next to exe)",IDC_SET_PORTABLE,18,72,200,10
+
+    // === File Associations Page ===
+    AUTOCHECKBOX    ".txt  (Text Files)",IDC_SET_ASSOC_TXT,18,32,140,10
+    AUTOCHECKBOX    ".log  (Log Files)",IDC_SET_ASSOC_LOG,18,48,140,10
+    AUTOCHECKBOX    ".md   (Markdown)",IDC_SET_ASSOC_MD,18,64,140,10
+    AUTOCHECKBOX    ".ini  (INI Files)",IDC_SET_ASSOC_INI,18,80,140,10
+    AUTOCHECKBOX    ".cfg  (Config Files)",IDC_SET_ASSOC_CFG,18,96,140,10
+    AUTOCHECKBOX    ".json (JSON Files)",IDC_SET_ASSOC_JSON,18,112,140,10
+    AUTOCHECKBOX    ".xml  (XML Files)",IDC_SET_ASSOC_XML,18,128,140,10
+    AUTOCHECKBOX    ".csv  (CSV Files)",IDC_SET_ASSOC_CSV,18,144,140,10
+    PUSHBUTTON      "Apply Associations",IDC_SET_ASSOC_APPLY,18,164,90,14
+END
+
+//------------------------------------------------------------------------------
+// Convert Line Endings (Selection) Dialog
+//------------------------------------------------------------------------------
+IDD_CONVERTEOL DIALOGEX 0, 0, 180, 85
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Convert Line Endings (Selection)"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    AUTORADIOBUTTON "Windows (CRLF)",IDC_EOL_CRLF,7,9,85,10
+    AUTORADIOBUTTON "Unix (LF)",IDC_EOL_LF,7,25,85,10
+    AUTORADIOBUTTON "Mac (CR)",IDC_EOL_CR,7,41,85,10
+    DEFPUSHBUTTON   "OK",IDOK,123,9,50,14
+    PUSHBUTTON      "Cancel",IDCANCEL,123,26,50,14
+END
+
+//------------------------------------------------------------------------------
+// Run Selection Output Dialog
+//------------------------------------------------------------------------------
+IDD_RUNOUTPUT DIALOGEX 0, 0, 400, 250
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU | WS_THICKFRAME
+CAPTION "Command Output"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    EDITTEXT        IDC_RUNOUTPUT_EDIT,7,7,386,215,ES_MULTILINE | ES_AUTOVSCROLL | ES_AUTOHSCROLL | ES_READONLY | WS_VSCROLL | WS_HSCROLL
+    DEFPUSHBUTTON   "Close",IDOK,343,229,50,14
 END
 
 //------------------------------------------------------------------------------

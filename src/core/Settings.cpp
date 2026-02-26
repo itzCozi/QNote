@@ -14,17 +14,42 @@ namespace QNote {
 //------------------------------------------------------------------------------
 
 SettingsManager::SettingsManager() {
-    // Get AppData path
-    wchar_t appDataPath[MAX_PATH] = {};
-    if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appDataPath))) {
-        m_settingsDir = appDataPath;
-        m_settingsDir += L"\\QNote";
+    // Check for portable mode first (config.ini next to exe)
+    if (DetectPortableMode()) {
+        wchar_t exePath[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+        m_settingsDir = exePath;
+        size_t pos = m_settingsDir.find_last_of(L"\\/");
+        if (pos != std::wstring::npos) {
+            m_settingsDir = m_settingsDir.substr(0, pos);
+        }
         m_settingsPath = m_settingsDir + L"\\config.ini";
+        m_settings.portableMode = true;
+    } else {
+        // Get AppData path
+        wchar_t appDataPath[MAX_PATH] = {};
+        if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appDataPath))) {
+            m_settingsDir = appDataPath;
+            m_settingsDir += L"\\QNote";
+            m_settingsPath = m_settingsDir + L"\\config.ini";
+        }
     }
 }
 
 SettingsManager::~SettingsManager() {
     // Settings are saved explicitly by the application
+}
+
+bool SettingsManager::DetectPortableMode() {
+    wchar_t exePath[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+    std::wstring dir = exePath;
+    size_t pos = dir.find_last_of(L"\\/");
+    if (pos != std::wstring::npos) {
+        dir = dir.substr(0, pos);
+    }
+    std::wstring portableConfig = dir + L"\\config.ini";
+    return GetFileAttributesW(portableConfig.c_str()) != INVALID_FILE_ATTRIBUTES;
 }
 
 bool SettingsManager::EnsureSettingsDirectory() {
@@ -126,6 +151,16 @@ bool SettingsManager::Load() {
     std::wstring lineEndingStr = ParseString(L"Encoding", L"LineEnding", L"CRLF");
     m_settings.defaultLineEnding = StringToLineEnding(lineEndingStr);
     
+    // Behavior section
+    m_settings.minimizeMode = ParseInt(L"Behavior", L"MinimizeMode", 1);
+    if (m_settings.minimizeMode < 0 || m_settings.minimizeMode > 1) m_settings.minimizeMode = 1;
+    m_settings.autoUpdate = ParseBool(L"Behavior", L"AutoUpdate", false);
+    m_settings.portableMode = ParseBool(L"Behavior", L"PortableMode", m_settings.portableMode);
+    
+    // View state
+    m_settings.alwaysOnTop = ParseBool(L"View", L"AlwaysOnTop", false);
+    m_settings.menuBarVisible = ParseBool(L"View", L"MenuBarVisible", true);
+    
     // Search section
     m_settings.searchMatchCase = ParseBool(L"Search", L"MatchCase", false);
     m_settings.searchWrapAround = ParseBool(L"Search", L"WrapAround", true);
@@ -184,6 +219,15 @@ bool SettingsManager::Save() {
     // Encoding section
     WriteString(L"Encoding", L"Default", EncodingToString(m_settings.defaultEncoding));
     WriteString(L"Encoding", L"LineEnding", LineEndingToString(m_settings.defaultLineEnding));
+    
+    // Behavior section
+    WriteInt(L"Behavior", L"MinimizeMode", m_settings.minimizeMode);
+    WriteBool(L"Behavior", L"AutoUpdate", m_settings.autoUpdate);
+    WriteBool(L"Behavior", L"PortableMode", m_settings.portableMode);
+    
+    // View state
+    WriteBool(L"View", L"AlwaysOnTop", m_settings.alwaysOnTop);
+    WriteBool(L"View", L"MenuBarVisible", m_settings.menuBarVisible);
     
     // Search section
     WriteBool(L"Search", L"MatchCase", m_settings.searchMatchCase);

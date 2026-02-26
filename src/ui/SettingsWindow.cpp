@@ -10,6 +10,9 @@
 #include <commdlg.h>
 #include <Uxtheme.h>
 #include <algorithm>
+#include <ShlObj.h>
+#include <Shlwapi.h>
+#pragma comment(lib, "Shlwapi.lib")
 
 namespace QNote {
 
@@ -32,6 +35,17 @@ static constexpr int APPEARANCE_PAGE_IDS[] = {
 static constexpr int DEFAULTS_PAGE_IDS[] = {
     IDC_SET_LBL_ENCODING, IDC_SET_ENCODING,
     IDC_SET_LBL_LINEENDING, IDC_SET_LINEENDING
+};
+
+static constexpr int BEHAVIOR_PAGE_IDS[] = {
+    IDC_SET_LBL_MINIMIZE, IDC_SET_MINIMIZE_MODE,
+    IDC_SET_AUTOUPDATE, IDC_SET_PORTABLE
+};
+
+static constexpr int FILEASSOC_PAGE_IDS[] = {
+    IDC_SET_ASSOC_TXT, IDC_SET_ASSOC_LOG, IDC_SET_ASSOC_MD,
+    IDC_SET_ASSOC_INI, IDC_SET_ASSOC_CFG, IDC_SET_ASSOC_JSON,
+    IDC_SET_ASSOC_XML, IDC_SET_ASSOC_CSV, IDC_SET_ASSOC_APPLY
 };
 
 //------------------------------------------------------------------------------
@@ -88,6 +102,9 @@ INT_PTR CALLBACK SettingsWindow::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                 case IDC_SET_FONTBUTTON:
                     if (s_instance) s_instance->OnFontButton();
                     return TRUE;
+                case IDC_SET_ASSOC_APPLY:
+                    if (s_instance) s_instance->OnApplyAssociations();
+                    return TRUE;
             }
             break;
         
@@ -137,6 +154,12 @@ void SettingsWindow::OnInit(HWND hwnd) {
     
     tci.pszText = const_cast<wchar_t*>(L"Defaults");
     TabCtrl_InsertItem(hwndTab, 2, &tci);
+    
+    tci.pszText = const_cast<wchar_t*>(L"Behavior");
+    TabCtrl_InsertItem(hwndTab, 3, &tci);
+    
+    tci.pszText = const_cast<wchar_t*>(L"File Assoc.");
+    TabCtrl_InsertItem(hwndTab, 4, &tci);
     
     // Populate controls from settings
     InitControlsFromSettings();
@@ -210,6 +233,8 @@ void SettingsWindow::ShowPage(int page) {
     setVisible(EDITOR_PAGE_IDS, _countof(EDITOR_PAGE_IDS), page == 0);
     setVisible(APPEARANCE_PAGE_IDS, _countof(APPEARANCE_PAGE_IDS), page == 1);
     setVisible(DEFAULTS_PAGE_IDS, _countof(DEFAULTS_PAGE_IDS), page == 2);
+    setVisible(BEHAVIOR_PAGE_IDS, _countof(BEHAVIOR_PAGE_IDS), page == 3);
+    setVisible(FILEASSOC_PAGE_IDS, _countof(FILEASSOC_PAGE_IDS), page == 4);
     
     m_currentPage = page;
 }
@@ -269,6 +294,41 @@ void SettingsWindow::InitControlsFromSettings() {
         case LineEnding::CR:   eolIdx = 2; break;
     }
     SendMessageW(hwndEol, CB_SETCURSEL, eolIdx, 0);
+    
+    // --- Behavior page ---
+    HWND hwndMin = GetDlgItem(m_hwnd, IDC_SET_MINIMIZE_MODE);
+    SendMessageW(hwndMin, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimize to Taskbar"));
+    SendMessageW(hwndMin, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimize to System Tray"));
+    SendMessageW(hwndMin, CB_SETCURSEL, m_editSettings.minimizeMode, 0);
+    
+    CheckDlgButton(m_hwnd, IDC_SET_AUTOUPDATE,
+        m_editSettings.autoUpdate ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_PORTABLE,
+        m_editSettings.portableMode ? BST_CHECKED : BST_UNCHECKED);
+    
+    // --- File Associations page ---
+    // Check which extensions are currently associated
+    auto isAssociated = [](const wchar_t* ext) -> bool {
+        wchar_t buf[MAX_PATH] = {};
+        DWORD len = MAX_PATH;
+        HRESULT hr = AssocQueryStringW(ASSOCF_NONE, ASSOCSTR_EXECUTABLE,
+                                       ext, L"open", buf, &len);
+        if (SUCCEEDED(hr)) {
+            // Check if it contains our exe name
+            std::wstring path(buf);
+            return path.find(L"QNote") != std::wstring::npos ||
+                   path.find(L"qnote") != std::wstring::npos;
+        }
+        return false;
+    };
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_TXT, isAssociated(L".txt") ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_LOG, isAssociated(L".log") ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_MD, isAssociated(L".md") ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_INI, isAssociated(L".ini") ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_CFG, isAssociated(L".cfg") ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_JSON, isAssociated(L".json") ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_XML, isAssociated(L".xml") ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_ASSOC_CSV, isAssociated(L".csv") ? BST_CHECKED : BST_UNCHECKED);
 }
 
 //------------------------------------------------------------------------------
@@ -321,6 +381,14 @@ void SettingsWindow::ReadControlsToSettings() {
         case 2: m_editSettings.defaultLineEnding = LineEnding::CR; break;
         default: break;
     }
+    
+    // --- Behavior page ---
+    HWND hwndMin = GetDlgItem(m_hwnd, IDC_SET_MINIMIZE_MODE);
+    m_editSettings.minimizeMode = static_cast<int>(SendMessageW(hwndMin, CB_GETCURSEL, 0, 0));
+    if (m_editSettings.minimizeMode < 0) m_editSettings.minimizeMode = 1;
+    
+    m_editSettings.autoUpdate = IsDlgButtonChecked(m_hwnd, IDC_SET_AUTOUPDATE) == BST_CHECKED;
+    m_editSettings.portableMode = IsDlgButtonChecked(m_hwnd, IDC_SET_PORTABLE) == BST_CHECKED;
 }
 
 //------------------------------------------------------------------------------
@@ -331,6 +399,99 @@ void SettingsWindow::UpdateFontPreview() {
     if (m_fontWeight >= FW_BOLD) preview += L", Bold";
     if (m_fontItalic) preview += L", Italic";
     SetDlgItemTextW(m_hwnd, IDC_SET_FONTPREVIEW, preview.c_str());
+}
+
+//------------------------------------------------------------------------------
+// Apply file type associations (write to HKCU registry)
+//------------------------------------------------------------------------------
+void SettingsWindow::OnApplyAssociations() {
+    // Get the path to QNote.exe
+    wchar_t exePath[MAX_PATH] = {};
+    GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+    struct AssocEntry {
+        int ctrlId;
+        const wchar_t* ext;
+    };
+    
+    AssocEntry entries[] = {
+        { IDC_SET_ASSOC_TXT,  L".txt" },
+        { IDC_SET_ASSOC_LOG,  L".log" },
+        { IDC_SET_ASSOC_MD,   L".md" },
+        { IDC_SET_ASSOC_INI,  L".ini" },
+        { IDC_SET_ASSOC_CFG,  L".cfg" },
+        { IDC_SET_ASSOC_JSON, L".json" },
+        { IDC_SET_ASSOC_XML,  L".xml" },
+        { IDC_SET_ASSOC_CSV,  L".csv" },
+    };
+
+    std::wstring progId = L"QNote.TextFile";
+    std::wstring openCmd = L"\"" + std::wstring(exePath) + L"\" \"%1\"";
+
+    // Create the ProgId key
+    HKEY hProgId = nullptr;
+    std::wstring progIdPath = L"Software\\Classes\\" + progId;
+    RegCreateKeyExW(HKEY_CURRENT_USER, progIdPath.c_str(), 0, nullptr,
+                    REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hProgId, nullptr);
+    if (hProgId) {
+        std::wstring desc = L"QNote Text File";
+        RegSetValueExW(hProgId, nullptr, 0, REG_SZ,
+                       reinterpret_cast<const BYTE*>(desc.c_str()),
+                       static_cast<DWORD>((desc.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(hProgId);
+    }
+
+    // Set shell\open\command
+    std::wstring cmdPath = progIdPath + L"\\shell\\open\\command";
+    HKEY hCmd = nullptr;
+    RegCreateKeyExW(HKEY_CURRENT_USER, cmdPath.c_str(), 0, nullptr,
+                    REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hCmd, nullptr);
+    if (hCmd) {
+        RegSetValueExW(hCmd, nullptr, 0, REG_SZ,
+                       reinterpret_cast<const BYTE*>(openCmd.c_str()),
+                       static_cast<DWORD>((openCmd.size() + 1) * sizeof(wchar_t)));
+        RegCloseKey(hCmd);
+    }
+
+    // Set/remove association for each extension
+    for (const auto& entry : entries) {
+        bool checked = IsDlgButtonChecked(m_hwnd, entry.ctrlId) == BST_CHECKED;
+        std::wstring extKeyPath = std::wstring(L"Software\\Classes\\") + entry.ext;
+
+        if (checked) {
+            // Associate
+            HKEY hExtKey = nullptr;
+            RegCreateKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, nullptr,
+                            REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hExtKey, nullptr);
+            if (hExtKey) {
+                RegSetValueExW(hExtKey, nullptr, 0, REG_SZ,
+                               reinterpret_cast<const BYTE*>(progId.c_str()),
+                               static_cast<DWORD>((progId.size() + 1) * sizeof(wchar_t)));
+                RegCloseKey(hExtKey);
+            }
+        } else {
+            // Remove if currently set to us
+            HKEY hExtKey = nullptr;
+            if (RegOpenKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, KEY_READ | KEY_WRITE,
+                              &hExtKey) == ERROR_SUCCESS) {
+                wchar_t buf[256] = {};
+                DWORD size = sizeof(buf);
+                if (RegQueryValueExW(hExtKey, nullptr, nullptr, nullptr,
+                                     reinterpret_cast<BYTE*>(buf), &size) == ERROR_SUCCESS) {
+                    if (std::wstring(buf) == progId) {
+                        RegDeleteValueW(hExtKey, nullptr);
+                    }
+                }
+                RegCloseKey(hExtKey);
+            }
+        }
+    }
+
+    // Notify shell of changes
+    SHChangeNotify(SHCNE_ASSOCCHANGED, SHCNF_IDLIST, nullptr, nullptr);
+
+    MessageBoxW(m_hwnd, L"File associations have been updated.", L"QNote",
+                MB_OK | MB_ICONINFORMATION);
 }
 
 } // namespace QNote

@@ -32,6 +32,7 @@ struct DocumentState {
 
     // Content
     std::wstring text;                     // Document text content
+    std::wstring cleanText;                // Text at last save/load (for undo-to-clean detection)
 
     // File info
     std::wstring filePath;                 // File path (empty for untitled)

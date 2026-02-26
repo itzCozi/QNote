@@ -86,3 +86,7 @@ Produces `QNote-1.0.0-Portable.zip` and `QNote-1.0.0-Setup.exe` (if Inno Setup i
 ## License
 
 [MIT](LICENSE)
+
+
+*Tiny. Quick. Simple. Efficient.*  
+<sub>Never anything more. Never anything less.</sub>

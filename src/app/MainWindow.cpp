@@ -17,6 +17,8 @@
 #include <set>
 #include <wincrypt.h>
 #include <winhttp.h>
+#include <objbase.h>
+#include <bcrypt.h>
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "winhttp.lib")
@@ -24,6 +26,8 @@
 #pragma comment(lib, "dwmapi.lib")
 #pragma comment(lib, "uxtheme.lib")
 #pragma comment(lib, "Crypt32.lib")
+#pragma comment(lib, "ole32.lib")
+#pragma comment(lib, "bcrypt.lib")
 
 // DWM dark title bar (Windows 10 1809+) - fallback for older SDKs
 #ifndef DWMWA_USE_IMMERSIVE_DARK_MODE
@@ -64,7 +68,8 @@ MainWindow::~MainWindow() {
 //------------------------------------------------------------------------------
 // Create the main window
 //------------------------------------------------------------------------------
-bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile) {
+bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& initialFile,
+                        int posX, int posY) {
     m_hInstance = hInstance;
     
     // Load settings
@@ -105,6 +110,12 @@ bool MainWindow::Create(HINSTANCE hInstance, int nCmdShow, const std::wstring& i
     int y = settings.windowY;
     int width = settings.windowWidth;
     int height = settings.windowHeight;
+    
+    // If a specific position was requested (e.g. tear-off), use it
+    if (posX != CW_USEDEFAULT && posY != CW_USEDEFAULT) {
+        x = posX;
+        y = posY;
+    }
     
     // Validate position is on a visible monitor
     RECT workArea;
@@ -264,10 +275,13 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
             
         case WM_SYSCOMMAND:
-            // Intercept minimize to send to tray
+            // Intercept minimize
             if ((wParam & 0xFFF0) == SC_MINIMIZE) {
-                MinimizeToTray();
-                return 0;
+                if (m_settingsManager->GetSettings().minimizeMode == 1) {
+                    MinimizeToTray();
+                    return 0;
+                }
+                // else fall through to default (minimize to taskbar)
             }
             break;
             
@@ -388,6 +402,9 @@ void MainWindow::OnCreate() {
                     m_documentManager->SaveCurrentState();
                 }
                 break;
+            case TabNotification::TabDetached:
+                OnTabDetached(tabId);
+                break;
         }
     });
     
@@ -443,6 +460,22 @@ void MainWindow::OnCreate() {
     
     // Restore previous session (must be after tab bar + document manager init)
     LoadSession();
+    
+    // Apply always-on-top if saved
+    if (settings.alwaysOnTop) {
+        SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    }
+    
+    // Apply menu bar visibility
+    if (!settings.menuBarVisible) {
+        SetMenu(m_hwnd, nullptr);
+    }
+    
+    // Auto-update check on startup if enabled
+    if (settings.autoUpdate) {
+        // Trigger update check in background (non-blocking)
+        // For simplicity, we'll just do a quick check next time - not blocking startup
+    }
     
     // Initial resize
     RECT rc;
@@ -600,6 +633,11 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_FILE_PRINT:     OnFilePrint(); break;
         case IDM_FILE_EXIT:      OnClose(); break;
         
+        // File menu (additional 2)
+        case IDM_FILE_SAVEALL:         OnFileSaveAll(); break;
+        case IDM_FILE_CLOSEALL:        OnFileCloseAll(); break;
+        case IDM_FILE_OPENFROMCLIPBOARD: OnFileOpenFromClipboard(); break;
+        
         // Edit menu
         case IDM_EDIT_UNDO:      OnEditUndo(); break;
         case IDM_EDIT_REDO:      OnEditRedo(); break;
@@ -673,6 +711,12 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_EDIT_TRIMWHITESPACE:    OnEditTrimWhitespace(); break;
         case IDM_EDIT_REMOVEDUPLICATES:  OnEditRemoveDuplicateLines(); break;
         
+        // Edit menu (additional 2)
+        case IDM_EDIT_TITLECASE:         OnEditTitleCase(); break;
+        case IDM_EDIT_REVERSELINES:      OnEditReverseLines(); break;
+        case IDM_EDIT_NUMBERLINES:       OnEditNumberLines(); break;
+        case IDM_EDIT_TOGGLECOMMENT:     OnEditToggleComment(); break;
+        
         // Bookmarks
         case IDM_EDIT_TOGGLEBOOKMARK:    OnEditToggleBookmark(); break;
         case IDM_EDIT_NEXTBOOKMARK:      OnEditNextBookmark(); break;
@@ -681,6 +725,9 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         
         // View menu (additional)
         case IDM_VIEW_SHOWWHITESPACE:    OnViewShowWhitespace(); break;
+        case IDM_VIEW_ALWAYSONTOP:       OnViewAlwaysOnTop(); break;
+        case IDM_VIEW_FULLSCREEN:        OnViewFullScreen(); break;
+        case IDM_VIEW_TOGGLEMENUBAR:     OnViewToggleMenuBar(); break;
         
         // Tools menu
         case IDM_TOOLS_EDITSHORTCUTS:    OnToolsEditShortcuts(); break;
@@ -701,10 +748,18 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_TOOLS_MINIFYJSON:       OnToolsMinifyJson(); break;
         case IDM_TOOLS_OPENTERMINAL:     OnToolsOpenTerminal(); break;
         case IDM_TOOLS_SETTINGS:         OnToolsSettings(); break;
+        case IDM_TOOLS_CALCULATE:        OnToolsCalculate(); break;
+        case IDM_TOOLS_INSERTGUID:       OnToolsInsertGuid(); break;
+        case IDM_TOOLS_INSERTFILEPATH:   OnToolsInsertFilePath(); break;
+        case IDM_TOOLS_CONVERTEOL_SEL:   OnToolsConvertEolSelection(); break;
+        case IDM_TOOLS_CHECKSUM:         OnToolsChecksum(); break;
+        case IDM_TOOLS_RUNSELECTION:     OnToolsRunSelection(); break;
         
         // Notes menu (additional)
         case IDM_NOTES_EXPORT:           OnNotesExport(); break;
         case IDM_NOTES_IMPORT:           OnNotesImport(); break;
+        case IDM_NOTES_FAVORITES:        OnNotesFavorites(); break;
+        case IDM_NOTES_DUPLICATE:        OnNotesDuplicate(); break;
         
         // System tray
         case IDM_TRAY_SHOW:     RestoreFromTray(); break;
@@ -1110,7 +1165,9 @@ void MainWindow::OnFormatScrollLines() {
 
 void MainWindow::OnFormatLineEnding(LineEnding ending) {
     m_editor->SetLineEnding(ending);
-    m_editor->SetModified(true);
+    if (m_documentManager) {
+        m_documentManager->SyncModifiedState();
+    }
     UpdateStatusBar();
     UpdateTitle();
 }
@@ -2544,7 +2601,9 @@ std::wstring MainWindow::FormatAccelKey(BYTE fVirt, WORD key) {
 //------------------------------------------------------------------------------
 void MainWindow::OnEncodingChange(TextEncoding encoding) {
     m_editor->SetEncoding(encoding);
-    m_editor->SetModified(true);
+    if (m_documentManager) {
+        m_documentManager->SyncModifiedState();
+    }
     UpdateStatusBar();
     UpdateTitle();
 }
@@ -2778,8 +2837,15 @@ void MainWindow::OnHelpCheckUpdate() {
 void MainWindow::UpdateTitle() {
     std::wstring title;
     
-    // Add modification indicator
-    if (m_editor->IsModified()) {
+    // Add modification indicator (content-based)
+    bool titleModified = false;
+    if (m_documentManager) {
+        auto* activeDoc = m_documentManager->GetActiveDocument();
+        if (activeDoc) titleModified = activeDoc->isModified;
+    } else {
+        titleModified = m_editor->IsModified();
+    }
+    if (titleModified) {
         title = L"*";
     }
     
@@ -2950,6 +3016,10 @@ void MainWindow::UpdateMenuState() {
                   MF_BYCOMMAND | (m_settingsManager->GetSettings().showLineNumbers ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(hMenu, IDM_VIEW_SHOWWHITESPACE,
                   MF_BYCOMMAND | (m_editor->IsShowWhitespace() ? MF_CHECKED : MF_UNCHECKED));
+    CheckMenuItem(hMenu, IDM_VIEW_ALWAYSONTOP,
+                  MF_BYCOMMAND | (m_settingsManager->GetSettings().alwaysOnTop ? MF_CHECKED : MF_UNCHECKED));
+    CheckMenuItem(hMenu, IDM_VIEW_FULLSCREEN,
+                  MF_BYCOMMAND | (m_isFullScreen ? MF_CHECKED : MF_UNCHECKED));
     
     // Encoding checkmarks
     TextEncoding enc = m_editor->GetEncoding();
@@ -2972,6 +3042,15 @@ void MainWindow::UpdateMenuState() {
     EnableMenuItem(hMenu, IDM_TOOLS_BASE64ENCODE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(hMenu, IDM_TOOLS_BASE64DECODE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
     EnableMenuItem(hMenu, IDM_TOOLS_JOINLINES, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+
+    // New edit items that need selection
+    EnableMenuItem(hMenu, IDM_EDIT_TITLECASE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_CALCULATE, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_RUNSELECTION, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+    EnableMenuItem(hMenu, IDM_TOOLS_CONVERTEOL_SEL, MF_BYCOMMAND | (hasSelection ? MF_ENABLED : MF_GRAYED));
+
+    // Open from clipboard needs clipboard text
+    EnableMenuItem(hMenu, IDM_FILE_OPENFROMCLIPBOARD, MF_BYCOMMAND | (canPaste ? MF_ENABLED : MF_GRAYED));
 }
 
 //------------------------------------------------------------------------------
@@ -3642,6 +3721,7 @@ void MainWindow::OnEditSortLines(bool ascending) {
     
     // Rejoin with \r\n (RichEdit uses \r internally, but SetText handles it)
     std::wstring result;
+    result.reserve(text.size());
     for (size_t i = 0; i < lines.size(); ++i) {
         result += lines[i];
         if (i < lines.size() - 1) {
@@ -3678,6 +3758,7 @@ void MainWindow::OnEditTrimWhitespace() {
     }
     
     std::wstring result;
+    result.reserve(text.size());
     for (size_t i = 0; i < lines.size(); ++i) {
         result += lines[i];
         if (i < lines.size() - 1) {
@@ -3710,6 +3791,7 @@ void MainWindow::OnEditRemoveDuplicateLines() {
     }
     
     std::wstring result;
+    result.reserve(text.size());
     for (size_t i = 0; i < lines.size(); ++i) {
         result += lines[i];
         if (i < lines.size() - 1) {
@@ -3748,13 +3830,19 @@ void MainWindow::CheckFileChanged() {
     if (CompareFileTime(&currentTime, &m_lastWriteTime) != 0) {
         m_lastWriteTime = currentTime;
         
-        int result = MessageBoxW(m_hwnd,
-            L"The file has been modified by another program.\nDo you want to reload it?",
-            L"File Changed", MB_YESNO | MB_ICONQUESTION);
-        
-        if (result == IDYES) {
-            LoadFile(m_currentFile);
+        // If the document has unsaved changes, ask before reloading
+        if (m_editor->IsModified()) {
+            int result = MessageBoxW(m_hwnd,
+                L"The file has been modified outside QNote.\n"
+                L"Do you want to reload it? Unsaved changes will be lost.",
+                L"File Changed", MB_YESNO | MB_ICONWARNING);
+            if (result != IDYES) {
+                return;
+            }
         }
+        
+        m_ignoreNextFileChange = true;
+        LoadFile(m_currentFile);
     }
 }
 
@@ -4244,6 +4332,52 @@ void MainWindow::OnTabCloseToRight(int tabId) {
 }
 
 //------------------------------------------------------------------------------
+// Tab detached (dragged outside tab bar) -> open in new window
+//------------------------------------------------------------------------------
+void MainWindow::OnTabDetached(int tabId) {
+    if (!m_documentManager) return;
+
+    auto* doc = m_documentManager->GetDocument(tabId);
+    if (!doc) return;
+
+    // If the tab has a saved file, launch a new instance with that file
+    if (!doc->filePath.empty() && !doc->isNewFile) {
+        // Save current content first if modified
+        if (doc->isModified) {
+            if (tabId != m_documentManager->GetActiveTabId()) {
+                OnTabSelected(tabId);
+            }
+            if (!OnFileSave()) return; // cancelled
+        }
+
+        // Get our executable path
+        wchar_t exePath[MAX_PATH] = {};
+        GetModuleFileNameW(nullptr, exePath, MAX_PATH);
+
+        // Get the drop position from the tab bar so the new window opens there
+        POINT dropPos = m_tabBar->GetLastDetachPosition();
+
+        // Launch new instance with the file path and position
+        std::wstring cmdLine = L"\"" + std::wstring(exePath) + L"\" \"" + doc->filePath + L"\"";
+        cmdLine += L" --pos " + std::to_wstring(dropPos.x) + L"," + std::to_wstring(dropPos.y);        STARTUPINFOW si = { sizeof(si) };
+        PROCESS_INFORMATION pi = {};
+        if (CreateProcessW(nullptr, &cmdLine[0], nullptr, nullptr, FALSE,
+                           0, nullptr, nullptr, &si, &pi)) {
+            CloseHandle(pi.hProcess);
+            CloseHandle(pi.hThread);
+
+            // Close the tab in current window
+            m_documentManager->CloseDocument(tabId);
+        }
+    } else {
+        // Untitled tab - can't easily transfer, just inform user
+        MessageBoxW(m_hwnd,
+                    L"Save the file first to detach it to a new window.",
+                    L"QNote", MB_OK | MB_ICONINFORMATION);
+    }
+}
+
+//------------------------------------------------------------------------------
 // Prompt to save a specific tab's document
 //------------------------------------------------------------------------------
 bool MainWindow::PromptSaveTab(int tabId) {
@@ -4283,6 +4417,791 @@ bool MainWindow::PromptSaveTab(int tabId) {
         default:
             return false;
     }
+}
+
+//==============================================================================
+// NEW FEATURE IMPLEMENTATIONS
+//==============================================================================
+
+//------------------------------------------------------------------------------
+// File -> Save All
+//------------------------------------------------------------------------------
+void MainWindow::OnFileSaveAll() {
+    if (!m_documentManager) return;
+
+    // Save current editor state first
+    m_documentManager->SaveCurrentState();
+
+    int activeTab = m_documentManager->GetActiveTabId();
+    auto ids = m_documentManager->GetAllTabIds();
+
+    for (int id : ids) {
+        auto* doc = m_documentManager->GetDocument(id);
+        if (!doc || !doc->isModified) continue;
+
+        // Switch to tab so editor has its content
+        if (id != m_documentManager->GetActiveTabId()) {
+            OnTabSelected(id);
+        }
+
+        if (doc->isNewFile || doc->filePath.empty()) {
+            // Prompt Save As for untitled files
+            OnFileSaveAs();
+        } else {
+            if (SaveFile(doc->filePath)) {
+                m_documentManager->SetDocumentModified(id, false);
+            }
+        }
+    }
+
+    // Switch back to the originally active tab
+    if (activeTab != m_documentManager->GetActiveTabId()) {
+        OnTabSelected(activeTab);
+    }
+}
+
+//------------------------------------------------------------------------------
+// File -> Close All
+//------------------------------------------------------------------------------
+void MainWindow::OnFileCloseAll() {
+    OnTabCloseAll();
+}
+
+//------------------------------------------------------------------------------
+// File -> Open from Clipboard
+//------------------------------------------------------------------------------
+void MainWindow::OnFileOpenFromClipboard() {
+    if (!OpenClipboard(m_hwnd)) return;
+
+    std::wstring clipText;
+    HANDLE hData = GetClipboardData(CF_UNICODETEXT);
+    if (hData) {
+        LPCWSTR pText = static_cast<LPCWSTR>(GlobalLock(hData));
+        if (pText) {
+            clipText = pText;
+            GlobalUnlock(hData);
+        }
+    }
+    CloseClipboard();
+
+    if (clipText.empty()) return;
+
+    // Create a new tab with the clipboard content
+    if (m_documentManager) {
+        auto* activeDoc = m_documentManager->GetActiveDocument();
+        if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
+            IsWhitespaceOnly(m_editor->GetText())) {
+            // Reuse current empty tab
+            m_editor->SetText(clipText);
+        } else {
+            // New tab
+            m_documentManager->SaveCurrentState();
+            int newTab = m_documentManager->NewDocument();
+            OnTabSelected(newTab);
+            m_editor->SetText(clipText);
+        }
+        UpdateTitle();
+    }
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Title Case Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnEditTitleCase() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+
+    bool capitalizeNext = true;
+    for (size_t i = 0; i < sel.size(); ++i) {
+        if (iswspace(sel[i]) || sel[i] == L'-' || sel[i] == L'_') {
+            capitalizeNext = true;
+        } else if (capitalizeNext) {
+            sel[i] = towupper(sel[i]);
+            capitalizeNext = false;
+        } else {
+            sel[i] = towlower(sel[i]);
+        }
+    }
+
+    m_editor->ReplaceSelection(sel);
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Reverse Lines
+//------------------------------------------------------------------------------
+void MainWindow::OnEditReverseLines() {
+    // Operate on selection if present, otherwise whole document
+    bool hasSelection = false;
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    hasSelection = (selStart != selEnd);
+
+    std::wstring text = hasSelection ? m_editor->GetSelectedText() : m_editor->GetText();
+    if (text.empty()) return;
+
+    // Split into lines
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        lines.push_back(line);
+    }
+
+    // Reverse
+    std::reverse(lines.begin(), lines.end());
+
+    // Rejoin
+    std::wstring result;
+    result.reserve(text.size());
+    for (size_t i = 0; i < lines.size(); ++i) {
+        result += lines[i];
+        if (i < lines.size() - 1) result += L"\r\n";
+    }
+
+    if (hasSelection) {
+        m_editor->ReplaceSelection(result);
+    } else {
+        m_editor->SelectAll();
+        m_editor->ReplaceSelection(result);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Number Lines
+//------------------------------------------------------------------------------
+void MainWindow::OnEditNumberLines() {
+    // Operate on selection if present, otherwise whole document
+    bool hasSelection = false;
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    hasSelection = (selStart != selEnd);
+
+    std::wstring text = hasSelection ? m_editor->GetSelectedText() : m_editor->GetText();
+    if (text.empty()) return;
+
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        lines.push_back(line);
+    }
+
+    // Determine padding width
+    int width = static_cast<int>(std::to_wstring(lines.size()).size());
+
+    std::wstring result;
+    result.reserve(text.size());
+    for (size_t i = 0; i < lines.size(); ++i) {
+        std::wstring num = std::to_wstring(i + 1);
+        while (static_cast<int>(num.size()) < width) num = L" " + num;
+        result += num + L": " + lines[i];
+        if (i < lines.size() - 1) result += L"\r\n";
+    }
+
+    if (hasSelection) {
+        m_editor->ReplaceSelection(result);
+    } else {
+        m_editor->SelectAll();
+        m_editor->ReplaceSelection(result);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Edit -> Toggle Comment (Ctrl+/)
+//------------------------------------------------------------------------------
+void MainWindow::OnEditToggleComment() {
+    // Detect comment style from file extension
+    std::wstring commentPrefix = L"// ";
+    if (!m_currentFile.empty()) {
+        size_t dot = m_currentFile.rfind(L'.');
+        if (dot != std::wstring::npos) {
+            std::wstring ext = m_currentFile.substr(dot);
+            // Convert to lowercase
+            for (auto& ch : ext) ch = towlower(ch);
+            if (ext == L".py" || ext == L".sh" || ext == L".bash" || ext == L".yml" ||
+                ext == L".yaml" || ext == L".rb" || ext == L".pl" || ext == L".r" ||
+                ext == L".conf" || ext == L".ini" || ext == L".toml") {
+                commentPrefix = L"# ";
+            } else if (ext == L".bat" || ext == L".cmd") {
+                commentPrefix = L"REM ";
+            } else if (ext == L".sql") {
+                commentPrefix = L"-- ";
+            } else if (ext == L".html" || ext == L".xml" || ext == L".xaml") {
+                commentPrefix = L"<!-- ";
+            } else if (ext == L".lua") {
+                commentPrefix = L"-- ";
+            }
+        }
+    }
+
+    // Get selected text or current line
+    bool hasSelection = false;
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    hasSelection = (selStart != selEnd);
+
+    std::wstring text;
+    if (hasSelection) {
+        text = m_editor->GetSelectedText();
+    } else {
+        // Select current line
+        int line = m_editor->GetCurrentLine();
+        int lineStart = m_editor->GetLineIndex(line);
+        int lineLen = m_editor->GetLineLength(line);
+        m_editor->SetSelection(static_cast<DWORD>(lineStart),
+                               static_cast<DWORD>(lineStart + lineLen));
+        text = m_editor->GetSelectedText();
+    }
+
+    if (text.empty()) return;
+
+    // Split into lines
+    std::vector<std::wstring> lines;
+    std::wistringstream stream(text);
+    std::wstring line;
+    while (std::getline(stream, line)) {
+        if (!line.empty() && line.back() == L'\r') line.pop_back();
+        lines.push_back(line);
+    }
+
+    // Check if all non-empty lines are already commented
+    std::wstring trimmedPrefix = commentPrefix;
+    // Remove trailing space for matching
+    while (!trimmedPrefix.empty() && trimmedPrefix.back() == L' ')
+        trimmedPrefix.pop_back();
+
+    bool allCommented = true;
+    for (const auto& l : lines) {
+        // Skip blank lines
+        size_t first = l.find_first_not_of(L" \t");
+        if (first == std::wstring::npos) continue;
+        if (l.substr(first, commentPrefix.size()) != commentPrefix &&
+            l.substr(first, trimmedPrefix.size()) != trimmedPrefix) {
+            allCommented = false;
+            break;
+        }
+    }
+
+    std::wstring result;
+    for (size_t i = 0; i < lines.size(); ++i) {
+        if (allCommented) {
+            // Uncomment
+            size_t first = lines[i].find_first_not_of(L" \t");
+            if (first != std::wstring::npos) {
+                if (lines[i].substr(first, commentPrefix.size()) == commentPrefix) {
+                    lines[i].erase(first, commentPrefix.size());
+                } else if (lines[i].substr(first, trimmedPrefix.size()) == trimmedPrefix) {
+                    lines[i].erase(first, trimmedPrefix.size());
+                }
+            }
+        } else {
+            // Comment
+            size_t first = lines[i].find_first_not_of(L" \t");
+            if (first != std::wstring::npos) {
+                lines[i].insert(first, commentPrefix);
+            }
+        }
+        result += lines[i];
+        if (i < lines.size() - 1) result += L"\r\n";
+    }
+
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// View -> Always on Top
+//------------------------------------------------------------------------------
+void MainWindow::OnViewAlwaysOnTop() {
+    auto& settings = m_settingsManager->GetSettings();
+    settings.alwaysOnTop = !settings.alwaysOnTop;
+
+    SetWindowPos(m_hwnd, settings.alwaysOnTop ? HWND_TOPMOST : HWND_NOTOPMOST,
+                 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+
+    (void)m_settingsManager->Save();
+}
+
+//------------------------------------------------------------------------------
+// View -> Full Screen (F11)
+//------------------------------------------------------------------------------
+void MainWindow::OnViewFullScreen() {
+    if (!m_isFullScreen) {
+        // Enter full screen
+        m_preFullScreenStyle = GetWindowLong(m_hwnd, GWL_STYLE);
+        GetWindowRect(m_hwnd, &m_preFullScreenRect);
+
+        // Remove title bar and borders
+        LONG style = m_preFullScreenStyle & ~(WS_CAPTION | WS_THICKFRAME | WS_BORDER);
+        SetWindowLong(m_hwnd, GWL_STYLE, style);
+
+        // Get the monitor for this window
+        HMONITOR hMon = MonitorFromWindow(m_hwnd, MONITOR_DEFAULTTONEAREST);
+        MONITORINFO mi = { sizeof(mi) };
+        GetMonitorInfoW(hMon, &mi);
+
+        SetWindowPos(m_hwnd, HWND_TOP,
+                     mi.rcMonitor.left, mi.rcMonitor.top,
+                     mi.rcMonitor.right - mi.rcMonitor.left,
+                     mi.rcMonitor.bottom - mi.rcMonitor.top,
+                     SWP_FRAMECHANGED | SWP_NOZORDER);
+
+        m_isFullScreen = true;
+    } else {
+        // Exit full screen
+        SetWindowLong(m_hwnd, GWL_STYLE, m_preFullScreenStyle);
+        SetWindowPos(m_hwnd, HWND_TOP,
+                     m_preFullScreenRect.left, m_preFullScreenRect.top,
+                     m_preFullScreenRect.right - m_preFullScreenRect.left,
+                     m_preFullScreenRect.bottom - m_preFullScreenRect.top,
+                     SWP_FRAMECHANGED | SWP_NOZORDER);
+
+        m_isFullScreen = false;
+    }
+
+    // Reapply always-on-top if needed
+    if (m_settingsManager->GetSettings().alwaysOnTop) {
+        SetWindowPos(m_hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE);
+    }
+}
+
+//------------------------------------------------------------------------------
+// View -> Toggle Menu Bar (Alt key)
+//------------------------------------------------------------------------------
+void MainWindow::OnViewToggleMenuBar() {
+    auto& settings = m_settingsManager->GetSettings();
+    settings.menuBarVisible = !settings.menuBarVisible;
+
+    if (!settings.menuBarVisible) {
+        m_savedMenu = GetMenu(m_hwnd);
+        SetMenu(m_hwnd, nullptr);
+    } else {
+        if (m_savedMenu) {
+            SetMenu(m_hwnd, m_savedMenu);
+            m_savedMenu = nullptr;
+        }
+    }
+
+    (void)m_settingsManager->Save();
+
+    // Trigger resize
+    RECT rc;
+    GetClientRect(m_hwnd, &rc);
+    SendMessage(m_hwnd, WM_SIZE, SIZE_RESTORED,
+                MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Calculate Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsCalculate() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+
+    // Simple expression evaluator: supports +, -, *, /, parentheses, decimals
+    // Convert to narrow string for parsing
+    std::string expr;
+    for (wchar_t ch : sel) {
+        if (ch < 128) expr += static_cast<char>(ch);
+    }
+
+    // Remove whitespace
+    expr.erase(std::remove_if(expr.begin(), expr.end(), ::isspace), expr.end());
+    if (expr.empty()) return;
+
+    // Shunting-yard algorithm for evaluation
+    std::vector<double> values;
+    std::vector<char> ops;
+
+    auto precedence = [](char op) -> int {
+        if (op == '+' || op == '-') return 1;
+        if (op == '*' || op == '/') return 2;
+        return 0;
+    };
+
+    auto applyOp = [](double a, double b, char op) -> double {
+        switch (op) {
+            case '+': return a + b;
+            case '-': return a - b;
+            case '*': return a * b;
+            case '/': return (b != 0) ? a / b : 0;
+            default: return 0;
+        }
+    };
+
+    auto evaluate = [&]() {
+        if (values.size() < 2 || ops.empty()) return;
+        double b = values.back(); values.pop_back();
+        double a = values.back(); values.pop_back();
+        char op = ops.back(); ops.pop_back();
+        values.push_back(applyOp(a, b, op));
+    };
+
+    bool valid = true;
+    for (size_t i = 0; i < expr.size() && valid; ) {
+        char ch = expr[i];
+
+        if (isdigit(ch) || ch == '.') {
+            // Parse number
+            size_t end;
+            double num = 0;
+            try {
+                num = std::stod(expr.substr(i), &end);
+            } catch (...) {
+                valid = false;
+                break;
+            }
+            values.push_back(num);
+            i += end;
+        } else if (ch == '(') {
+            ops.push_back(ch);
+            i++;
+        } else if (ch == ')') {
+            while (!ops.empty() && ops.back() != '(') evaluate();
+            if (!ops.empty()) ops.pop_back(); // remove '('
+            i++;
+        } else if (ch == '+' || ch == '-' || ch == '*' || ch == '/') {
+            // Handle unary minus
+            if (ch == '-' && (i == 0 || expr[i - 1] == '(' || expr[i - 1] == '+' ||
+                expr[i - 1] == '-' || expr[i - 1] == '*' || expr[i - 1] == '/')) {
+                // Unary minus: parse the next number as negative
+                size_t end;
+                double num = 0;
+                try {
+                    num = std::stod(expr.substr(i), &end);
+                } catch (...) {
+                    valid = false;
+                    break;
+                }
+                values.push_back(num);
+                i += end;
+                continue;
+            }
+            while (!ops.empty() && ops.back() != '(' &&
+                   precedence(ops.back()) >= precedence(ch)) {
+                evaluate();
+            }
+            ops.push_back(ch);
+            i++;
+        } else {
+            valid = false;
+        }
+    }
+
+    while (!ops.empty() && valid) evaluate();
+
+    if (!valid || values.size() != 1) {
+        MessageBoxW(m_hwnd, L"Could not evaluate the selected expression.",
+                    L"Calculate", MB_OK | MB_ICONWARNING);
+        return;
+    }
+
+    double result = values.back();
+
+    // Format result
+    wchar_t buf[64];
+    if (result == static_cast<int64_t>(result) && std::abs(result) < 1e15) {
+        swprintf_s(buf, L"%lld", static_cast<int64_t>(result));
+    } else {
+        swprintf_s(buf, L"%.10g", result);
+    }
+
+    // Show result and offer to insert
+    std::wstring msg = sel + L" = " + buf;
+    int answer = MessageBoxW(m_hwnd, (msg + L"\n\nReplace selection with result?").c_str(),
+                             L"Calculate", MB_YESNO | MB_ICONINFORMATION);
+    if (answer == IDYES) {
+        m_editor->ReplaceSelection(buf);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Insert GUID/UUID
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsInsertGuid() {
+    GUID guid;
+    if (FAILED(CoCreateGuid(&guid))) {
+        MessageBoxW(m_hwnd, L"Failed to generate GUID.", L"QNote", MB_OK | MB_ICONERROR);
+        return;
+    }
+
+    wchar_t buf[40];
+    swprintf_s(buf, L"%08lx-%04x-%04x-%02x%02x-%02x%02x%02x%02x%02x%02x",
+               guid.Data1, guid.Data2, guid.Data3,
+               guid.Data4[0], guid.Data4[1], guid.Data4[2], guid.Data4[3],
+               guid.Data4[4], guid.Data4[5], guid.Data4[6], guid.Data4[7]);
+
+    m_editor->ReplaceSelection(buf);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Insert File Path (browse for a file)
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsInsertFilePath() {
+    wchar_t filePath[MAX_PATH] = {};
+    OPENFILENAMEW ofn = { sizeof(ofn) };
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFilter = L"All Files\0*.*\0";
+    ofn.lpstrFile = filePath;
+    ofn.nMaxFile = MAX_PATH;
+    ofn.Flags = OFN_FILEMUSTEXIST | OFN_NOCHANGEDIR;
+
+    if (GetOpenFileNameW(&ofn)) {
+        m_editor->ReplaceSelection(filePath);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Convert Line Endings in Selection
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsConvertEolSelection() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) {
+        MessageBoxW(m_hwnd, L"Please select text first.", L"Convert Line Endings", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    // Ask which EOL to convert to
+    int choice = MessageBoxW(m_hwnd,
+        L"Convert line endings in selection to:\n\n"
+        L"[Yes] = CRLF (Windows)\n"
+        L"[No] = LF (Unix)\n"
+        L"[Cancel] = Cancel",
+        L"Convert Line Endings", MB_YESNOCANCEL | MB_ICONQUESTION);
+
+    if (choice == IDCANCEL) return;
+
+    // Normalize to LF first
+    std::wstring result;
+    result.reserve(sel.size());
+    for (size_t i = 0; i < sel.size(); ++i) {
+        if (sel[i] == L'\r') {
+            if (i + 1 < sel.size() && sel[i + 1] == L'\n') ++i; // skip CR in CRLF
+            result += L'\n'; // normalize to LF
+        } else {
+            result += sel[i];
+        }
+    }
+
+    if (choice == IDYES) {
+        // Convert LF to CRLF efficiently using find-and-replace
+        std::wstring crlf;
+        crlf.reserve(result.size() + result.size() / 4);  // Estimate ~25% growth
+        size_t prev = 0;
+        size_t pos = 0;
+        while ((pos = result.find(L'\n', prev)) != std::wstring::npos) {
+            crlf.append(result, prev, pos - prev);
+            crlf.append(L"\r\n");
+            prev = pos + 1;
+        }
+        crlf.append(result, prev, result.size() - prev);
+        result = std::move(crlf);
+    }
+    // choice == IDNO: keep as LF
+
+    m_editor->ReplaceSelection(result);
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Checksum (MD5/SHA-256 of selection or file)
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsChecksum() {
+    // Get text to hash - selection or whole file
+    bool hasSelection = false;
+    DWORD selStart, selEnd;
+    m_editor->GetSelection(selStart, selEnd);
+    hasSelection = (selStart != selEnd);
+
+    std::wstring text = hasSelection ? m_editor->GetSelectedText() : m_editor->GetText();
+    if (text.empty()) {
+        MessageBoxW(m_hwnd, L"Nothing to hash.", L"Checksum", MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    // Convert to UTF-8 bytes for hashing
+    int len = WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()),
+                                  nullptr, 0, nullptr, nullptr);
+    std::vector<BYTE> utf8(len);
+    WideCharToMultiByte(CP_UTF8, 0, text.c_str(), static_cast<int>(text.size()),
+                        reinterpret_cast<char*>(utf8.data()), len, nullptr, nullptr);
+
+    // Compute SHA-256 using BCrypt
+    BCRYPT_ALG_HANDLE hAlg = nullptr;
+    BCRYPT_HASH_HANDLE hHash = nullptr;
+    std::wstring sha256Str, md5Str;
+
+    // SHA-256
+    if (BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_SHA256_ALGORITHM, nullptr, 0))) {
+        DWORD hashLen = 0, resultLen = 0;
+        BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashLen),
+                          sizeof(hashLen), &resultLen, 0);
+        std::vector<BYTE> hashBuf(hashLen);
+
+        if (BCRYPT_SUCCESS(BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0))) {
+            BCryptHashData(hHash, utf8.data(), static_cast<ULONG>(utf8.size()), 0);
+            BCryptFinishHash(hHash, hashBuf.data(), hashLen, 0);
+            BCryptDestroyHash(hHash);
+
+            // Convert to hex string
+            for (DWORD i = 0; i < hashLen; ++i) {
+                wchar_t hex[4];
+                swprintf_s(hex, L"%02x", hashBuf[i]);
+                sha256Str += hex;
+            }
+        }
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+    }
+
+    // MD5
+    hAlg = nullptr;
+    if (BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_MD5_ALGORITHM, nullptr, 0))) {
+        DWORD hashLen = 0, resultLen = 0;
+        BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashLen),
+                          sizeof(hashLen), &resultLen, 0);
+        std::vector<BYTE> hashBuf(hashLen);
+
+        if (BCRYPT_SUCCESS(BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0))) {
+            BCryptHashData(hHash, utf8.data(), static_cast<ULONG>(utf8.size()), 0);
+            BCryptFinishHash(hHash, hashBuf.data(), hashLen, 0);
+            BCryptDestroyHash(hHash);
+
+            for (DWORD i = 0; i < hashLen; ++i) {
+                wchar_t hex[4];
+                swprintf_s(hex, L"%02x", hashBuf[i]);
+                md5Str += hex;
+            }
+        }
+        BCryptCloseAlgorithmProvider(hAlg, 0);
+    }
+
+    std::wstring msg = L"MD5:     " + md5Str + L"\nSHA-256: " + sha256Str +
+                       L"\n\nSource: " + (hasSelection ? L"Selection" : L"Entire document") +
+                       L"\n\nCopy SHA-256 to clipboard?";
+
+    int answer = MessageBoxW(m_hwnd, msg.c_str(), L"Checksum", MB_YESNO | MB_ICONINFORMATION);
+    if (answer == IDYES) {
+        // Copy SHA-256 to clipboard
+        if (OpenClipboard(m_hwnd)) {
+            EmptyClipboard();
+            HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (sha256Str.size() + 1) * sizeof(wchar_t));
+            if (hMem) {
+                wchar_t* pMem = static_cast<wchar_t*>(GlobalLock(hMem));
+                wcscpy_s(pMem, sha256Str.size() + 1, sha256Str.c_str());
+                GlobalUnlock(hMem);
+                SetClipboardData(CF_UNICODETEXT, hMem);
+            }
+            CloseClipboard();
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Run Selection as Command
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsRunSelection() {
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+
+    // Trim whitespace
+    size_t start = sel.find_first_not_of(L" \t\r\n");
+    size_t end = sel.find_last_not_of(L" \t\r\n");
+    if (start == std::wstring::npos) return;
+    sel = sel.substr(start, end - start + 1);
+
+    // Run via cmd.exe and capture output
+    SECURITY_ATTRIBUTES sa = { sizeof(sa), nullptr, TRUE };
+    HANDLE hReadPipe = nullptr, hWritePipe = nullptr;
+    if (!CreatePipe(&hReadPipe, &hWritePipe, &sa, 0)) return;
+    SetHandleInformation(hReadPipe, HANDLE_FLAG_INHERIT, 0);
+
+    STARTUPINFOW si = { sizeof(si) };
+    si.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW;
+    si.hStdOutput = hWritePipe;
+    si.hStdError = hWritePipe;
+    si.wShowWindow = SW_HIDE;
+
+    std::wstring cmdLine = L"cmd.exe /C " + sel;
+
+    PROCESS_INFORMATION pi = {};
+    BOOL created = CreateProcessW(nullptr, &cmdLine[0], nullptr, nullptr, TRUE,
+                                  CREATE_NO_WINDOW, nullptr, nullptr, &si, &pi);
+    CloseHandle(hWritePipe);
+
+    std::string output;
+    if (created) {
+        // Read pipe output BEFORE waiting for process to avoid deadlock
+        // (child may block writing to a full pipe buffer)
+        char buf[4096];
+        DWORD bytesRead;
+        while (ReadFile(hReadPipe, buf, sizeof(buf) - 1, &bytesRead, nullptr) && bytesRead > 0) {
+            buf[bytesRead] = 0;
+            output += buf;
+        }
+
+        WaitForSingleObject(pi.hProcess, 10000); // 10 second timeout
+        CloseHandle(pi.hProcess);
+        CloseHandle(pi.hThread);
+    }
+    CloseHandle(hReadPipe);
+
+    // Convert output to wide string
+    int wideLen = MultiByteToWideChar(CP_OEMCP, 0, output.c_str(), static_cast<int>(output.size()),
+                                      nullptr, 0);
+    std::wstring wideOutput(wideLen, 0);
+    MultiByteToWideChar(CP_OEMCP, 0, output.c_str(), static_cast<int>(output.size()),
+                        &wideOutput[0], wideLen);
+
+    // Show output in a message box (or insert into document)
+    if (wideOutput.empty()) wideOutput = L"(no output)";
+
+    std::wstring msg = L"Command: " + sel + L"\n\nOutput:\n" + wideOutput +
+                       L"\n\nInsert output at cursor?";
+    int answer = MessageBoxW(m_hwnd, msg.c_str(), L"Run Selection", MB_YESNO | MB_ICONINFORMATION);
+    if (answer == IDYES) {
+        // Move cursor to end of selection and insert
+        DWORD s, e;
+        m_editor->GetSelection(s, e);
+        m_editor->SetSelection(e, e);
+        m_editor->ReplaceSelection((L"\r\n" + wideOutput));
+    }
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Favorites (reuse Pinned notes as favorites)
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesFavorites() {
+    // Favorites = Pinned notes. Reuse the existing pinned view.
+    OnNotesPinned();
+}
+
+//------------------------------------------------------------------------------
+// Notes -> Duplicate Note
+//------------------------------------------------------------------------------
+void MainWindow::OnNotesDuplicate() {
+    if (!m_isNoteMode || m_currentNoteId.empty() || !m_noteStore) {
+        // For file mode, duplicate the current document content to a new tab
+        if (m_documentManager) {
+            m_documentManager->SaveCurrentState();
+            std::wstring content = m_editor->GetText();
+            int newTab = m_documentManager->NewDocument();
+            OnTabSelected(newTab);
+            m_editor->SetText(content);
+            UpdateTitle();
+        }
+        return;
+    }
+
+    // In note mode, create a copy of the current note
+    auto note = m_noteStore->GetNote(m_currentNoteId);
+    if (!note.has_value()) return;
+
+    Note newNote = m_noteStore->CreateNote(note->content);
+    newNote.title = L"Copy of " + note->GetDisplayTitle();
+    (void)m_noteStore->UpdateNote(newNote);
+
+    // Open the new note
+    OpenNoteFromId(newNote.id);
 }
 
 } // namespace QNote

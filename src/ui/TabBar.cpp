@@ -108,6 +108,10 @@ bool TabBar::Create(HWND parent, HINSTANCE hInstance) {
 //------------------------------------------------------------------------------
 void TabBar::Destroy() noexcept {
     KillTimer(m_hwnd, TOOLTIP_TIMER_ID);
+    if (m_hwndDragPreview) {
+        DestroyWindow(m_hwndDragPreview);
+        m_hwndDragPreview = nullptr;
+    }
     if (m_hwndTooltip) {
         DestroyWindow(m_hwndTooltip);
         m_hwndTooltip = nullptr;
@@ -119,6 +123,14 @@ void TabBar::Destroy() noexcept {
     if (m_font) {
         DeleteObject(m_font);
         m_font = nullptr;
+    }
+    if (m_closeFont) {
+        DeleteObject(m_closeFont);
+        m_closeFont = nullptr;
+    }
+    if (m_arrowFont) {
+        DeleteObject(m_arrowFont);
+        m_arrowFont = nullptr;
     }
     if (m_hwnd) {
         DestroyWindow(m_hwnd);
@@ -278,6 +290,8 @@ int TabBar::GetTabIdByIndex(int index) const {
 //------------------------------------------------------------------------------
 void TabBar::Resize(int x, int y, int width) {
     if (m_hwnd) {
+        m_cachedTabWidth = -1;
+        m_cachedPinnedTabWidth = -1;
         MoveWindow(m_hwnd, x, y, width, m_tabBarHeight, TRUE);
         ClampScrollOffset();
     }
@@ -395,13 +409,27 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_LBUTTONUP: {
             if (m_dragging) {
                 bool wasDragInitiated = m_dragInitiated;
+                int draggedId = m_dragTabId;
                 m_dragging = false;
                 m_dragTabId = -1;
                 m_dragInitiated = false;
                 ReleaseCapture();
                 SetCursor(LoadCursorW(nullptr, IDC_ARROW));
+                HideDragPreview();
                 if (wasDragInitiated) {
-                    Notify(TabNotification::TabReordered, m_activeTabId);
+                    // Check if cursor is outside the tab bar -> detach to new window
+                    POINT pt;
+                    GetCursorPos(&pt);
+                    RECT tabBarRect;
+                    GetWindowRect(m_hwnd, &tabBarRect);
+                    // Allow some tolerance (expand rect by a few pixels)
+                    InflateRect(&tabBarRect, 0, 10);
+                    if (!PtInRect(&tabBarRect, pt) && m_tabs.size() > 1) {
+                        m_lastDetachPos = pt;
+                        Notify(TabNotification::TabDetached, draggedId);
+                    } else {
+                        Notify(TabNotification::TabReordered, m_activeTabId);
+                    }
                 }
             }
             return 0;
@@ -412,6 +440,7 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 m_dragging = false;
                 m_dragTabId = -1;
                 m_dragInitiated = false;
+                HideDragPreview();
             }
             return 0;
         }
@@ -452,27 +481,41 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 m_trackingMouse = true;
             }
 
-            // Handle drag reorder
+            // Handle drag reorder / tear-off
             if (m_dragging && m_dragTabId >= 0) {
                 int dx = x - m_dragStartX;
                 int dy = y - m_dragStartY;
                 if (!m_dragInitiated && (abs(dx) > DRAG_THRESHOLD || abs(dy) > DRAG_THRESHOLD)) {
                     m_dragInitiated = true;
-                    SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
                 }
                 if (m_dragInitiated) {
-                    // Determine which tab position the cursor is over
-                    int targetId = TabHitTest(x, y);
-                    if (targetId >= 0 && targetId != m_dragTabId) {
-                        int srcIdx = FindTabIndex(m_dragTabId);
-                        int dstIdx = FindTabIndex(targetId);
-                        if (srcIdx >= 0 && dstIdx >= 0) {
-                            // Swap tabs in the vector
-                            TabItem temp = m_tabs[srcIdx];
-                            m_tabs.erase(m_tabs.begin() + srcIdx);
-                            m_tabs.insert(m_tabs.begin() + dstIdx, temp);
-                            Redraw();
+                    // Check if cursor is inside or outside the tab bar
+                    POINT screenPt;
+                    GetCursorPos(&screenPt);
+                    RECT tabBarRect;
+                    GetWindowRect(m_hwnd, &tabBarRect);
+                    InflateRect(&tabBarRect, 0, Scale(5));
+
+                    if (PtInRect(&tabBarRect, screenPt)) {
+                        // Inside tab bar - reorder mode
+                        HideDragPreview();
+                        SetCursor(LoadCursorW(nullptr, IDC_SIZEWE));
+
+                        int targetId = TabHitTest(x, y);
+                        if (targetId >= 0 && targetId != m_dragTabId) {
+                            int srcIdx = FindTabIndex(m_dragTabId);
+                            int dstIdx = FindTabIndex(targetId);
+                            if (srcIdx >= 0 && dstIdx >= 0) {
+                                TabItem temp = m_tabs[srcIdx];
+                                m_tabs.erase(m_tabs.begin() + srcIdx);
+                                m_tabs.insert(m_tabs.begin() + dstIdx, temp);
+                                Redraw();
+                            }
                         }
+                    } else if (m_tabs.size() > 1) {
+                        // Outside tab bar - show tear-off preview
+                        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                        ShowDragPreview(m_dragTabId, screenPt.x, screenPt.y);
                     }
                     return 0;
                 }
@@ -785,14 +828,16 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
             SetTextColor(hdc, CLR_CLOSE_X);
         }
 
-        // Draw X - use a dedicated font sized to fit the button
-        HFONT closeFont = CreateFontW(
-            -Scale(BASE_FONT_SIZE - 1), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-            L"Segoe UI"
-        );
-        HFONT prevFont = static_cast<HFONT>(SelectObject(hdc, closeFont));
+        // Draw X - use a cached font sized to fit the button
+        if (!m_closeFont) {
+            m_closeFont = CreateFontW(
+                -Scale(BASE_FONT_SIZE - 1), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+                DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+                CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+                L"Segoe UI"
+            );
+        }
+        HFONT prevFont = static_cast<HFONT>(SelectObject(hdc, m_closeFont));
 
         // Nudge rect up by 1px to visually center the multiplication sign glyph
         RECT xRc = closeRc;
@@ -801,7 +846,6 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
         DrawTextW(hdc, L"\u00D7", 1, &xRc, DT_CENTER | DT_VCENTER | DT_SINGLELINE | DT_NOPREFIX);
 
         SelectObject(hdc, prevFont);
-        DeleteObject(closeFont);
     }
 
     // Right border between tabs
@@ -936,31 +980,53 @@ RECT TabBar::GetNewTabButtonRect() const {
 // Calculate consistent tab width
 //------------------------------------------------------------------------------
 int TabBar::CalcTabWidth() const {
-    if (!m_hwnd || m_tabs.empty()) return m_tabMaxWidth;
-    RECT clientRc;
-    GetClientRect(m_hwnd, &clientRc);
-    int totalTabs = static_cast<int>(m_tabs.size());
-    int pinnedCount = 0;
-    for (const auto& t : m_tabs) { if (t.isPinned) ++pinnedCount; }
-    int normalCount = totalTabs - pinnedCount;
-    int pinnedWidth = CalcPinnedTabWidth();
-    int availWidth = clientRc.right - m_newTabBtnWidth - pinnedCount * pinnedWidth;
-    if (normalCount <= 0) return m_tabMaxWidth;  // all pinned, fallback
-    int tabWidth = availWidth / normalCount;
-    return (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_tabMaxWidth));
+    if (m_cachedTabWidth >= 0) return m_cachedTabWidth;
+    RecalcCachedWidths();
+    return m_cachedTabWidth;
 }
 
 //------------------------------------------------------------------------------
 // Calculate pinned tab width (smaller max)
 //------------------------------------------------------------------------------
 int TabBar::CalcPinnedTabWidth() const {
-    if (!m_hwnd || m_tabs.empty()) return m_pinnedTabMaxWidth;
+    if (m_cachedPinnedTabWidth >= 0) return m_cachedPinnedTabWidth;
+    RecalcCachedWidths();
+    return m_cachedPinnedTabWidth;
+}
+
+//------------------------------------------------------------------------------
+// Recompute cached tab widths
+//------------------------------------------------------------------------------
+void TabBar::RecalcCachedWidths() const {
+    if (!m_hwnd || m_tabs.empty()) {
+        m_cachedTabWidth = m_tabMaxWidth;
+        m_cachedPinnedTabWidth = m_pinnedTabMaxWidth;
+        return;
+    }
     RECT clientRc;
     GetClientRect(m_hwnd, &clientRc);
     int totalTabs = static_cast<int>(m_tabs.size());
-    int availWidth = clientRc.right - m_newTabBtnWidth;
-    int tabWidth = availWidth / totalTabs;
-    return (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_pinnedTabMaxWidth));
+    int pinnedCount = 0;
+    for (const auto& t : m_tabs) { if (t.isPinned) ++pinnedCount; }
+
+    // Pinned tab width
+    {
+        int availWidth = clientRc.right - m_newTabBtnWidth;
+        int tabWidth = availWidth / totalTabs;
+        m_cachedPinnedTabWidth = (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_pinnedTabMaxWidth));
+    }
+
+    // Normal tab width
+    {
+        int normalCount = totalTabs - pinnedCount;
+        int availWidth = clientRc.right - m_newTabBtnWidth - pinnedCount * m_cachedPinnedTabWidth;
+        if (normalCount <= 0) {
+            m_cachedTabWidth = m_tabMaxWidth;
+        } else {
+            int tabWidth = availWidth / normalCount;
+            m_cachedTabWidth = (std::max)(m_tabMinWidth, (std::min)(tabWidth, m_tabMaxWidth));
+        }
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1046,14 +1112,16 @@ void TabBar::DrawScrollArrow(HDC hdc, const RECT& rc, bool isLeft, bool isHovere
     SelectObject(hdc, oldPen);
     DeleteObject(pen);
 
-    // Draw chevron character with a larger dedicated font
-    HFONT arrowFont = CreateFontW(
-        -Scale(20), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
-        DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
-        CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
-        L"Segoe UI"
-    );
-    HFONT prevFont = static_cast<HFONT>(SelectObject(hdc, arrowFont));
+    // Draw chevron character with a cached larger font
+    if (!m_arrowFont) {
+        m_arrowFont = CreateFontW(
+            -Scale(20), 0, 0, 0, FW_NORMAL, FALSE, FALSE, FALSE,
+            DEFAULT_CHARSET, OUT_DEFAULT_PRECIS, CLIP_DEFAULT_PRECIS,
+            CLEARTYPE_QUALITY, DEFAULT_PITCH | FF_DONTCARE,
+            L"Segoe UI"
+        );
+    }
+    HFONT prevFont = static_cast<HFONT>(SelectObject(hdc, m_arrowFont));
     SetTextColor(hdc, CLR_TEXT_INACTIVE);
 
     // Measure the glyph and center it manually
@@ -1065,7 +1133,6 @@ void TabBar::DrawScrollArrow(HDC hdc, const RECT& rc, bool isLeft, bool isHovere
     ExtTextOutW(hdc, cx, cy, ETO_CLIPPED, &rc, glyph, 1, nullptr);
 
     SelectObject(hdc, prevFont);
-    DeleteObject(arrowFont);
 }
 
 //------------------------------------------------------------------------------
@@ -1239,6 +1306,9 @@ int TabBar::FindTabIndex(int tabId) const {
 //------------------------------------------------------------------------------
 void TabBar::Redraw() noexcept {
     if (m_hwnd) {
+        // Invalidate cached tab widths so they are recomputed next paint
+        m_cachedTabWidth = -1;
+        m_cachedPinnedTabWidth = -1;
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }
@@ -1313,6 +1383,10 @@ void TabBar::UpdateDPI(UINT newDpi) {
         L"Segoe UI"
     );
 
+    // Invalidate cached painting fonts so they get recreated at new DPI
+    if (m_closeFont) { DeleteObject(m_closeFont); m_closeFont = nullptr; }
+    if (m_arrowFont) { DeleteObject(m_arrowFont); m_arrowFont = nullptr; }
+
     // Resize the tab bar window to the new height
     if (m_hwnd) {
         RECT rc;
@@ -1333,6 +1407,139 @@ void TabBar::UpdateTooltip() {
     SendMessageW(m_hwndTooltip, TTM_POP, 0, 0);
     if (m_tooltipTabId >= 0) {
         SendMessageW(m_hwndTooltip, TTM_POPUP, 0, 0);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Show a semi-transparent ghost window following the cursor during tear-off drag
+//------------------------------------------------------------------------------
+void TabBar::ShowDragPreview(int tabId, int screenX, int screenY) {
+    // Offset the preview from the cursor
+    int posX = screenX + Scale(12);
+    int posY = screenY + Scale(4);
+
+    if (m_hwndDragPreview) {
+        // Just reposition the existing preview
+        SetWindowPos(m_hwndDragPreview, nullptr, posX, posY, 0, 0,
+                     SWP_NOSIZE | SWP_NOZORDER | SWP_NOACTIVATE | SWP_SHOWWINDOW);
+        return;
+    }
+
+    int idx = FindTabIndex(tabId);
+    if (idx < 0) return;
+    const auto& tab = m_tabs[idx];
+
+    int previewWidth = Scale(180);
+    int previewHeight = Scale(BASE_TAB_BAR_HEIGHT - 4);
+
+    // Register the drag preview window class (once)
+    static bool s_previewClassRegistered = false;
+    if (!s_previewClassRegistered) {
+        WNDCLASSEXW wc = {};
+        wc.cbSize = sizeof(wc);
+        wc.lpfnWndProc = DefWindowProcW;
+        wc.hInstance = m_hInstance;
+        wc.lpszClassName = L"QNoteTabDragPreview";
+        if (RegisterClassExW(&wc)) {
+            s_previewClassRegistered = true;
+        }
+    }
+
+    m_hwndDragPreview = CreateWindowExW(
+        WS_EX_LAYERED | WS_EX_TOPMOST | WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+        L"QNoteTabDragPreview",
+        nullptr,
+        WS_POPUP,
+        posX, posY, previewWidth, previewHeight,
+        nullptr, nullptr, m_hInstance, nullptr
+    );
+    if (!m_hwndDragPreview) return;
+
+    // Create a 32-bit DIB section for alpha-blended rendering
+    HDC screenDC = GetDC(nullptr);
+    HDC memDC = CreateCompatibleDC(screenDC);
+
+    BITMAPINFO bmi = {};
+    bmi.bmiHeader.biSize = sizeof(BITMAPINFOHEADER);
+    bmi.bmiHeader.biWidth = previewWidth;
+    bmi.bmiHeader.biHeight = -previewHeight;  // top-down
+    bmi.bmiHeader.biPlanes = 1;
+    bmi.bmiHeader.biBitCount = 32;
+    bmi.bmiHeader.biCompression = BI_RGB;
+
+    void* bits = nullptr;
+    HBITMAP hBitmap = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    HBITMAP oldBitmap = static_cast<HBITMAP>(SelectObject(memDC, hBitmap));
+
+    // Draw preview background
+    RECT rc = { 0, 0, previewWidth, previewHeight };
+    HBRUSH bgBrush = CreateSolidBrush(CLR_TAB_ACTIVE);
+    FillRect(memDC, &rc, bgBrush);
+    DeleteObject(bgBrush);
+
+    // Draw border
+    HPEN borderPen = CreatePen(PS_SOLID, 1, CLR_BORDER);
+    HPEN oldPen = static_cast<HPEN>(SelectObject(memDC, borderPen));
+    HBRUSH oldBrushSel = static_cast<HBRUSH>(SelectObject(memDC, GetStockObject(NULL_BRUSH)));
+    Rectangle(memDC, 0, 0, previewWidth, previewHeight);
+    SelectObject(memDC, oldPen);
+    SelectObject(memDC, oldBrushSel);
+    DeleteObject(borderPen);
+
+    // Draw tab title
+    HFONT oldFont = static_cast<HFONT>(SelectObject(memDC, m_font));
+    SetBkMode(memDC, TRANSPARENT);
+    SetTextColor(memDC, CLR_TEXT_ACTIVE);
+
+    RECT textRc = rc;
+    textRc.left += Scale(10);
+    textRc.right -= Scale(10);
+
+    std::wstring displayText = tab.title;
+    if (tab.isModified) displayText += L" \u2022";
+    DrawTextW(memDC, displayText.c_str(), -1, &textRc,
+              DT_SINGLELINE | DT_VCENTER | DT_LEFT | DT_END_ELLIPSIS);
+
+    SelectObject(memDC, oldFont);
+
+    // Set premultiplied alpha on every pixel for semi-transparency
+    constexpr BYTE alpha = 200;
+    BYTE* pixelData = static_cast<BYTE*>(bits);
+    for (int i = 0; i < previewWidth * previewHeight; i++) {
+        pixelData[i * 4 + 0] = static_cast<BYTE>(pixelData[i * 4 + 0] * alpha / 255);
+        pixelData[i * 4 + 1] = static_cast<BYTE>(pixelData[i * 4 + 1] * alpha / 255);
+        pixelData[i * 4 + 2] = static_cast<BYTE>(pixelData[i * 4 + 2] * alpha / 255);
+        pixelData[i * 4 + 3] = alpha;
+    }
+
+    // Apply the alpha-blended bitmap to the layered window
+    POINT ptSrc = { 0, 0 };
+    SIZE sizeWnd = { previewWidth, previewHeight };
+    BLENDFUNCTION blend = {};
+    blend.BlendOp = AC_SRC_OVER;
+    blend.SourceConstantAlpha = 255;
+    blend.AlphaFormat = AC_SRC_ALPHA;
+
+    POINT ptDst = { posX, posY };
+    UpdateLayeredWindow(m_hwndDragPreview, screenDC, &ptDst, &sizeWnd,
+                        memDC, &ptSrc, 0, &blend, ULW_ALPHA);
+
+    // Cleanup GDI objects
+    SelectObject(memDC, oldBitmap);
+    DeleteObject(hBitmap);
+    DeleteDC(memDC);
+    ReleaseDC(nullptr, screenDC);
+
+    ShowWindow(m_hwndDragPreview, SW_SHOWNOACTIVATE);
+}
+
+//------------------------------------------------------------------------------
+// Hide and destroy the drag preview ghost window
+//------------------------------------------------------------------------------
+void TabBar::HideDragPreview() {
+    if (m_hwndDragPreview) {
+        DestroyWindow(m_hwndDragPreview);
+        m_hwndDragPreview = nullptr;
     }
 }
 

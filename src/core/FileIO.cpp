@@ -459,26 +459,31 @@ std::wstring FileIO::ConvertLineEndings(const std::wstring& text, LineEnding tar
     result.reserve(text.size() + text.size() / 20); // Reserve extra space for potential CRLF
     
     const wchar_t* newLine;
+    size_t newLineLen;
     switch (targetEnding) {
-        case LineEnding::CRLF: newLine = L"\r\n"; break;
-        case LineEnding::LF:   newLine = L"\n"; break;
-        case LineEnding::CR:   newLine = L"\r"; break;
-        default: newLine = L"\r\n"; break;
+        case LineEnding::CRLF: newLine = L"\r\n"; newLineLen = 2; break;
+        case LineEnding::LF:   newLine = L"\n";   newLineLen = 1; break;
+        case LineEnding::CR:   newLine = L"\r";   newLineLen = 1; break;
+        default: newLine = L"\r\n"; newLineLen = 2; break;
     }
     
+    size_t start = 0;
     for (size_t i = 0; i < text.size(); i++) {
         if (text[i] == L'\r') {
-            result += newLine;
+            result.append(text, start, i - start);
+            result.append(newLine, newLineLen);
             // Skip LF if it follows CR (CRLF sequence)
             if (i + 1 < text.size() && text[i + 1] == L'\n') {
                 i++;
             }
+            start = i + 1;
         } else if (text[i] == L'\n') {
-            result += newLine;
-        } else {
-            result += text[i];
+            result.append(text, start, i - start);
+            result.append(newLine, newLineLen);
+            start = i + 1;
         }
     }
+    result.append(text, start, text.size() - start);
     
     return result;
 }
@@ -490,17 +495,19 @@ std::wstring FileIO::NormalizeToLF(const std::wstring& text) {
     std::wstring result;
     result.reserve(text.size());
     
+    size_t start = 0;
     for (size_t i = 0; i < text.size(); i++) {
         if (text[i] == L'\r') {
+            result.append(text, start, i - start);
             result += L'\n';
             // Skip LF if it follows CR (CRLF sequence)
             if (i + 1 < text.size() && text[i + 1] == L'\n') {
                 i++;
             }
-        } else {
-            result += text[i];
+            start = i + 1;
         }
     }
+    result.append(text, start, text.size() - start);
     
     return result;
 }

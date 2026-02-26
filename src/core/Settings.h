@@ -70,10 +70,20 @@ struct AppSettings {
     TextEncoding defaultEncoding = TextEncoding::UTF8;
     LineEnding defaultLineEnding = LineEnding::CRLF;
     
+    // Behavior settings
+    int minimizeMode = 1;              // 0 = taskbar, 1 = system tray
+    bool autoUpdate = false;           // Check for updates on startup
+    bool portableMode = false;         // Use config next to exe
+    
     // Search settings (persistent across sessions)
     bool searchMatchCase = false;
     bool searchWrapAround = true;
     bool searchUseRegex = false;
+    
+    // View state
+    bool alwaysOnTop = false;
+    bool fullScreen = false;
+    bool menuBarVisible = true;
     
     // Recent files list (max 10)
     static constexpr size_t MAX_RECENT_FILES = 10;
@@ -100,6 +110,12 @@ public:
     
     // Get the settings path
     [[nodiscard]] const std::wstring& GetSettingsPath() const noexcept { return m_settingsPath; }
+    
+    // Get the settings directory
+    [[nodiscard]] const std::wstring& GetSettingsDir() const noexcept { return m_settingsDir; }
+    
+    // Check if running in portable mode (config.ini next to exe)
+    [[nodiscard]] static bool DetectPortableMode();
     
     // Access settings
     [[nodiscard]] AppSettings& GetSettings() noexcept { return m_settings; }

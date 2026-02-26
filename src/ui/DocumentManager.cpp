@@ -47,6 +47,9 @@ int DocumentManager::NewDocument() {
     // Clear editor for new document
     m_editor->Clear();
     m_editor->SetModified(false);
+
+    // Record clean text for undo-to-clean detection
+    m_documents.back().cleanText = m_editor->GetText();
     m_editor->SetEncoding(m_documents.back().encoding);
     m_editor->SetLineEnding(m_documents.back().lineEnding);
     m_editor->SetSelection(0, 0);
@@ -104,6 +107,9 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     m_editor->SetModified(false);
     m_editor->SetSelection(0, 0);
     m_editor->SetFocus();
+
+    // Record clean text for undo-to-clean detection
+    m_documents.back().cleanText = m_editor->GetText();
 
     return tabId;
 }
@@ -166,7 +172,7 @@ void DocumentManager::SaveCurrentState() {
     if (!doc) return;
 
     doc->text = m_editor->GetText();
-    doc->isModified = m_editor->IsModified();
+    doc->isModified = (doc->text != doc->cleanText);
     doc->encoding = m_editor->GetEncoding();
     doc->lineEnding = m_editor->GetLineEnding();
 
@@ -271,6 +277,15 @@ void DocumentManager::SetDocumentModified(int tabId, bool modified) {
     DocumentState* doc = GetDocument(tabId);
     if (doc) {
         doc->isModified = modified;
+        if (!modified && m_editor) {
+            // When marking as not-modified (e.g. after save), update the clean text
+            // so future undo-to-clean detection uses the current content as baseline
+            if (tabId == m_activeTabId) {
+                doc->cleanText = m_editor->GetText();
+            } else {
+                doc->cleanText = doc->text;
+            }
+        }
         if (m_tabBar) {
             m_tabBar->SetTabModified(tabId, modified);
         }
@@ -329,7 +344,18 @@ void DocumentManager::SyncModifiedState() {
     DocumentState* doc = GetActiveDocument();
     if (!doc) return;
 
-    bool modified = m_editor->IsModified();
+    // Determine modified state purely by comparing current text against the
+    // clean (saved/loaded) text.  This ensures the indicator only appears when
+    // content has actually been added or removed, regardless of what the
+    // RichEdit EM_GETMODIFY flag reports.
+    std::wstring currentText = m_editor->GetText();
+    bool modified = (currentText != doc->cleanText);
+
+    // Keep the RichEdit flag in sync with our content-based check
+    if (m_editor->IsModified() != modified) {
+        m_editor->SetModified(modified);
+    }
+
     if (doc->isModified != modified) {
         doc->isModified = modified;
         if (m_tabBar) {
@@ -351,6 +377,7 @@ void DocumentManager::ResetActiveDocument() {
 
     // Reset all document state
     doc->text.clear();
+    doc->cleanText.clear();
     doc->filePath.clear();
     doc->customTitle.clear();
     doc->isNewFile = true;
