@@ -9,7 +9,7 @@
 #include <objbase.h>
 #include <spellcheck.h>
 #include <algorithm>
-#include "SpellCheck.h"
+#include "SpellChecker.h"
 
 #pragma comment(lib, "ole32.lib")
 #pragma comment(lib, "oleaut32.lib")

@@ -174,6 +174,9 @@
 // Tools menu (Settings)
 #define IDM_TOOLS_SETTINGS              10020
 
+// Tools menu (Spell Check)
+#define IDM_TOOLS_SPELLCHECK            10027
+
 // System tray
 #define IDM_TRAY_SHOW                   9001
 #define IDM_TRAY_CAPTURE                9002

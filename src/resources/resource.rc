@@ -199,6 +199,8 @@ BEGIN
         MENUITEM "&Copy File Path to Clipboard",      IDM_TOOLS_COPYFILEPATH
         MENUITEM "Open &Terminal Here",               IDM_TOOLS_OPENTERMINAL
         MENUITEM SEPARATOR
+        MENUITEM "&Spell Check...\tF7",               IDM_TOOLS_SPELLCHECK
+        MENUITEM SEPARATOR
         MENUITEM "&Auto-Save Options...",             IDM_TOOLS_AUTOSAVEOPTIONS
         MENUITEM "Customize &Keyboard Shortcuts...",  IDM_TOOLS_EDITSHORTCUTS
     END
@@ -268,6 +270,9 @@ BEGIN
     "S",        IDM_FILE_SAVEALL,    VIRTKEY, CONTROL, SHIFT, ALT
     VK_F11,     IDM_VIEW_FULLSCREEN, VIRTKEY
     VK_OEM_2,   IDM_EDIT_TOGGLECOMMENT, VIRTKEY, CONTROL
+
+    // Spell check
+    VK_F7,      IDM_TOOLS_SPELLCHECK, VIRTKEY
 END
 
 //------------------------------------------------------------------------------

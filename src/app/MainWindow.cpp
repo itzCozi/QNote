@@ -772,6 +772,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_TOOLS_CONVERTEOL_SEL:   OnToolsConvertEolSelection(); break;
         case IDM_TOOLS_CHECKSUM:         OnToolsChecksum(); break;
         case IDM_TOOLS_RUNSELECTION:     OnToolsRunSelection(); break;
+        case IDM_TOOLS_SPELLCHECK:       OnToolsSpellCheck(); break;
         
         // Notes menu (additional)
         case IDM_NOTES_EXPORT:           OnNotesExport(); break;

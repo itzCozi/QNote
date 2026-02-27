@@ -29,6 +29,7 @@
 #include "DocumentManager.h"
 #include "SettingsWindow.h"
 #include "PrintPreviewWindow.h"
+#include "SpellChecker.h"
 
 namespace QNote {
 
@@ -185,6 +186,7 @@ private:
     void OnToolsConvertEolSelection();
     void OnToolsChecksum();
     void OnToolsRunSelection();
+    void OnToolsSpellCheck();
     
     // Tools dialog procs
     static INT_PTR CALLBACK AutoSaveDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -274,6 +276,9 @@ private:
     std::unique_ptr<LineNumbersGutter> m_lineNumbersGutter;
     std::unique_ptr<TabBar> m_tabBar;
     std::unique_ptr<DocumentManager> m_documentManager;
+    
+    // Spell checker
+    SpellChecker m_spellChecker;
     
     // Note store and windows
     std::unique_ptr<NoteStore> m_noteStore;

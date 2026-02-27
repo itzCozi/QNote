@@ -1212,4 +1212,105 @@ void MainWindow::OnToolsRunSelection() {
     }
 }
 
+//------------------------------------------------------------------------------
+// Tools -> Spell Check
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsSpellCheck() {
+    if (!m_editor) return;
+
+    // Initialize spell checker on first use
+    if (!m_spellChecker.IsAvailable()) {
+        if (!m_spellChecker.Initialize(L"en-US")) {
+            MessageBoxW(m_hwnd,
+                L"Spell checking is not available.\n\n"
+                L"The Windows Spell Checking API requires Windows 8 or later\n"
+                L"and the appropriate language pack to be installed.",
+                L"Spell Check", MB_OK | MB_ICONWARNING);
+            return;
+        }
+    }
+
+    std::wstring text = m_editor->GetText();
+    if (text.empty()) {
+        MessageBoxW(m_hwnd, L"The document is empty.", L"Spell Check",
+                    MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    // Get all misspelled words
+    std::vector<MisspelledWord> errors = m_spellChecker.CheckText(text);
+
+    if (errors.empty()) {
+        MessageBoxW(m_hwnd, L"No spelling errors found.", L"Spell Check",
+                    MB_OK | MB_ICONINFORMATION);
+        return;
+    }
+
+    // Iterate through each misspelled word
+    size_t errorIndex = 0;
+    int totalReplaced = 0;
+    int totalIgnored = 0;
+    // Track cumulative offset from replacements
+    int offsetAdjust = 0;
+
+    while (errorIndex < errors.size()) {
+        const MisspelledWord& mw = errors[errorIndex];
+        DWORD adjStart = static_cast<DWORD>(static_cast<int>(mw.startPos) + offsetAdjust);
+        DWORD adjEnd = adjStart + mw.length;
+
+        // Select the misspelled word in the editor
+        m_editor->SetSelection(adjStart, adjEnd);
+
+        // Get suggestions
+        std::vector<std::wstring> suggestions = m_spellChecker.GetSuggestions(mw.word, 5);
+
+        // Build message
+        std::wstring msg = L"Misspelled word (" +
+                           std::to_wstring(errorIndex + 1) + L" of " +
+                           std::to_wstring(errors.size()) + L"):\n\n\"" +
+                           mw.word + L"\"\n\nSuggestions:\n";
+
+        if (suggestions.empty()) {
+            msg += L"  (no suggestions available)\n";
+        } else {
+            for (size_t i = 0; i < suggestions.size(); ++i) {
+                msg += L"  " + std::to_wstring(i + 1) + L". " + suggestions[i] + L"\n";
+            }
+        }
+
+        msg += L"\nReplace with first suggestion? (Yes)\n"
+               L"Skip this word? (No)\n"
+               L"Stop spell check? (Cancel)";
+
+        int result = MessageBoxW(m_hwnd, msg.c_str(), L"Spell Check",
+                                 MB_YESNOCANCEL | MB_ICONQUESTION);
+
+        if (result == IDYES && !suggestions.empty()) {
+            // Replace with first suggestion
+            m_editor->SetSelection(adjStart, adjEnd);
+            m_editor->ReplaceSelection(suggestions[0]);
+            int lengthDiff = static_cast<int>(suggestions[0].size()) -
+                             static_cast<int>(mw.length);
+            offsetAdjust += lengthDiff;
+            totalReplaced++;
+        } else if (result == IDNO) {
+            // Skip / ignore this word
+            m_spellChecker.IgnoreWord(mw.word);
+            totalIgnored++;
+        } else {
+            // Cancel
+            break;
+        }
+
+        errorIndex++;
+    }
+
+    // Show summary
+    std::wstring summary = L"Spell check complete.\n\n"
+                           L"Errors found: " + std::to_wstring(errors.size()) + L"\n"
+                           L"Replaced: " + std::to_wstring(totalReplaced) + L"\n"
+                           L"Ignored: " + std::to_wstring(totalIgnored);
+    MessageBoxW(m_hwnd, summary.c_str(), L"Spell Check", MB_OK | MB_ICONINFORMATION);
+}
+
 } // namespace QNote
