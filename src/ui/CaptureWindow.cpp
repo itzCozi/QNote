@@ -24,14 +24,15 @@ namespace QNote {
 CaptureWindow::CaptureWindow() = default;
 
 CaptureWindow::~CaptureWindow() {
+    if (m_hwnd) {
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+    }
     if (m_hFont) {
         DeleteObject(m_hFont);
     }
     if (m_hSmallFont) {
         DeleteObject(m_hSmallFont);
-    }
-    if (m_hwnd) {
-        DestroyWindow(m_hwnd);
     }
 }
 
@@ -174,10 +175,7 @@ LRESULT CaptureWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             break;
             
         case WM_CLOSE:
-            // Save before hiding
-            if (m_hwndEdit && GetWindowTextLengthW(m_hwndEdit) > 0) {
-                SaveNote();
-            }
+            // Hide first (triggers WM_ACTIVATE which handles saving)
             Hide();
             return 0;
     }

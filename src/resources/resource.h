@@ -74,6 +74,7 @@
 #define IDM_HELP_ABOUT                  6001
 #define IDM_HELP_CHECKUPDATE            6002
 #define IDM_HELP_WEBSITE                6003
+#define IDM_HELP_BUGREPORT              6004
 
 // Notes menu (new features)
 #define IDM_NOTES_NEW                   7001
@@ -241,6 +242,11 @@
 #define IDC_SET_LBL_MINIMIZE            1241
 #define IDC_SET_AUTOUPDATE              1242
 #define IDC_SET_PORTABLE                1243
+#define IDC_SET_PROMPTSAVE              1244
+#define IDC_SET_LBL_SAVESTYLE           1245
+#define IDC_SET_SAVESTYLE               1246
+#define IDC_SET_LBL_AUTOSAVEDELAY       1247
+#define IDC_SET_AUTOSAVEDELAY           1248
 
 // Settings dialog - File Associations page
 #define IDC_SET_ASSOC_TXT               1250
@@ -252,6 +258,35 @@
 #define IDC_SET_ASSOC_XML               1256
 #define IDC_SET_ASSOC_CSV               1257
 #define IDC_SET_ASSOC_APPLY             1258
+
+// Print Preview dialog
+#define IDD_PRINTPREVIEW                212
+#define IDC_PP_PREVIEW                  1300
+#define IDC_PP_MARGIN_LEFT              1301
+#define IDC_PP_MARGIN_RIGHT             1302
+#define IDC_PP_MARGIN_TOP               1303
+#define IDC_PP_MARGIN_BOTTOM            1304
+#define IDC_PP_HEADER                   1305
+#define IDC_PP_FOOTER_LEFT              1306
+#define IDC_PP_FOOTER_RIGHT             1320
+#define IDC_PP_PREVPAGE                 1307
+#define IDC_PP_NEXTPAGE                 1308
+#define IDC_PP_PAGEINFO                 1309
+#define IDC_PP_PRINT                    1310
+#define IDC_PP_LBL_LEFT                 1311
+#define IDC_PP_LBL_RIGHT                1312
+#define IDC_PP_LBL_TOP                  1313
+#define IDC_PP_LBL_BOTTOM               1314
+#define IDC_PP_LBL_HEADER               1315
+#define IDC_PP_LBL_FOOTER_LEFT          1316
+#define IDC_PP_LBL_FOOTER_RIGHT         1321
+#define IDC_PP_LBL_HINTS                1317
+#define IDC_PP_GRP_MARGINS              1318
+#define IDC_PP_GRP_HEADFOOT             1319
+#define IDC_PP_GRP_FONT                 1322
+#define IDC_PP_FONT_LABEL               1323
+#define IDC_PP_FONT_BTN                 1324
+#define IDC_PP_APPLYALL                 1325
 
 // Convert EOL selection dialog
 #define IDD_CONVERTEOL                  209
@@ -267,6 +302,12 @@
 // Run output dialog
 #define IDD_RUNOUTPUT                   211
 #define IDC_RUNOUTPUT_EDIT              1280
+
+// Print Tab Selection dialog
+#define IDD_PRINTTABS                   213
+#define IDC_PT_LIST                     1330
+#define IDC_PT_SELECTALL                1331
+#define IDC_PT_SELECTNONE               1332
 
 // Auto-save options dialog controls
 #define IDD_AUTOSAVE                    205
@@ -296,6 +337,7 @@
 #define TIMER_AUTOSAVE                  2
 #define TIMER_FILEAUTOSAVE              3
 #define TIMER_FILEWATCH                 4
+#define TIMER_REALSAVE                  5
 
 // Global hotkey ID
 #define HOTKEY_QUICKCAPTURE             1

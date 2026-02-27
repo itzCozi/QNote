@@ -25,6 +25,10 @@ namespace QNote {
 NoteListWindow::NoteListWindow() = default;
 
 NoteListWindow::~NoteListWindow() {
+    if (m_hwnd) {
+        DestroyWindow(m_hwnd);
+        m_hwnd = nullptr;
+    }
     if (m_hFont) {
         DeleteObject(m_hFont);
     }
@@ -33,9 +37,6 @@ NoteListWindow::~NoteListWindow() {
     }
     if (m_hImageList) {
         ImageList_Destroy(m_hImageList);
-    }
-    if (m_hwnd) {
-        DestroyWindow(m_hwnd);
     }
 }
 

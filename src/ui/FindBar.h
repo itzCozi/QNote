@@ -51,6 +51,9 @@ public:
     // Create the find bar controls
     [[nodiscard]] bool Create(HWND parent, HINSTANCE hInstance, Editor* editor);
     
+    // Update the editor reference (called on tab switch)
+    void SetEditor(Editor* editor) noexcept { m_editor = editor; }
+    
     // Destroy the find bar
     void Destroy() noexcept;
     

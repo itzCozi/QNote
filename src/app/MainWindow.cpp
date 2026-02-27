@@ -14,6 +14,7 @@
 #include <sstream>
 #include <algorithm>
 #include <cctype>
+#include <ctime>
 #include <set>
 #include <wincrypt.h>
 #include <winhttp.h>
@@ -48,7 +49,6 @@ static bool IsWhitespaceOnly(const std::wstring& text) {
 //------------------------------------------------------------------------------
 MainWindow::MainWindow()
     : m_settingsManager(std::make_unique<SettingsManager>())
-    , m_editor(std::make_unique<Editor>())
     , m_dialogManager(std::make_unique<DialogManager>())
     , m_findBar(std::make_unique<FindBar>())
     , m_lineNumbersGutter(std::make_unique<LineNumbersGutter>())
@@ -350,24 +350,15 @@ void MainWindow::OnCreate() {
     // Create status bar
     CreateStatusBar();
     
-    // Create editor
     const AppSettings& settings = m_settingsManager->GetSettings();
-    if (!m_editor->Create(m_hwnd, m_hInstance, settings)) {
-        MessageBoxW(m_hwnd, L"Failed to create editor control.", L"Error", MB_OK | MB_ICONERROR);
-    }
-    
-    // Create line numbers gutter
-    if (!m_lineNumbersGutter->Create(m_hwnd, m_hInstance, m_editor.get())) {
-        MessageBoxW(m_hwnd, L"Failed to create line numbers gutter.", L"Error", MB_OK | MB_ICONERROR);
-    }
     
     // Create tab bar
     if (!m_tabBar->Create(m_hwnd, m_hInstance)) {
         MessageBoxW(m_hwnd, L"Failed to create tab bar.", L"Error", MB_OK | MB_ICONERROR);
     }
     
-    // Initialize document manager
-    m_documentManager->Initialize(m_editor.get(), m_tabBar.get(), m_settingsManager.get());
+    // Initialize document manager (creates per-tab editors internally)
+    m_documentManager->Initialize(m_hwnd, m_hInstance, m_tabBar.get(), m_settingsManager.get());
     
     // Set up tab bar callbacks
     m_tabBar->SetCallback([this](TabNotification notification, int tabId) {
@@ -408,10 +399,18 @@ void MainWindow::OnCreate() {
         }
     });
     
-    // Create an initial tab
+    // Create an initial tab (this creates the first per-tab editor)
     m_documentManager->NewDocument();
     m_isNewFile = true;
     m_currentFile.clear();
+    
+    // Get the active editor from the document manager
+    m_editor = m_documentManager->GetActiveEditor();
+    
+    // Create line numbers gutter (uses the active editor)
+    if (!m_lineNumbersGutter->Create(m_hwnd, m_hInstance, m_editor)) {
+        MessageBoxW(m_hwnd, L"Failed to create line numbers gutter.", L"Error", MB_OK | MB_ICONERROR);
+    }
     
     // Set up scroll callback for line numbers sync
     m_editor->SetScrollCallback(OnEditorScroll, this);
@@ -429,12 +428,12 @@ void MainWindow::OnCreate() {
     LoadKeyboardShortcuts();
     
     // Create find bar
-    if (!m_findBar->Create(m_hwnd, m_hInstance, m_editor.get())) {
+    if (!m_findBar->Create(m_hwnd, m_hInstance, m_editor)) {
         MessageBoxW(m_hwnd, L"Failed to create find bar.", L"Error", MB_OK | MB_ICONERROR);
     }
     
     // Initialize dialog manager
-    m_dialogManager->Initialize(m_hwnd, m_hInstance, m_editor.get(), 
+    m_dialogManager->Initialize(m_hwnd, m_hInstance, m_editor, 
                                  &m_settingsManager->GetSettings());
     
     // Update recent files menu
@@ -454,6 +453,11 @@ void MainWindow::OnCreate() {
     
     // Start file change monitoring timer
     SetTimer(m_hwnd, TIMER_FILEWATCH, FILEWATCH_INTERVAL, nullptr);
+    
+    // Start real auto-save timer if save style is AutoSave
+    if (m_settingsManager->GetSettings().saveStyle == SaveStyle::AutoSave) {
+        SetTimer(m_hwnd, TIMER_REALSAVE, m_settingsManager->GetSettings().autoSaveDelayMs, nullptr);
+    }
     
     // Initialize system tray
     InitializeSystemTray();
@@ -492,6 +496,7 @@ void MainWindow::OnDestroy() {
     KillTimer(m_hwnd, TIMER_AUTOSAVE);
     KillTimer(m_hwnd, TIMER_FILEAUTOSAVE);
     KillTimer(m_hwnd, TIMER_FILEWATCH);
+    KillTimer(m_hwnd, TIMER_REALSAVE);
     
     // Save session before destroying
     SaveSession();
@@ -500,12 +505,12 @@ void MainWindow::OnDestroy() {
     CleanupSystemTray();
     
     // Delete auto-save backup if file was saved successfully
-    if (!m_isNoteMode && !m_isNewFile && !m_currentFile.empty() && !m_editor->IsModified()) {
+    if (m_editor && !m_isNoteMode && !m_isNewFile && !m_currentFile.empty() && !m_editor->IsModified()) {
         DeleteAutoSaveBackup();
     }
     
     // Auto-save current note if in note mode
-    if (m_isNoteMode && m_editor->IsModified()) {
+    if (m_editor && m_isNoteMode && m_editor->IsModified()) {
         AutoSaveCurrentNote();
     }
     
@@ -528,17 +533,17 @@ void MainWindow::OnDestroy() {
         settings.windowHeight = wp.rcNormalPosition.bottom - wp.rcNormalPosition.top;
         
         // Save zoom level
-        settings.zoomLevel = m_editor->GetTextLength() > 0 ? m_settingsManager->GetSettings().zoomLevel : 100;
+        settings.zoomLevel = (m_editor && m_editor->GetTextLength() > 0) ? m_settingsManager->GetSettings().zoomLevel : 100;
         
         // Save editor feature settings
-        settings.showWhitespace = m_editor->IsShowWhitespace();
+        if (m_editor) settings.showWhitespace = m_editor->IsShowWhitespace();
     }
     
     // Save settings
     (void)m_settingsManager->Save();
     
-    // Clean up
-    m_editor->Destroy();
+    // Clean up - DocumentManager owns all editors, will clean up on destruction
+    m_editor = nullptr;
     
     PostQuitMessage(0);
 }
@@ -549,7 +554,7 @@ void MainWindow::OnDestroy() {
 void MainWindow::OnClose() {
     // In note mode, auto-save and close without prompting
     if (m_isNoteMode) {
-        if (m_editor->IsModified()) {
+        if (m_editor && m_editor->IsModified()) {
             AutoSaveCurrentNote();
         }
         DestroyWindow(m_hwnd);
@@ -561,12 +566,18 @@ void MainWindow::OnClose() {
         m_documentManager->SaveCurrentState();
     }
     
+    const auto& settings = m_settingsManager->GetSettings();
+    
     // Check all tabs for unsaved changes
     if (m_documentManager) {
         auto ids = m_documentManager->GetAllTabIds();
         for (int id : ids) {
             auto* doc = m_documentManager->GetDocument(id);
             if (doc && doc->isModified && !(doc->isNewFile && IsWhitespaceOnly(doc->text))) {
+                if (!settings.promptSaveOnClose) {
+                    // Skip the dialog - just discard changes
+                    continue;
+                }
                 // Switch to the unsaved tab so user can see it
                 OnTabSelected(id);
                 
@@ -687,6 +698,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_HELP_ABOUT: OnHelpAbout(); break;
         case IDM_HELP_CHECKUPDATE: OnHelpCheckUpdate(); break;
         case IDM_HELP_WEBSITE: ShellExecuteW(m_hwnd, L"open", L"https://qnote.ar0.eu/", nullptr, nullptr, SW_SHOWNORMAL); break;
+        case IDM_HELP_BUGREPORT: ShellExecuteW(m_hwnd, L"open", L"https://github.com/itzCozi/QNote/issues/new?template=bug_report.md", nullptr, nullptr, SW_SHOWNORMAL); break;
         
         // Notes menu
         case IDM_NOTES_NEW:          OnNotesNew(); break;
@@ -764,7 +776,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         // System tray
         case IDM_TRAY_SHOW:     RestoreFromTray(); break;
         case IDM_TRAY_CAPTURE:  OnNotesQuickCapture(); break;
-        case IDM_TRAY_EXIT:     DestroyWindow(m_hwnd); break;
+        case IDM_TRAY_EXIT:     SendMessageW(m_hwnd, WM_CLOSE, 0, 0); break;
         
         // Tab menu
         case IDM_TAB_NEW:            OnTabNew(); break;
@@ -802,7 +814,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
     }
     
     // Handle edit control notifications
-    if (hwndCtl == m_editor->GetHandle() && code == EN_CHANGE) {
+    if (m_editor && hwndCtl == m_editor->GetHandle() && code == EN_CHANGE) {
         // Sync modified state with DocumentManager and TabBar
         if (m_documentManager) {
             m_documentManager->SyncModifiedState();
@@ -848,7 +860,7 @@ void MainWindow::OnDropFiles(HDROP hDrop) {
             if (i == 0) {
                 auto* activeDoc = m_documentManager->GetActiveDocument();
                 if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
-                    IsWhitespaceOnly(m_editor->GetText())) {
+                    m_editor && IsWhitespaceOnly(m_editor->GetText())) {
                     LoadFile(filePath);
                     continue;
                 }
@@ -858,9 +870,11 @@ void MainWindow::OnDropFiles(HDROP hDrop) {
             if (result.success) {
                 m_documentManager->OpenDocument(
                     filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
+                UpdateActiveEditor();
                 m_currentFile = filePath;
                 m_isNewFile = false;
                 m_isNoteMode = false;
+                m_currentNoteId.clear();
                 m_settingsManager->AddRecentFile(filePath);
                 UpdateRecentFilesMenu();
             }
@@ -892,7 +906,7 @@ void MainWindow::OnTimer(UINT_PTR timerId) {
         UpdateStatusBar();
     } else if (timerId == TIMER_AUTOSAVE) {
         // Auto-save current note if in note mode and modified
-        if (m_isNoteMode && m_editor->IsModified()) {
+        if (m_isNoteMode && m_editor && m_editor->IsModified()) {
             AutoSaveCurrentNote();
         }
     } else if (timerId == TIMER_FILEAUTOSAVE) {
@@ -901,6 +915,13 @@ void MainWindow::OnTimer(UINT_PTR timerId) {
     } else if (timerId == TIMER_FILEWATCH) {
         // Check if the current file has been modified externally
         CheckFileChanged();
+    } else if (timerId == TIMER_REALSAVE) {
+        // Auto-save the actual file (not a backup) when save style is AutoSave
+        if (!m_isNoteMode && m_editor && m_editor->IsModified() &&
+            !m_isNewFile && !m_currentFile.empty()) {
+            m_ignoreNextFileChange = true;
+            SaveFile(m_currentFile);
+        }
     }
 }
 
@@ -936,7 +957,7 @@ void MainWindow::OnFileOpen() {
         // If current tab is untitled, unmodified, and empty - reuse it
         auto* activeDoc = m_documentManager->GetActiveDocument();
         if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified && 
-            IsWhitespaceOnly(m_editor->GetText())) {
+            m_editor && IsWhitespaceOnly(m_editor->GetText())) {
             // Reuse current tab
             LoadFile(filePath);
         } else {
@@ -946,6 +967,7 @@ void MainWindow::OnFileOpen() {
                 int tabId = m_documentManager->OpenDocument(
                     filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
                 if (tabId >= 0) {
+                    UpdateActiveEditor();
                     m_currentFile = filePath;
                     m_isNewFile = false;
                     m_isNoteMode = false;
@@ -982,6 +1004,7 @@ bool MainWindow::OnFileSave() {
 // File -> Save As
 //------------------------------------------------------------------------------
 bool MainWindow::OnFileSaveAs() {
+    if (!m_editor) return false;
     std::wstring filePath;
     TextEncoding encoding = m_editor->GetEncoding();
     
@@ -1035,16 +1058,18 @@ void MainWindow::OnFileOpenRecent(int index) {
         // Open in new tab if current tab has content, otherwise reuse
         auto* activeDoc = m_documentManager->GetActiveDocument();
         if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
-            IsWhitespaceOnly(m_editor->GetText())) {
+            m_editor && IsWhitespaceOnly(m_editor->GetText())) {
             LoadFile(filePath);
         } else {
             FileReadResult result = FileIO::ReadFile(filePath);
             if (result.success) {
                 m_documentManager->OpenDocument(
                     filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
+                UpdateActiveEditor();
                 m_currentFile = filePath;
                 m_isNewFile = false;
                 m_isNoteMode = false;
+                m_currentNoteId.clear();
                 m_settingsManager->AddRecentFile(filePath);
                 UpdateRecentFilesMenu();
                 UpdateTitle();
@@ -1123,8 +1148,10 @@ void MainWindow::OnEditDateTime() {
 //------------------------------------------------------------------------------
 void MainWindow::OnFormatWordWrap() {
     bool newValue = !m_editor->IsWordWrapEnabled();
-    m_editor->SetWordWrap(newValue);
     m_settingsManager->GetSettings().wordWrap = newValue;
+    if (m_documentManager) {
+        m_documentManager->ApplySettingsToAllEditors(m_settingsManager->GetSettings());
+    }
 }
 
 void MainWindow::OnFormatFont() {
@@ -1141,7 +1168,9 @@ void MainWindow::OnFormatFont() {
         settings.fontWeight = fontWeight;
         settings.fontItalic = fontItalic;
         
-        m_editor->SetFont(fontName, fontSize, fontWeight, fontItalic);
+        if (m_documentManager) {
+            m_documentManager->ApplySettingsToAllEditors(settings);
+        }
     }
 }
 
@@ -1150,7 +1179,9 @@ void MainWindow::OnFormatTabSize() {
     
     if (m_dialogManager->ShowTabSizeDialog(tabSize)) {
         m_settingsManager->GetSettings().tabSize = tabSize;
-        m_editor->SetTabSize(tabSize);
+        if (m_documentManager) {
+            m_documentManager->ApplySettingsToAllEditors(m_settingsManager->GetSettings());
+        }
     }
 }
 
@@ -1159,7 +1190,9 @@ void MainWindow::OnFormatScrollLines() {
     
     if (m_dialogManager->ShowScrollLinesDialog(scrollLines)) {
         m_settingsManager->GetSettings().scrollLines = scrollLines;
-        m_editor->SetScrollLines(scrollLines);
+        if (m_documentManager) {
+            m_documentManager->ApplySettingsToAllEditors(m_settingsManager->GetSettings());
+        }
     }
 }
 
@@ -1177,8 +1210,10 @@ void MainWindow::OnFormatLineEnding(LineEnding ending) {
 //------------------------------------------------------------------------------
 void MainWindow::OnFormatRTL() {
     bool newValue = !m_editor->IsRTL();
-    m_editor->SetRTL(newValue);
     m_settingsManager->GetSettings().rightToLeft = newValue;
+    if (m_documentManager) {
+        m_documentManager->ApplySettingsToAllEditors(m_settingsManager->GetSettings());
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -1214,9 +1249,225 @@ void MainWindow::OnFilePageSetup() {
 }
 
 //------------------------------------------------------------------------------
-// File -> Print
+// Print Tab Selection dialog helpers
+//------------------------------------------------------------------------------
+struct PrintTabSelectionData {
+    struct TabInfo {
+        int tabId;
+        std::wstring title;
+        bool selected;
+    };
+    std::vector<TabInfo> tabs;
+    int activeTabId;
+};
+
+static INT_PTR CALLBACK PrintTabSelectionDlgProc(HWND hwnd, UINT msg,
+                                                  WPARAM wParam, LPARAM lParam) {
+    switch (msg) {
+        case WM_INITDIALOG: {
+            auto* data = reinterpret_cast<PrintTabSelectionData*>(lParam);
+            SetWindowLongPtrW(hwnd, DWLP_USER, reinterpret_cast<LONG_PTR>(data));
+
+            HWND hList = GetDlgItem(hwnd, IDC_PT_LIST);
+            ListView_SetExtendedListViewStyle(hList,
+                LVS_EX_CHECKBOXES | LVS_EX_FULLROWSELECT);
+
+            // Add a single column spanning the full width
+            RECT rc;
+            GetClientRect(hList, &rc);
+            LVCOLUMNW col = {};
+            col.mask = LVCF_WIDTH;
+            col.cx = rc.right - rc.left - GetSystemMetrics(SM_CXVSCROLL);
+            ListView_InsertColumn(hList, 0, &col);
+
+            // Insert items
+            for (int i = 0; i < static_cast<int>(data->tabs.size()); ++i) {
+                LVITEMW lvi = {};
+                lvi.mask = LVIF_TEXT;
+                lvi.iItem = i;
+                lvi.pszText = const_cast<LPWSTR>(data->tabs[i].title.c_str());
+                ListView_InsertItem(hList, &lvi);
+                // Pre-check the active tab
+                if (data->tabs[i].tabId == data->activeTabId) {
+                    ListView_SetCheckState(hList, i, TRUE);
+                }
+            }
+
+            // Center dialog on parent
+            HWND parent = GetParent(hwnd);
+            if (parent) {
+                RECT rcP, rcD;
+                GetWindowRect(parent, &rcP);
+                GetWindowRect(hwnd, &rcD);
+                int x = rcP.left + ((rcP.right - rcP.left) - (rcD.right - rcD.left)) / 2;
+                int y = rcP.top + ((rcP.bottom - rcP.top) - (rcD.bottom - rcD.top)) / 2;
+                SetWindowPos(hwnd, nullptr, x, y, 0, 0, SWP_NOSIZE | SWP_NOZORDER);
+            }
+
+            return TRUE;
+        }
+
+        case WM_COMMAND: {
+            WORD id = LOWORD(wParam);
+            if (id == IDOK) {
+                auto* data = reinterpret_cast<PrintTabSelectionData*>(
+                    GetWindowLongPtrW(hwnd, DWLP_USER));
+                HWND hList = GetDlgItem(hwnd, IDC_PT_LIST);
+                bool anySelected = false;
+                for (int i = 0; i < static_cast<int>(data->tabs.size()); ++i) {
+                    data->tabs[i].selected = ListView_GetCheckState(hList, i) != 0;
+                    if (data->tabs[i].selected) anySelected = true;
+                }
+                if (!anySelected) {
+                    MessageBoxW(hwnd, L"Please select at least one tab to print.",
+                                L"Print", MB_OK | MB_ICONINFORMATION);
+                    return TRUE;
+                }
+                EndDialog(hwnd, IDOK);
+                return TRUE;
+            }
+            if (id == IDCANCEL) {
+                EndDialog(hwnd, IDCANCEL);
+                return TRUE;
+            }
+            if (id == IDC_PT_SELECTALL) {
+                HWND hList = GetDlgItem(hwnd, IDC_PT_LIST);
+                int count = ListView_GetItemCount(hList);
+                for (int i = 0; i < count; ++i)
+                    ListView_SetCheckState(hList, i, TRUE);
+                return TRUE;
+            }
+            if (id == IDC_PT_SELECTNONE) {
+                HWND hList = GetDlgItem(hwnd, IDC_PT_LIST);
+                int count = ListView_GetItemCount(hList);
+                for (int i = 0; i < count; ++i)
+                    ListView_SetCheckState(hList, i, FALSE);
+                return TRUE;
+            }
+            break;
+        }
+
+        case WM_CLOSE:
+            EndDialog(hwnd, IDCANCEL);
+            return TRUE;
+    }
+    return FALSE;
+}
+
+//------------------------------------------------------------------------------
+// File -> Print (shows print preview first, then prints)
 //------------------------------------------------------------------------------
 void MainWindow::OnFilePrint() {
+    // Initialize page setup if not done yet
+    if (m_pageSetup.lStructSize == 0) {
+        m_pageSetup.lStructSize = sizeof(m_pageSetup);
+        m_pageSetup.hwndOwner = m_hwnd;
+        m_pageSetup.Flags = PSD_DEFAULTMINMARGINS | PSD_MARGINS;
+        m_pageSetup.rtMargin.left = 1000;
+        m_pageSetup.rtMargin.top = 1000;
+        m_pageSetup.rtMargin.right = 1000;
+        m_pageSetup.rtMargin.bottom = 1000;
+    }
+
+    // Gather text and document name - allow multi-tab selection
+    std::wstring text;
+    std::wstring docName;
+
+    if (m_documentManager && m_documentManager->GetDocumentCount() > 1) {
+        // Multiple tabs open - show tab selection dialog
+        PrintTabSelectionData selData;
+        selData.activeTabId = m_documentManager->GetActiveTabId();
+
+        auto tabIds = m_documentManager->GetAllTabIds();
+        for (int id : tabIds) {
+            auto* doc = m_documentManager->GetDocument(id);
+            if (doc) {
+                PrintTabSelectionData::TabInfo info;
+                info.tabId = id;
+                info.title = doc->GetDisplayTitle();
+                info.selected = false;
+                selData.tabs.push_back(std::move(info));
+            }
+        }
+
+        INT_PTR result = DialogBoxParamW(
+            m_hInstance, MAKEINTRESOURCEW(IDD_PRINTTABS),
+            m_hwnd, PrintTabSelectionDlgProc,
+            reinterpret_cast<LPARAM>(&selData));
+
+        if (result != IDOK) return;
+
+        // Gather text from selected tabs
+        int selectedCount = 0;
+        for (const auto& tab : selData.tabs) {
+            if (tab.selected) selectedCount++;
+        }
+
+        bool first = true;
+        for (const auto& tab : selData.tabs) {
+            if (!tab.selected) continue;
+
+            auto* doc = m_documentManager->GetDocument(tab.tabId);
+            if (!doc || !doc->editor) continue;
+
+            // Save the active editor state before reading other tabs
+            std::wstring tabText;
+            if (tab.tabId == m_documentManager->GetActiveTabId()) {
+                tabText = doc->editor->GetText();
+            } else {
+                // For non-active tabs, use the stored content
+                tabText = doc->editor->GetText();
+            }
+
+            if (tabText.empty()) continue;
+
+            if (!first) {
+                text += L"\r\n";
+            }
+
+            text += tabText;
+            first = false;
+        }
+
+        if (text.empty()) return;
+
+        // Build combined document name
+        if (selectedCount == 1) {
+            for (const auto& tab : selData.tabs) {
+                if (tab.selected) {
+                    docName = tab.title;
+                    break;
+                }
+            }
+        } else {
+            docName = std::to_wstring(selectedCount) + L" tabs";
+        }
+    } else {
+        // Single tab - use current editor directly
+        if (!m_editor) return;
+        text = m_editor->GetText();
+        if (text.empty()) return;
+        docName = m_isNewFile ? L"Untitled" : FileIO::GetFileName(m_currentFile);
+    }
+    const AppSettings& settings = m_settingsManager->GetSettings();
+
+    // Show print preview dialog
+    PrintSettings ps = PrintPreviewWindow::Show(
+        m_hwnd, m_hInstance, text, docName,
+        settings.fontName, settings.fontSize, settings.fontWeight, settings.fontItalic,
+        m_pageSetup);
+
+    if (!ps.accepted) return;
+
+    // Persist margins from page 1's settings
+    if (!ps.pageSettings.empty()) {
+        m_pageSetup.rtMargin.left   = ps.pageSettings[0].marginLeft;
+        m_pageSetup.rtMargin.top    = ps.pageSettings[0].marginTop;
+        m_pageSetup.rtMargin.right  = ps.pageSettings[0].marginRight;
+        m_pageSetup.rtMargin.bottom = ps.pageSettings[0].marginBottom;
+    }
+
+    // Now show the system print dialog and print
     PRINTDLGW pd = {};
     pd.lStructSize = sizeof(pd);
     pd.hwndOwner = m_hwnd;
@@ -1226,161 +1477,145 @@ void MainWindow::OnFilePrint() {
     pd.nToPage = 1;
     pd.nMinPage = 1;
     pd.nMaxPage = 0xFFFF;
-    
+
     if (!PrintDlgW(&pd)) {
-        // User cancelled or error
-        if (pd.hDC) {
-            DeleteDC(pd.hDC);
-        }
+        if (pd.hDC) DeleteDC(pd.hDC);
         return;
     }
-    
+
     HDC hdc = pd.hDC;
     if (!hdc) {
-        MessageBoxW(m_hwnd, L"Failed to create printer device context.", L"Print Error", 
+        MessageBoxW(m_hwnd, L"Failed to create printer device context.", L"Print Error",
                     MB_OK | MB_ICONERROR);
         return;
     }
-    
-    // Get text to print
-    std::wstring text = m_editor->GetText();
-    if (text.empty()) {
-        DeleteDC(hdc);
-        if (pd.hDevMode) GlobalFree(pd.hDevMode);
-        if (pd.hDevNames) GlobalFree(pd.hDevNames);
-        return;
-    }
-    
+
     // Set document info
     DOCINFOW di = {};
     di.cbSize = sizeof(di);
-    std::wstring docName = m_isNewFile ? L"Untitled" : FileIO::GetFileName(m_currentFile);
     di.lpszDocName = docName.c_str();
-    
-    // Start the document
+
     if (StartDocW(hdc, &di) <= 0) {
-        MessageBoxW(m_hwnd, L"Failed to start print job.", L"Print Error", 
+        MessageBoxW(m_hwnd, L"Failed to start print job.", L"Print Error",
                     MB_OK | MB_ICONERROR);
         DeleteDC(hdc);
         if (pd.hDevMode) GlobalFree(pd.hDevMode);
         if (pd.hDevNames) GlobalFree(pd.hDevNames);
         return;
     }
-    
-    // Get printer capabilities
-    int pageWidth = GetDeviceCaps(hdc, HORZRES);
-    int pageHeight = GetDeviceCaps(hdc, VERTRES);
+
+    int printerPageW = GetDeviceCaps(hdc, HORZRES);
+    int printerPageH = GetDeviceCaps(hdc, VERTRES);
     int dpiX = GetDeviceCaps(hdc, LOGPIXELSX);
     int dpiY = GetDeviceCaps(hdc, LOGPIXELSY);
-    
-    // Apply margins from page setup (convert from thousandths of inches to pixels)
-    int leftMargin = (m_pageSetup.rtMargin.left * dpiX) / 1000;
-    int topMargin = (m_pageSetup.rtMargin.top * dpiY) / 1000;
-    int rightMargin = (m_pageSetup.rtMargin.right * dpiX) / 1000;
-    int bottomMargin = (m_pageSetup.rtMargin.bottom * dpiY) / 1000;
-    
-    int printWidth = pageWidth - leftMargin - rightMargin;
-    int printHeight = pageHeight - topMargin - bottomMargin;
-    
-    // Create a font for printing (scale from screen)
-    const AppSettings& settings = m_settingsManager->GetSettings();
-    LOGFONTW lf = {};
-    lf.lfHeight = -MulDiv(settings.fontSize, dpiY, 72);
-    lf.lfWeight = settings.fontWeight;
-    lf.lfItalic = settings.fontItalic ? TRUE : FALSE;
-    lf.lfCharSet = DEFAULT_CHARSET;
-    lf.lfOutPrecision = OUT_DEFAULT_PRECIS;
-    lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
-    lf.lfQuality = DEFAULT_QUALITY;
-    lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
-    wcscpy_s(lf.lfFaceName, settings.fontName.c_str());
-    
-    HFONT hFont = CreateFontIndirectW(&lf);
-    HFONT hOldFont = static_cast<HFONT>(SelectObject(hdc, hFont));
-    
-    // Get text metrics
-    TEXTMETRICW tm;
-    GetTextMetricsW(hdc, &tm);
-    int lineHeight = tm.tmHeight + tm.tmExternalLeading;
-    int linesPerPage = printHeight / lineHeight;
-    
-    // Split text into lines
-    std::vector<std::wstring> lines;
-    std::wistringstream stream(text);
-    std::wstring line;
-    while (std::getline(stream, line)) {
-        // Handle word wrap for printing
-        while (!line.empty()) {
-            SIZE textSize;
-            GetTextExtentPoint32W(hdc, line.c_str(), static_cast<int>(line.length()), &textSize);
-            
-            if (textSize.cx <= printWidth) {
-                lines.push_back(line);
-                break;
-            }
-            
-            // Find break point
-            size_t breakPos = line.length();
-            for (size_t i = line.length(); i > 0; --i) {
-                std::wstring partial = line.substr(0, i);
-                GetTextExtentPoint32W(hdc, partial.c_str(), static_cast<int>(i), &textSize);
-                if (textSize.cx <= printWidth) {
-                    // Try to break at word boundary
-                    size_t lastSpace = partial.rfind(L' ');
-                    if (lastSpace != std::wstring::npos && lastSpace > 0) {
-                        breakPos = lastSpace + 1;
-                    } else {
-                        breakPos = i;
+
+    int totalPages = static_cast<int>(ps.pageLines.size());
+
+    // Token expansion for headers/footers
+    auto expandTokens = [&](const std::wstring& tmpl, int pageNum) -> std::wstring {
+        std::wstring result;
+        result.reserve(tmpl.size() + 32);
+        for (size_t i = 0; i < tmpl.size(); ++i) {
+            if (tmpl[i] == L'&' && i + 1 < tmpl.size()) {
+                wchar_t tok = tmpl[++i];
+                switch (tok) {
+                    case L'f': result += docName; break;
+                    case L'p': result += std::to_wstring(pageNum); break;
+                    case L'P': result += std::to_wstring(totalPages); break;
+                    case L'd': {
+                        time_t t = time(nullptr); struct tm lt; localtime_s(&lt, &t);
+                        wchar_t db[32]; wcsftime(db, 32, L"%m/%d/%Y", &lt);
+                        result += db; break;
                     }
-                    break;
-                }
-            }
-            
-            lines.push_back(line.substr(0, breakPos));
-            if (breakPos < line.length()) {
-                line = line.substr(breakPos);
-                // Trim leading spaces
-                size_t start = line.find_first_not_of(L' ');
-                if (start != std::wstring::npos) {
-                    line = line.substr(start);
+                    case L't': {
+                        time_t t = time(nullptr); struct tm lt; localtime_s(&lt, &t);
+                        wchar_t tb[32]; wcsftime(tb, 32, L"%I:%M %p", &lt);
+                        result += tb; break;
+                    }
+                    default: result += L'&'; result += tok; break;
                 }
             } else {
-                line.clear();
+                result += tmpl[i];
             }
         }
-    }
-    
-    // Print pages
-    int totalLines = static_cast<int>(lines.size());
-    int currentLine = 0;
-    
-    while (currentLine < totalLines) {
-        // Start a new page
-        if (StartPage(hdc) <= 0) {
-            break;
-        }
-        
+        return result;
+    };
+
+    // Print each page with its own per-page settings
+    for (int p = 0; p < totalPages; ++p) {
+        if (StartPage(hdc) <= 0) break;
+
+        const PageSettings& pg = ps.pageSettings[p];
+        const auto& lines = ps.pageLines[p];
+
+        int leftMarg   = MulDiv(pg.marginLeft,   dpiX, 1000);
+        int topMarg    = MulDiv(pg.marginTop,    dpiY, 1000);
+        int rightMarg  = MulDiv(pg.marginRight,  dpiX, 1000);
+        int bottomMarg = MulDiv(pg.marginBottom, dpiY, 1000);
+        int printW = printerPageW - leftMarg - rightMarg;
+        int printH = printerPageH - topMarg  - bottomMarg;
+
+        // Create font for this page
+        LOGFONTW lf = {};
+        lf.lfHeight = -MulDiv(pg.fontSize, dpiY, 72);
+        lf.lfWeight = pg.fontWeight;
+        lf.lfItalic = pg.fontItalic ? TRUE : FALSE;
+        lf.lfCharSet = DEFAULT_CHARSET;
+        lf.lfOutPrecision = OUT_DEFAULT_PRECIS;
+        lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+        lf.lfQuality = DEFAULT_QUALITY;
+        lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+        wcscpy_s(lf.lfFaceName, pg.fontName.c_str());
+
+        HFONT hFont = CreateFontIndirectW(&lf);
         SelectObject(hdc, hFont);
-        
-        int y = topMargin;
-        int linesOnPage = 0;
-        
-        while (currentLine < totalLines && linesOnPage < linesPerPage) {
-            const std::wstring& lineText = lines[currentLine];
-            TextOutW(hdc, leftMargin, y, lineText.c_str(), static_cast<int>(lineText.length()));
-            
-            y += lineHeight;
-            ++currentLine;
-            ++linesOnPage;
+
+        TEXTMETRICW metrics;
+        GetTextMetricsW(hdc, &metrics);
+        int lineHeight = metrics.tmHeight + metrics.tmExternalLeading;
+
+        // Header (centered across full page width, in top margin)
+        if (!pg.headerText.empty()) {
+            std::wstring hdr = expandTokens(pg.headerText, p + 1);
+            int hdrY = (topMarg - lineHeight) / 2;
+            if (hdrY < 0) hdrY = 0;
+            RECT rcH = { 0, hdrY, printerPageW, hdrY + lineHeight };
+            DrawTextW(hdc, hdr.c_str(), static_cast<int>(hdr.length()),
+                      &rcH, DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
         }
-        
+
+        // Body lines
+        int y = topMarg;
+        for (const auto& lineText : lines) {
+            TextOutW(hdc, leftMarg, y, lineText.c_str(),
+                     static_cast<int>(lineText.length()));
+            y += lineHeight;
+        }
+
+        // Footer (in bottom margin)
+        int ftrY = topMarg + printH + (bottomMarg - lineHeight) / 2;
+        if (ftrY + lineHeight > printerPageH) ftrY = printerPageH - lineHeight;
+
+        if (!pg.footerLeft.empty()) {
+            std::wstring fL = expandTokens(pg.footerLeft, p + 1);
+            RECT rcFL = { leftMarg, ftrY, leftMarg + printW, ftrY + lineHeight };
+            DrawTextW(hdc, fL.c_str(), static_cast<int>(fL.length()),
+                      &rcFL, DT_LEFT | DT_SINGLELINE | DT_NOPREFIX);
+        }
+        if (!pg.footerRight.empty()) {
+            std::wstring fR = expandTokens(pg.footerRight, p + 1);
+            RECT rcFR = { leftMarg, ftrY, leftMarg + printW, ftrY + lineHeight };
+            DrawTextW(hdc, fR.c_str(), static_cast<int>(fR.length()),
+                      &rcFR, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+        }
+
+        SelectObject(hdc, GetStockObject(SYSTEM_FONT));
+        DeleteObject(hFont);
         EndPage(hdc);
     }
-    
+
     // Cleanup
     EndDoc(hdc);
-    SelectObject(hdc, hOldFont);
-    DeleteObject(hFont);
     DeleteDC(hdc);
     if (pd.hDevMode) GlobalFree(pd.hDevMode);
     if (pd.hDevNames) GlobalFree(pd.hDevNames);
@@ -1411,21 +1646,21 @@ void MainWindow::OnViewLineNumbers() {
 void MainWindow::OnViewZoomIn() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.zoomLevel = (std::min)(500, settings.zoomLevel + 10);
-    m_editor->ApplyZoom(settings.zoomLevel);
+    if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(settings);
     UpdateStatusBar();
 }
 
 void MainWindow::OnViewZoomOut() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.zoomLevel = (std::max)(25, settings.zoomLevel - 10);
-    m_editor->ApplyZoom(settings.zoomLevel);
+    if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(settings);
     UpdateStatusBar();
 }
 
 void MainWindow::OnViewZoomReset() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.zoomLevel = 100;
-    m_editor->ApplyZoom(100);
+    if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(settings);
     UpdateStatusBar();
 }
 
@@ -1433,8 +1668,8 @@ void MainWindow::OnViewZoomReset() {
 //------------------------------------------------------------------------------
 void MainWindow::OnViewShowWhitespace() {
     bool newState = !m_editor->IsShowWhitespace();
-    m_editor->SetShowWhitespace(newState);
     m_settingsManager->GetSettings().showWhitespace = newState;
+    if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(m_settingsManager->GetSettings());
 }
 
 //------------------------------------------------------------------------------
@@ -1488,11 +1723,12 @@ void MainWindow::OnToolsEditShortcuts() {
         } else {
             auto* activeDoc = m_documentManager->GetActiveDocument();
             if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified && 
-                IsWhitespaceOnly(m_editor->GetText())) {
+                m_editor && IsWhitespaceOnly(m_editor->GetText())) {
                 LoadFile(shortcutsPath);
             } else {
                 m_documentManager->OpenDocument(
                     shortcutsPath, result.content, result.detectedEncoding, result.detectedLineEnding);
+                UpdateActiveEditor();
                 m_currentFile = shortcutsPath;
                 m_isNewFile = false;
                 UpdateTitle();
@@ -2227,22 +2463,22 @@ void MainWindow::OnToolsSettings() {
             settings.fontSize != oldSettings.fontSize ||
             settings.fontWeight != oldSettings.fontWeight ||
             settings.fontItalic != oldSettings.fontItalic) {
-            m_editor->SetFont(settings.fontName, settings.fontSize,
-                              settings.fontWeight, settings.fontItalic);
+            // Apply to all editors (all tabs)
+            if (m_documentManager) {
+                m_documentManager->ApplySettingsToAllEditors(settings);
+            }
         }
         
-        // Apply editor behavior changes
-        if (settings.wordWrap != oldSettings.wordWrap) {
-            m_editor->SetWordWrap(settings.wordWrap);
-        }
-        if (settings.tabSize != oldSettings.tabSize) {
-            m_editor->SetTabSize(settings.tabSize);
-        }
-        if (settings.scrollLines != oldSettings.scrollLines) {
-            m_editor->SetScrollLines(settings.scrollLines);
-        }
-        if (settings.rightToLeft != oldSettings.rightToLeft) {
-            m_editor->SetRTL(settings.rightToLeft);
+        // Apply editor behavior changes (to all tabs)
+        if (settings.wordWrap != oldSettings.wordWrap ||
+            settings.tabSize != oldSettings.tabSize ||
+            settings.scrollLines != oldSettings.scrollLines ||
+            settings.rightToLeft != oldSettings.rightToLeft ||
+            settings.showWhitespace != oldSettings.showWhitespace ||
+            settings.zoomLevel != oldSettings.zoomLevel) {
+            if (m_documentManager) {
+                m_documentManager->ApplySettingsToAllEditors(settings);
+            }
         }
         
         // Apply view changes
@@ -2251,17 +2487,20 @@ void MainWindow::OnToolsSettings() {
             ResizeControls();
         }
         if (settings.showLineNumbers != oldSettings.showLineNumbers) {
-            if (m_lineNumbersGutter) {
+            if (m_lineNumbersGutter && m_editor) {
                 m_lineNumbersGutter->SetFont(m_editor->GetFont());
                 m_lineNumbersGutter->Show(settings.showLineNumbers);
             }
             ResizeControls();
         }
-        if (settings.showWhitespace != oldSettings.showWhitespace) {
-            m_editor->SetShowWhitespace(settings.showWhitespace);
-        }
-        if (settings.zoomLevel != oldSettings.zoomLevel) {
-            m_editor->ApplyZoom(settings.zoomLevel);
+        
+        // Apply auto-save timer changes
+        if (settings.saveStyle != oldSettings.saveStyle ||
+            settings.autoSaveDelayMs != oldSettings.autoSaveDelayMs) {
+            KillTimer(m_hwnd, TIMER_REALSAVE);
+            if (settings.saveStyle == SaveStyle::AutoSave) {
+                SetTimer(m_hwnd, TIMER_REALSAVE, settings.autoSaveDelayMs, nullptr);
+            }
         }
         
         UpdateStatusBar();
@@ -2843,7 +3082,7 @@ void MainWindow::UpdateTitle() {
         auto* activeDoc = m_documentManager->GetActiveDocument();
         if (activeDoc) titleModified = activeDoc->isModified;
     } else {
-        titleModified = m_editor->IsModified();
+        titleModified = m_editor ? m_editor->IsModified() : false;
     }
     if (titleModified) {
         title = L"*";
@@ -2900,6 +3139,7 @@ void MainWindow::UpdateStatusBar() {
     if (!m_hwndStatus || !IsWindowVisible(m_hwndStatus)) {
         return;
     }
+    if (!m_editor) return;
     
     // Line and column
     int line = m_editor->GetCurrentLine() + 1;
@@ -2957,7 +3197,7 @@ void MainWindow::UpdateStatusBar() {
 //------------------------------------------------------------------------------
 void MainWindow::UpdateMenuState() {
     HMENU hMenu = GetMenu(m_hwnd);
-    if (!hMenu) return;
+    if (!hMenu || !m_editor) return;
     
     // Edit menu state
     bool canUndo = m_editor->CanUndo();
@@ -3120,6 +3360,11 @@ bool MainWindow::PromptSaveChanges() {
         return true;
     }
     
+    // Skip the dialog if the user has disabled it
+    if (!m_settingsManager->GetSettings().promptSaveOnClose) {
+        return true;
+    }
+    
     std::wstring message = L"Do you want to save changes";
     if (!m_isNewFile && !m_currentFile.empty()) {
         message += L" to " + FileIO::GetFileName(m_currentFile);
@@ -3198,6 +3443,7 @@ bool MainWindow::LoadFile(const std::wstring& filePath) {
 // Save file
 //------------------------------------------------------------------------------
 bool MainWindow::SaveFile(const std::wstring& filePath) {
+    if (!m_editor) return false;
     std::wstring text = m_editor->GetText();
     
     FileWriteResult result = FileIO::WriteFile(
@@ -3401,6 +3647,7 @@ void MainWindow::AutoSaveCurrentNote() {
 // Load a note into the editor
 //------------------------------------------------------------------------------
 void MainWindow::LoadNoteIntoEditor(const Note& note) {
+    if (!m_editor) return;
     // Save current note if in note mode
     if (m_isNoteMode && m_editor->IsModified()) {
         AutoSaveCurrentNote();
@@ -3450,6 +3697,7 @@ void MainWindow::OnHotkey(int hotkeyId) {
 // Notes -> New Note
 //------------------------------------------------------------------------------
 void MainWindow::OnNotesNew() {
+    if (!m_editor) return;
     // Save current note if in note mode
     if (m_isNoteMode && m_editor->IsModified()) {
         AutoSaveCurrentNote();
@@ -3621,6 +3869,27 @@ void MainWindow::DeleteAutoSaveBackup() {
     if (GetFileAttributesW(autoSavePath.c_str()) != INVALID_FILE_ATTRIBUTES) {
         DeleteFileW(autoSavePath.c_str());
     }
+}
+
+//------------------------------------------------------------------------------
+// Update m_editor pointer and sub-component references on tab switch
+//------------------------------------------------------------------------------
+void MainWindow::UpdateActiveEditor() {
+    Editor* newEditor = m_documentManager ? m_documentManager->GetActiveEditor() : nullptr;
+    if (!newEditor) return;
+    
+    m_editor = newEditor;
+    
+    // Set scroll callback on the new editor
+    m_editor->SetScrollCallback(OnEditorScroll, this);
+    
+    // Update sub-component editor references
+    if (m_findBar) m_findBar->SetEditor(m_editor);
+    if (m_lineNumbersGutter) m_lineNumbersGutter->SetEditor(m_editor);
+    if (m_dialogManager) m_dialogManager->SetEditor(m_editor);
+    
+    // Resize the new editor to fill the content area
+    ResizeControls();
 }
 
 //------------------------------------------------------------------------------
@@ -3938,8 +4207,10 @@ void MainWindow::SaveSession() {
         
         // For untitled or modified tabs, save content to sidecar file
         if (doc->isNewFile || doc->isModified) {
+            // Get the latest text from the document's editor
+            std::wstring textToSave = doc->editor ? doc->editor->GetText() : doc->text;
             std::wstring contentPath = sessionDir + L"session_tab" + std::to_wstring(i) + L".txt";
-            (void)FileIO::WriteFile(contentPath, doc->text, TextEncoding::UTF8, LineEnding::LF);
+            (void)FileIO::WriteFile(contentPath, textToSave, TextEncoding::UTF8, LineEnding::LF);
             writeInt(L"HasSavedContent", 1);
         }
     }
@@ -4001,22 +4272,34 @@ void MainWindow::LoadSession() {
         }
         
         bool hasSavedContent = GetPrivateProfileIntW(section.c_str(), L"HasSavedContent", 0, sessionPath.c_str()) != 0;
+        bool isModified = GetPrivateProfileIntW(section.c_str(), L"IsModified", 0, sessionPath.c_str()) != 0;
         
         std::wstring content;
+        std::wstring cleanContent;  // The on-disk version (for modified detection)
         
         if (!isNewFile && !filePath.empty()) {
             // File-based tab: re-read from disk
             if (GetFileAttributesW(filePath.c_str()) == INVALID_FILE_ATTRIBUTES) continue;
             FileReadResult readResult = FileIO::ReadFile(filePath);
             if (!readResult.success) continue;
-            content = readResult.content;
+            cleanContent = readResult.content;
             encoding = readResult.detectedEncoding;
             lineEnding = readResult.detectedLineEnding;
+            
+            // If the tab had unsaved modifications, load from sidecar instead
+            if (hasSavedContent && isModified) {
+                std::wstring contentPath = sessionDir + L"session_tab" + std::to_wstring(i) + L".txt";
+                FileReadResult sidecarResult = FileIO::ReadFile(contentPath);
+                content = sidecarResult.success ? sidecarResult.content : cleanContent;
+            } else {
+                content = cleanContent;
+            }
         } else if (hasSavedContent) {
             // Untitled/modified: read from sidecar
             std::wstring contentPath = sessionDir + L"session_tab" + std::to_wstring(i) + L".txt";
             FileReadResult readResult = FileIO::ReadFile(contentPath);
             if (readResult.success) content = readResult.content;
+            cleanContent = isNewFile ? L"" : content;
         }
         
         if (i == 0) {
@@ -4036,7 +4319,7 @@ void MainWindow::LoadSession() {
                 doc->isNoteMode = isNoteMode;
                 doc->noteId = noteId;
                 doc->text = content;
-                doc->isModified = GetPrivateProfileIntW(section.c_str(), L"IsModified", 0, sessionPath.c_str()) != 0;
+                doc->isModified = isModified;
                 doc->bookmarks = bookmarks;
                 
                 m_tabBar->SetTabTitle(tabId, doc->GetDisplayTitle());
@@ -4044,11 +4327,31 @@ void MainWindow::LoadSession() {
                 if (isPinned) m_tabBar->SetTabPinned(tabId, true);
                 if (doc->isModified) m_tabBar->SetTabModified(tabId, true);
                 
-                m_editor->SetText(content);
-                m_editor->SetEncoding(encoding);
-                m_editor->SetLineEnding(lineEnding);
-                m_editor->SetModified(doc->isModified);
-                m_editor->SetBookmarks(bookmarks);
+                // Use the document's own editor (per-tab)
+                if (doc->editor) {
+                    doc->editor->SetText(content);
+                    doc->editor->SetEncoding(encoding);
+                    doc->editor->SetLineEnding(lineEnding);
+                    doc->editor->SetModified(doc->isModified);
+                    doc->editor->SetBookmarks(bookmarks);
+                }
+                // Use the editor's normalized text as cleanText so that
+                // the modified-state comparison works correctly. RichEdit
+                // normalizes line endings (e.g. \r\n -> \r), so we must
+                // read back through the editor rather than using the raw
+                // file content which may have different line endings.
+                if (!doc->isModified && doc->editor) {
+                    doc->cleanText = doc->editor->GetText();
+                } else if (doc->editor) {
+                    // For modified docs, temporarily load clean content to
+                    // get the normalized form, then restore modified content
+                    doc->editor->SetText(cleanContent);
+                    doc->cleanText = doc->editor->GetText();
+                    doc->editor->SetText(content);
+                    doc->editor->SetModified(true);
+                } else {
+                    doc->cleanText = cleanContent;
+                }
                 
                 m_currentFile = filePath;
                 m_isNewFile = isNewFile;
@@ -4069,7 +4372,24 @@ void MainWindow::LoadSession() {
                 doc->noteId = noteId;
                 doc->bookmarks = bookmarks;
                 
-                doc->isModified = GetPrivateProfileIntW(section.c_str(), L"IsModified", 0, sessionPath.c_str()) != 0;
+                // OpenDocument() already set cleanText from editor->GetText()
+                // which is correctly normalized for RichEdit. Only override
+                // it for modified docs where cleanContent differs from what
+                // was loaded into the editor.
+                if (isModified && doc->editor) {
+                    doc->editor->SetText(cleanContent);
+                    doc->cleanText = doc->editor->GetText();
+                    doc->editor->SetText(content);
+                    doc->editor->SetModified(true);
+                } else if (!isModified && doc->editor) {
+                    doc->cleanText = doc->editor->GetText();
+                }
+                
+                doc->isModified = isModified;
+                if (doc->editor) {
+                    doc->editor->SetBookmarks(bookmarks);
+                    doc->editor->SetModified(doc->isModified);
+                }
                 if (doc->isModified) {
                     m_tabBar->SetTabModified(tabId, true);
                 }
@@ -4157,6 +4477,7 @@ void MainWindow::RestoreFromTray() {
 void MainWindow::OnTabNew() {
     if (m_documentManager) {
         m_documentManager->NewDocument();
+        UpdateActiveEditor();
         m_currentFile.clear();
         m_isNewFile = true;
         m_isNoteMode = false;
@@ -4189,6 +4510,9 @@ void MainWindow::OnTabSelected(int tabId) {
     
     m_documentManager->SwitchToDocument(tabId);
     
+    // Update the active editor pointer and sub-components
+    UpdateActiveEditor();
+    
     // Update MainWindow state from the new active document
     auto* doc = m_documentManager->GetActiveDocument();
     if (doc) {
@@ -4206,6 +4530,7 @@ void MainWindow::OnTabSelected(int tabId) {
     
     // Update line numbers gutter
     if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
+        m_lineNumbersGutter->SetFont(m_editor->GetFont());
         m_lineNumbersGutter->Update();
     }
 }
@@ -4231,6 +4556,9 @@ void MainWindow::OnTabCloseRequested(int tabId) {
     if (!PromptSaveTab(tabId)) return;
     
     m_documentManager->CloseDocument(tabId);
+    
+    // Update the active editor pointer after closing
+    UpdateActiveEditor();
     
     // Update MainWindow state from new active document
     auto* doc = m_documentManager->GetActiveDocument();
@@ -4305,6 +4633,7 @@ void MainWindow::OnTabCloseAll() {
     }
     
     m_documentManager->CloseAllDocuments();
+    m_editor = nullptr;
     
     // Create a fresh tab
     OnTabNew();
@@ -4368,6 +4697,18 @@ void MainWindow::OnTabDetached(int tabId) {
 
             // Close the tab in current window
             m_documentManager->CloseDocument(tabId);
+            UpdateActiveEditor();
+            
+            // Sync MainWindow state with new active document
+            auto* newDoc = m_documentManager->GetActiveDocument();
+            if (newDoc) {
+                m_currentFile = newDoc->filePath;
+                m_isNewFile = newDoc->isNewFile;
+                m_isNoteMode = newDoc->isNoteMode;
+                m_currentNoteId = newDoc->noteId;
+            }
+            UpdateTitle();
+            UpdateStatusBar();
         }
     } else {
         // Untitled tab - can't easily transfer, just inform user
@@ -4393,6 +4734,11 @@ bool MainWindow::PromptSaveTab(int tabId) {
     
     // An untitled file with whitespace-only content has nothing to save
     if (doc->isNewFile && IsWhitespaceOnly(doc->text)) return true;
+    
+    // Skip the dialog if the user has disabled it
+    if (!m_settingsManager->GetSettings().promptSaveOnClose) {
+        return true;
+    }
     
     // Switch to the tab so user can see it
     if (tabId != m_documentManager->GetActiveTabId()) {

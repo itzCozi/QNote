@@ -35,6 +35,9 @@ public:
     // Create the gutter window
     [[nodiscard]] bool Create(HWND parent, HINSTANCE hInstance, Editor* editor);
     
+    // Update the editor reference (called on tab switch)
+    void SetEditor(Editor* editor) noexcept { m_editor = editor; }
+    
     // Destroy the gutter window
     void Destroy() noexcept;
     

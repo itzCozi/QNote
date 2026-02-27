@@ -38,7 +38,7 @@ BEGIN
         MENUITEM "Open Containing &Folder",     IDM_FILE_OPENCONTAINING
         MENUITEM SEPARATOR
         MENUITEM "Page Set&up...",              IDM_FILE_PAGESETUP
-        MENUITEM "&Print...\tCtrl+P",           IDM_FILE_PRINT
+        MENUITEM "&Print Preview && Print...\tCtrl+P",  IDM_FILE_PRINT
         MENUITEM SEPARATOR
         MENUITEM "&Settings...",              IDM_TOOLS_SETTINGS
         MENUITEM SEPARATOR
@@ -47,7 +47,7 @@ BEGIN
     POPUP "&Edit"
     BEGIN
         MENUITEM "&Undo\tCtrl+Z",               IDM_EDIT_UNDO
-        MENUITEM "&Redo\tCtrl+Y",               IDM_EDIT_REDO
+        MENUITEM "&Redo\tCtrl+Shift+Z",        IDM_EDIT_REDO
         MENUITEM SEPARATOR
         MENUITEM "Cu&t\tCtrl+X",                IDM_EDIT_CUT
         MENUITEM "&Copy\tCtrl+C",               IDM_EDIT_COPY
@@ -206,6 +206,7 @@ BEGIN
     BEGIN
         MENUITEM "Check for &Updates...",    IDM_HELP_CHECKUPDATE
         MENUITEM "Visit &Website",            IDM_HELP_WEBSITE
+        MENUITEM "Report a &Bug...",          IDM_HELP_BUGREPORT
         MENUITEM SEPARATOR
         MENUITEM "&About QNote",             IDM_HELP_ABOUT
     END
@@ -226,7 +227,6 @@ BEGIN
     
     // Edit operations
     "Z",        IDM_EDIT_UNDO,      VIRTKEY, CONTROL
-    "Y",        IDM_EDIT_REDO,      VIRTKEY, CONTROL
     "X",        IDM_EDIT_CUT,       VIRTKEY, CONTROL
     "C",        IDM_EDIT_COPY,      VIRTKEY, CONTROL
     "V",        IDM_EDIT_PASTE,     VIRTKEY, CONTROL
@@ -429,6 +429,11 @@ BEGIN
     COMBOBOX        IDC_SET_MINIMIZE_MODE,78,30,140,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
     AUTOCHECKBOX    "Automatically check for updates on startup",IDC_SET_AUTOUPDATE,18,54,200,10
     AUTOCHECKBOX    "Portable mode (use config.ini next to exe)",IDC_SET_PORTABLE,18,72,200,10
+    AUTOCHECKBOX    "Prompt to save changes on close",IDC_SET_PROMPTSAVE,18,90,200,10
+    LTEXT           "Save style:",IDC_SET_LBL_SAVESTYLE,18,112,45,8
+    COMBOBOX        IDC_SET_SAVESTYLE,68,110,140,60,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Auto-save delay (ms):",IDC_SET_LBL_AUTOSAVEDELAY,18,132,80,8
+    EDITTEXT        IDC_SET_AUTOSAVEDELAY,102,130,45,14,ES_AUTOHSCROLL | ES_NUMBER
 
     // === File Associations Page ===
     AUTOCHECKBOX    ".txt  (Text Files)",IDC_SET_ASSOC_TXT,18,32,140,10
@@ -440,6 +445,70 @@ BEGIN
     AUTOCHECKBOX    ".xml  (XML Files)",IDC_SET_ASSOC_XML,18,128,140,10
     AUTOCHECKBOX    ".csv  (CSV Files)",IDC_SET_ASSOC_CSV,18,144,140,10
     PUSHBUTTON      "Apply Associations",IDC_SET_ASSOC_APPLY,18,164,90,14
+END
+
+//------------------------------------------------------------------------------
+// Print Preview Dialog
+//------------------------------------------------------------------------------
+IDD_PRINTPREVIEW DIALOGEX 0, 0, 530, 400
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Print Preview"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    // Preview area (custom-painted static control)
+    CONTROL         "",IDC_PP_PREVIEW,"Static",SS_OWNERDRAW | SS_NOTIFY | WS_BORDER,7,7,360,380
+
+    // Margins group
+    GROUPBOX        "Margins (inches)",IDC_PP_GRP_MARGINS,375,7,148,100
+    LTEXT           "&Left:",IDC_PP_LBL_LEFT,383,23,25,8
+    EDITTEXT        IDC_PP_MARGIN_LEFT,412,21,40,14,ES_AUTOHSCROLL
+    LTEXT           "&Right:",IDC_PP_LBL_RIGHT,458,23,25,8
+    EDITTEXT        IDC_PP_MARGIN_RIGHT,486,21,30,14,ES_AUTOHSCROLL
+    LTEXT           "&Top:",IDC_PP_LBL_TOP,383,43,25,8
+    EDITTEXT        IDC_PP_MARGIN_TOP,412,41,40,14,ES_AUTOHSCROLL
+    LTEXT           "&Bottom:",IDC_PP_LBL_BOTTOM,458,43,28,8
+    EDITTEXT        IDC_PP_MARGIN_BOTTOM,486,41,30,14,ES_AUTOHSCROLL
+
+    // Header / Footer group
+    GROUPBOX        "Header && Footer",IDC_PP_GRP_HEADFOOT,375,112,148,120
+    LTEXT           "Header:",IDC_PP_LBL_HEADER,383,128,70,8
+    EDITTEXT        IDC_PP_HEADER,383,140,132,14,ES_AUTOHSCROLL
+    LTEXT           "Footer left:",IDC_PP_LBL_FOOTER_LEFT,383,160,50,8
+    EDITTEXT        IDC_PP_FOOTER_LEFT,383,172,132,14,ES_AUTOHSCROLL
+    LTEXT           "Footer right:",IDC_PP_LBL_FOOTER_RIGHT,383,192,50,8
+    EDITTEXT        IDC_PP_FOOTER_RIGHT,383,204,132,14,ES_AUTOHSCROLL
+    LTEXT           "&&f = filename  &&p = page  &&P = pages\n&&d = date  &&t = time",IDC_PP_LBL_HINTS,383,222,132,20
+
+    // Font group
+    GROUPBOX        "Font",IDC_PP_GRP_FONT,375,240,148,45
+    LTEXT           "",IDC_PP_FONT_LABEL,383,255,132,10
+    PUSHBUTTON      "Change...",IDC_PP_FONT_BTN,383,268,55,14
+
+    // Page selection
+    PUSHBUTTON      "< Prev",IDC_PP_PREVPAGE,375,295,40,14
+    LTEXT           "Page 1 of 1",IDC_PP_PAGEINFO,418,297,65,8
+    PUSHBUTTON      "Next >",IDC_PP_NEXTPAGE,483,295,40,14
+    PUSHBUTTON      "Apply to All Pages",IDC_PP_APPLYALL,375,315,100,14
+
+    // Buttons
+    DEFPUSHBUTTON   "&Print...",IDC_PP_PRINT,375,370,68,17
+    PUSHBUTTON      "Cancel",IDCANCEL,450,370,68,17
+END
+
+//------------------------------------------------------------------------------
+// Print Tab Selection Dialog
+//------------------------------------------------------------------------------
+IDD_PRINTTABS DIALOGEX 0, 0, 220, 200
+STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
+CAPTION "Select Tabs to Print"
+FONT 8, "MS Shell Dlg", 400, 0, 0x1
+BEGIN
+    LTEXT           "Select the tabs to include in the printout:",IDC_STATIC,7,7,200,8
+    CONTROL         "",IDC_PT_LIST,"SysListView32",LVS_REPORT | LVS_NOCOLUMNHEADER | WS_BORDER | WS_TABSTOP,7,20,206,145
+    PUSHBUTTON      "Select &All",IDC_PT_SELECTALL,7,172,55,14
+    PUSHBUTTON      "Select &None",IDC_PT_SELECTNONE,67,172,55,14
+    DEFPUSHBUTTON   "OK",IDOK,130,179,40,14
+    PUSHBUTTON      "Cancel",IDCANCEL,175,179,40,14
 END
 
 //------------------------------------------------------------------------------

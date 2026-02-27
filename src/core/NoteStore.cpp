@@ -317,6 +317,7 @@ bool NoteStore::SaveToFile() {
     
     // Convert to UTF-8
     int utf8Len = WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return false;
     std::vector<char> utf8Data(utf8Len);
     WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, utf8Data.data(), utf8Len, nullptr, nullptr);
     
@@ -555,6 +556,11 @@ std::wstring NoteStore::JsonUnescape(const std::wstring& str) {
                         wchar_t c = static_cast<wchar_t>(wcstoul(hex.c_str(), nullptr, 16));
                         result += c;
                         i += 5;
+                    } else {
+                        // Truncated \u escape — preserve literally
+                        result += L'\\';
+                        result += L'u';
+                        i++;
                     }
                     break;
                 default:

@@ -110,8 +110,8 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
     // Set text limit to maximum (RichEdit uses different message)
     SendMessageW(m_hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
     
-    // Set undo limit to 100 levels
-    SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, UNDO_LIMIT, 0);
+    // Disable built-in undo (we use our own multi-level system)
+    SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, 0, 0);
     
     // Enable EN_CHANGE notifications (required for RichEdit controls)
     DWORD eventMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
@@ -194,6 +194,9 @@ void Editor::SetText(std::wstring_view text) {
         SetModified(false);
 
         SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+
+        // Clear undo history - this is a fresh document load
+        ClearUndoHistory();
     }
 }
 
@@ -210,6 +213,9 @@ void Editor::Clear() noexcept {
         SetModified(false);
 
         SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+
+        // Clear undo history
+        ClearUndoHistory();
     }
 }
 
@@ -268,41 +274,191 @@ void Editor::ReplaceSelection(std::wstring_view text) {
 }
 
 //------------------------------------------------------------------------------
-// Can undo
+// Can undo (custom stack)
 //------------------------------------------------------------------------------
 bool Editor::CanUndo() const noexcept {
-    if (m_hwndEdit) {
-        return SendMessageW(m_hwndEdit, EM_CANUNDO, 0, 0) != 0;
-    }
-    return false;
+    return !m_undoStack.empty();
 }
 
 //------------------------------------------------------------------------------
-// Can redo (RichEdit supports full redo)
+// Can redo (custom stack)
 //------------------------------------------------------------------------------
 bool Editor::CanRedo() const noexcept {
-    if (m_hwndEdit) {
-        return SendMessageW(m_hwndEdit, EM_CANREDO, 0, 0) != 0;
-    }
-    return false;
+    return !m_redoStack.empty();
 }
 
 //------------------------------------------------------------------------------
-// Undo
+// Undo - restore previous checkpoint
 //------------------------------------------------------------------------------
-void Editor::Undo() noexcept {
-    if (m_hwndEdit) {
-        SendMessageW(m_hwndEdit, EM_UNDO, 0, 0);
+void Editor::Undo() {
+    if (m_undoStack.empty() || !m_hwndEdit) return;
+
+    m_suppressUndo = true;
+
+    // Save current state to redo stack
+    UndoCheckpoint current;
+    current.text = GetText();
+    GetSelection(current.selStart, current.selEnd);
+    current.firstVisibleLine = GetFirstVisibleLine();
+    m_redoStack.push_back(std::move(current));
+
+    // Pop from undo stack
+    UndoCheckpoint& cp = m_undoStack.back();
+
+    // Suppress EN_CHANGE during text restoration
+    DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+
+    SetWindowTextW(m_hwndEdit, cp.text.c_str());
+    ApplyCharFormat();
+
+    // Restore selection
+    SendMessageW(m_hwndEdit, EM_SETSEL, cp.selStart, cp.selEnd);
+
+    // Restore scroll position
+    int currentFirst = GetFirstVisibleLine();
+    if (cp.firstVisibleLine != currentFirst) {
+        SendMessageW(m_hwndEdit, EM_LINESCROLL, 0, cp.firstVisibleLine - currentFirst);
+    }
+    SendMessageW(m_hwndEdit, EM_SCROLLCARET, 0, 0);
+
+    // Re-enable notifications
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+
+    // Mark modified (unless we're back to original text)
+    SetModified(true);
+
+    m_undoStack.pop_back();
+    m_lastEditAction = EditAction::None;
+    m_suppressUndo = false;
+
+    // Notify scroll callback for line numbers update
+    if (m_scrollCallback) {
+        m_scrollCallback(m_scrollCallbackData);
     }
 }
 
 //------------------------------------------------------------------------------
-// Redo (RichEdit supports full redo)
+// Redo - restore next checkpoint
 //------------------------------------------------------------------------------
-void Editor::Redo() noexcept {
-    if (m_hwndEdit) {
-        SendMessageW(m_hwndEdit, EM_REDO, 0, 0);
+void Editor::Redo() {
+    if (m_redoStack.empty() || !m_hwndEdit) return;
+
+    m_suppressUndo = true;
+
+    // Save current state to undo stack
+    UndoCheckpoint current;
+    current.text = GetText();
+    GetSelection(current.selStart, current.selEnd);
+    current.firstVisibleLine = GetFirstVisibleLine();
+    m_undoStack.push_back(std::move(current));
+
+    // Pop from redo stack
+    UndoCheckpoint& cp = m_redoStack.back();
+
+    // Suppress EN_CHANGE during text restoration
+    DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+
+    SetWindowTextW(m_hwndEdit, cp.text.c_str());
+    ApplyCharFormat();
+
+    // Restore selection
+    SendMessageW(m_hwndEdit, EM_SETSEL, cp.selStart, cp.selEnd);
+
+    // Restore scroll position
+    int currentFirst = GetFirstVisibleLine();
+    if (cp.firstVisibleLine != currentFirst) {
+        SendMessageW(m_hwndEdit, EM_LINESCROLL, 0, cp.firstVisibleLine - currentFirst);
     }
+    SendMessageW(m_hwndEdit, EM_SCROLLCARET, 0, 0);
+
+    // Re-enable notifications
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+
+    SetModified(true);
+
+    m_redoStack.pop_back();
+    m_lastEditAction = EditAction::None;
+    m_suppressUndo = false;
+
+    // Notify scroll callback for line numbers update
+    if (m_scrollCallback) {
+        m_scrollCallback(m_scrollCallbackData);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Push undo checkpoint - captures state before a change
+// Groups consecutive same-type edits together like VSCode:
+// - Consecutive typing groups until: enter, pause >2s, or cursor jump
+// - Consecutive deleting groups until: pause >2s or cursor jump
+// - "Other" actions (paste, cut, line ops) always start a new group
+//------------------------------------------------------------------------------
+void Editor::PushUndoCheckpoint(EditAction action, wchar_t ch) {
+    if (m_suppressUndo || !m_hwndEdit) return;
+
+    DWORD now = GetTickCount();
+
+    // Determine if this edit should be grouped with the previous one
+    bool newGroup = true;
+
+    if (action == m_lastEditAction && action != EditAction::Other) {
+        // Same action type - check for grouping
+        DWORD elapsed = now - m_lastEditTime;
+
+        if (action == EditAction::Typing) {
+            // Group typing together unless:
+            // - Enter/newline (always starts new group)
+            // - Pause > 2 seconds
+            if (ch != L'\r' && ch != L'\n' && elapsed < 2000) {
+                newGroup = false;  // Continue grouping
+            }
+        } else if (action == EditAction::Deleting) {
+            // Group deleting together unless pause > 2 seconds
+            if (elapsed < 2000) {
+                newGroup = false;
+            }
+        }
+    }
+
+    m_lastEditAction = action;
+    m_lastEditTime = now;
+
+    if (!newGroup) return;  // Extend current group, don't push new checkpoint
+
+    // Capture current state
+    UndoCheckpoint cp;
+    cp.text = GetText();
+    GetSelection(cp.selStart, cp.selEnd);
+    cp.firstVisibleLine = GetFirstVisibleLine();
+
+    m_undoStack.push_back(std::move(cp));
+
+    // Enforce max undo levels
+    if (static_cast<int>(m_undoStack.size()) > MAX_UNDO_LEVELS) {
+        m_undoStack.erase(m_undoStack.begin());
+    }
+
+    // Clear redo stack on new edit
+    m_redoStack.clear();
+}
+
+//------------------------------------------------------------------------------
+// Seal the current undo group - forces the next edit to start a new group
+//------------------------------------------------------------------------------
+void Editor::SealUndoGroup() {
+    m_lastEditAction = EditAction::None;
+}
+
+//------------------------------------------------------------------------------
+// Clear all undo/redo history
+//------------------------------------------------------------------------------
+void Editor::ClearUndoHistory() {
+    m_undoStack.clear();
+    m_redoStack.clear();
+    m_lastEditAction = EditAction::None;
+    m_lastEditTime = 0;
 }
 
 //------------------------------------------------------------------------------
@@ -310,6 +466,8 @@ void Editor::Redo() noexcept {
 //------------------------------------------------------------------------------
 void Editor::Cut() noexcept {
     if (!m_hwndEdit) return;
+    
+    PushUndoCheckpoint(EditAction::Other);
     
     DWORD start, end;
     GetSelection(start, end);
@@ -635,14 +793,14 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
         // Plain text search
         if (searchUp) {
             if (matchCase) {
-                foundPos = text.rfind(searchStr, searchStart > 0 ? searchStart - 1 : 0);
+                foundPos = text.rfind(searchStr, searchStart);
             } else {
                 // Case-insensitive search backwards
                 std::wstring lowerText = text;
                 std::wstring lowerSearch = searchStr;
                 for (auto& c : lowerText) c = towlower(c);
                 for (auto& c : lowerSearch) c = towlower(c);
-                foundPos = lowerText.rfind(lowerSearch, searchStart > 0 ? searchStart - 1 : 0);
+                foundPos = lowerText.rfind(lowerSearch, searchStart);
             }
             
             if (foundPos == std::wstring::npos && wrapAround) {
@@ -765,8 +923,16 @@ int Editor::ReplaceAll(std::wstring_view searchText, std::wstring_view replaceTe
     }
     
     if (count > 0) {
-        SetText(result);
+        PushUndoCheckpoint(EditAction::Other);
+        // Use SetWindowText directly to avoid clearing undo in SetText()
+        m_suppressUndo = true;
+        DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+        SetWindowTextW(m_hwndEdit, result.c_str());
+        ApplyCharFormat();
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
         SetModified(true);
+        m_suppressUndo = false;
     }
     
     return count;
@@ -803,6 +969,7 @@ void Editor::InsertDateTime() {
     std::wostringstream ss;
     ss << std::put_time(&localTime, L"%H:%M %Y-%m-%d");
     
+    PushUndoCheckpoint(EditAction::Other);
     ReplaceSelection(ss.str());
 }
 
@@ -870,6 +1037,7 @@ void Editor::RecreateControl() {
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
     bool modified = IsModified();
+    bool wasVisible = IsWindowVisible(m_hwndEdit) != FALSE;
     
     // Get current position
     RECT rect;
@@ -880,8 +1048,9 @@ void Editor::RecreateControl() {
     RemoveWindowSubclass(m_hwndEdit, EditSubclassProc, EDIT_SUBCLASS_ID);
     DestroyWindow(m_hwndEdit);
     
-    // Create new control with updated style
-    DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL;
+    // Create new control with updated style (preserve visibility)
+    DWORD style = WS_CHILD | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL;
+    if (wasVisible) style |= WS_VISIBLE;
     if (!m_wordWrap) {
         style |= ES_AUTOHSCROLL | WS_HSCROLL;
     }
@@ -908,8 +1077,8 @@ void Editor::RecreateControl() {
         // Set unlimited text (RichEdit uses different message)
         SendMessageW(m_hwndEdit, EM_EXLIMITTEXT, 0, 0x7FFFFFFE);
         
-        // Set undo limit to 100 levels
-        SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, UNDO_LIMIT, 0);
+        // Disable built-in undo (we use our own multi-level system)
+        SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, 0, 0);
         
         // Apply font
         if (m_font.get()) {
@@ -920,21 +1089,25 @@ void Editor::RecreateControl() {
         // Set tab stops
         SetTabSize(m_tabSize);
         
+        // Suppress EN_CHANGE during text restore
+        DWORD eventMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, eventMask & ~ENM_CHANGE);
+        
         // Restore state
         SetWindowTextW(m_hwndEdit, text.c_str());
         SetSelection(selStart, selEnd);
         SetModified(modified);
         
-        // Re-enable EN_CHANGE notifications (must be done after restoring text
-        // so the restore itself does not trigger a false modification)
-        DWORD eventMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+        // Re-enable EN_CHANGE notifications
         SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, eventMask | ENM_CHANGE | ENM_SCROLL);
 
         // Re-subclass
         SetWindowSubclass(m_hwndEdit, EditSubclassProc, EDIT_SUBCLASS_ID,
                           reinterpret_cast<DWORD_PTR>(this));
         
-        ::SetFocus(m_hwndEdit);
+        if (wasVisible) {
+            ::SetFocus(m_hwndEdit);
+        }
     }
 }
 
@@ -1020,6 +1193,8 @@ std::wstring Editor::GetLineText(int line) const {
 void Editor::DeleteLine() {
     if (!m_hwndEdit) return;
     
+    PushUndoCheckpoint(EditAction::Other);
+    
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
     
@@ -1051,6 +1226,8 @@ void Editor::DeleteLine() {
 //------------------------------------------------------------------------------
 void Editor::DuplicateLine() {
     if (!m_hwndEdit) return;
+    
+    PushUndoCheckpoint(EditAction::Other);
     
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
@@ -1093,6 +1270,8 @@ void Editor::DuplicateLine() {
 //------------------------------------------------------------------------------
 void Editor::MoveLineUp() {
     if (!m_hwndEdit) return;
+    
+    PushUndoCheckpoint(EditAction::Other);
     
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
@@ -1138,6 +1317,8 @@ void Editor::MoveLineUp() {
 //------------------------------------------------------------------------------
 void Editor::MoveLineDown() {
     if (!m_hwndEdit) return;
+    
+    PushUndoCheckpoint(EditAction::Other);
     
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
@@ -1185,6 +1366,8 @@ void Editor::MoveLineDown() {
 void Editor::CopyLineUp() {
     if (!m_hwndEdit) return;
     
+    PushUndoCheckpoint(EditAction::Other);
+    
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
     
@@ -1219,6 +1402,8 @@ void Editor::CopyLineUp() {
 //------------------------------------------------------------------------------
 void Editor::CopyLineDown() {
     if (!m_hwndEdit) return;
+    
+    PushUndoCheckpoint(EditAction::Other);
     
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
@@ -1260,6 +1445,8 @@ void Editor::CopyLineDown() {
 void Editor::InsertLineBelow() {
     if (!m_hwndEdit) return;
     
+    PushUndoCheckpoint(EditAction::Other);
+    
     int curLine = GetCurrentLine();
     int lineStart = GetLineIndex(curLine);
     int lineLen = GetLineLength(curLine);
@@ -1282,6 +1469,8 @@ void Editor::InsertLineBelow() {
 //------------------------------------------------------------------------------
 void Editor::InsertLineAbove() {
     if (!m_hwndEdit) return;
+    
+    PushUndoCheckpoint(EditAction::Other);
     
     int curLine = GetCurrentLine();
     int lineStart = GetLineIndex(curLine);
@@ -1323,6 +1512,8 @@ void Editor::SelectLine() {
 void Editor::IndentSelection() {
     if (!m_hwndEdit) return;
     
+    PushUndoCheckpoint(EditAction::Other);
+    
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
     
@@ -1351,6 +1542,8 @@ void Editor::IndentSelection() {
 //------------------------------------------------------------------------------
 void Editor::UnindentSelection() {
     if (!m_hwndEdit) return;
+    
+    PushUndoCheckpoint(EditAction::Other);
     
     DWORD selStart, selEnd;
     GetSelection(selStart, selEnd);
@@ -1468,6 +1661,13 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             return result;
         }
 
+        case WM_LBUTTONDOWN: {
+            // Mouse click repositions cursor - seal the undo group
+            editor->SealUndoGroup();
+            LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            return result;
+        }
+
         case WM_LBUTTONUP: {
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
             if (editor->m_scrollCallback) {
@@ -1520,6 +1720,52 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             bool ctrlDown = (GetKeyState(VK_CONTROL) & 0x8000) != 0;
             bool shiftDown = (GetKeyState(VK_SHIFT) & 0x8000) != 0;
             bool altDown = (GetKeyState(VK_MENU) & 0x8000) != 0;
+            
+            // --- Undo/Redo handling ---
+            
+            // Ctrl+Z: Undo (also handled via accelerator table → IDM_EDIT_UNDO)
+            if (ctrlDown && !shiftDown && !altDown && wParam == 'Z') {
+                editor->Undo();
+                return 0;
+            }
+            
+            // Ctrl+Shift+Z: Redo (VSCode standard)
+            if (ctrlDown && shiftDown && !altDown && wParam == 'Z') {
+                editor->Redo();
+                return 0;
+            }
+            
+            // --- Backspace / Delete with undo tracking ---
+            
+            if (!ctrlDown && !altDown && wParam == VK_BACK) {
+                editor->PushUndoCheckpoint(EditAction::Deleting);
+                LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return result;
+            }
+            
+            if (!ctrlDown && !altDown && wParam == VK_DELETE) {
+                editor->PushUndoCheckpoint(EditAction::Deleting);
+                LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return result;
+            }
+            
+            // Ctrl+Backspace: delete word left
+            if (ctrlDown && !altDown && wParam == VK_BACK) {
+                editor->PushUndoCheckpoint(EditAction::Other);
+                LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return result;
+            }
+            
+            // Ctrl+Delete: delete word right
+            if (ctrlDown && !altDown && wParam == VK_DELETE) {
+                editor->PushUndoCheckpoint(EditAction::Other);
+                LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
+                return result;
+            }
             
             // --- VS Code-like keyboard shortcuts ---
             
@@ -1607,8 +1853,16 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             
             // Home: Smart Home (toggle first non-whitespace / column 0)
             if (!ctrlDown && !altDown && wParam == VK_HOME) {
+                editor->SealUndoGroup();
                 editor->SmartHome(shiftDown);
                 return 0;
+            }
+            
+            // Arrow keys, Page Up/Down, Ctrl+Home/End: seal undo group
+            if (wParam == VK_UP || wParam == VK_DOWN || wParam == VK_LEFT || wParam == VK_RIGHT ||
+                wParam == VK_PRIOR || wParam == VK_NEXT ||
+                (ctrlDown && (wParam == VK_HOME || wParam == VK_END))) {
+                editor->SealUndoGroup();
             }
             
             // --- Default handling ---
@@ -1634,6 +1888,8 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             }
 
         case WM_PASTE: {
+            // Push undo checkpoint before paste
+            editor->PushUndoCheckpoint(EditAction::Other);
             // Paste may insert multiple lines; update line numbers after paste
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
             if (editor->m_scrollCallback) {
@@ -1645,8 +1901,21 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
         case WM_CHAR: {
             // Suppress control characters from keyboard shortcuts handled in WM_KEYDOWN
             // 0x04 = Ctrl+D, 0x0A = Ctrl+Enter(LF), 0x0B = Ctrl+K, 0x0C = Ctrl+L
-            if (wParam == 0x04 || wParam == 0x0A || wParam == 0x0B || wParam == 0x0C) {
+            // 0x1A = Ctrl+Z, 0x19 = Ctrl+Y (undo/redo handled in WM_KEYDOWN)
+            if (wParam == 0x04 || wParam == 0x0A || wParam == 0x0B || wParam == 0x0C ||
+                wParam == 0x1A || wParam == 0x19) {
                 return 0;
+            }
+            
+            // Push undo checkpoint for character input
+            wchar_t ch = static_cast<wchar_t>(wParam);
+            if (ch == L'\b') {
+                // Backspace already handled in WM_KEYDOWN - suppress WM_CHAR echo
+                return 0;
+            } else if (ch == L'\r') {
+                editor->PushUndoCheckpoint(EditAction::Typing, ch);
+            } else if (ch >= L' ' || ch == L'\t') {
+                editor->PushUndoCheckpoint(EditAction::Typing, ch);
             }
             
             // Auto-indent: when Enter is pressed, copy leading whitespace from current line

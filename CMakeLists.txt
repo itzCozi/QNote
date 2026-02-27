@@ -127,6 +127,7 @@ set(SOURCES
     src/ui/TabBar.cpp
     src/ui/DocumentManager.cpp
     src/ui/SettingsWindow.cpp
+    src/ui/PrintPreviewWindow.cpp
     src/core/Settings.cpp
     src/core/FileIO.cpp
     src/core/NoteStore.cpp
@@ -143,6 +144,7 @@ set(HEADERS
     src/ui/TabBar.h
     src/ui/DocumentManager.h
     src/ui/SettingsWindow.h
+    src/ui/PrintPreviewWindow.h
     src/core/Settings.h
     src/core/FileIO.h
     src/core/NoteStore.h

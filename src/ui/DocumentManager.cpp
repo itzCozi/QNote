@@ -8,31 +8,94 @@
 #include "TabBar.h"
 #include <algorithm>
 
+namespace {
+
+// Normalize line endings to \r to match RichEdit's internal representation.
+// RichEdit converts all line endings (\r\n, \n) to \r when text is loaded
+// via SetWindowTextW.  Any text compared against editor->GetText() must use
+// the same normalization, otherwise the modified-state check produces false
+// positives.
+std::wstring NormalizeForRichEdit(const std::wstring& text) {
+    std::wstring result;
+    result.reserve(text.size());
+    for (size_t i = 0; i < text.size(); i++) {
+        if (text[i] == L'\r') {
+            result += L'\r';
+            // Skip \n in a \r\n pair
+            if (i + 1 < text.size() && text[i + 1] == L'\n') {
+                i++;
+            }
+        } else if (text[i] == L'\n') {
+            result += L'\r';
+        } else {
+            result += text[i];
+        }
+    }
+    return result;
+}
+
+} // anonymous namespace
+
 namespace QNote {
 
 //------------------------------------------------------------------------------
-// Initialize with editor and tab bar references
+// Initialize with parent window info and tab bar reference
 //------------------------------------------------------------------------------
-void DocumentManager::Initialize(Editor* editor, TabBar* tabBar, SettingsManager* settings) {
-    m_editor = editor;
+void DocumentManager::Initialize(HWND parentHwnd, HINSTANCE hInstance, TabBar* tabBar, SettingsManager* settings) {
+    m_parentHwnd = parentHwnd;
+    m_hInstance = hInstance;
     m_tabBar = tabBar;
     m_settings = settings;
+}
+
+//------------------------------------------------------------------------------
+// Create an Editor instance for a document
+//------------------------------------------------------------------------------
+std::unique_ptr<Editor> DocumentManager::CreateEditorForDocument() {
+    auto editor = std::make_unique<Editor>();
+    if (m_settings) {
+        const AppSettings& settings = m_settings->GetSettings();
+        if (!editor->Create(m_parentHwnd, m_hInstance, settings)) {
+            return nullptr;
+        }
+        // Apply current global settings
+        editor->SetShowWhitespace(settings.showWhitespace);
+    } else {
+        AppSettings defaults;
+        if (!editor->Create(m_parentHwnd, m_hInstance, defaults)) {
+            return nullptr;
+        }
+    }
+    // Start hidden; the caller will show the active editor
+    ShowWindow(editor->GetHandle(), SW_HIDE);
+    return editor;
 }
 
 //------------------------------------------------------------------------------
 // Create a new untitled document
 //------------------------------------------------------------------------------
 int DocumentManager::NewDocument() {
-    if (!m_tabBar || !m_editor) return -1;
+    if (!m_tabBar) return -1;
 
     // Save current document state first
     if (m_activeTabId >= 0) {
         SaveCurrentState();
     }
 
+    // Hide the current active editor
+    if (auto* oldDoc = GetActiveDocument()) {
+        if (oldDoc->editor) {
+            ShowWindow(oldDoc->editor->GetHandle(), SW_HIDE);
+        }
+    }
+
     // Create the document state
     DocumentState doc;
     ApplyDefaults(doc);
+
+    // Create a per-tab editor
+    doc.editor = CreateEditorForDocument();
+    if (!doc.editor) return -1;
 
     // Add a tab
     int tabId = m_tabBar->AddTab(doc.GetDisplayTitle());
@@ -44,16 +107,22 @@ int DocumentManager::NewDocument() {
     m_activeTabId = tabId;
     m_tabBar->SetActiveTab(tabId);
 
+    auto& newDoc = m_documents.back();
+    Editor* editor = newDoc.editor.get();
+
     // Clear editor for new document
-    m_editor->Clear();
-    m_editor->SetModified(false);
+    editor->Clear();
+    editor->SetModified(false);
 
     // Record clean text for undo-to-clean detection
-    m_documents.back().cleanText = m_editor->GetText();
-    m_editor->SetEncoding(m_documents.back().encoding);
-    m_editor->SetLineEnding(m_documents.back().lineEnding);
-    m_editor->SetSelection(0, 0);
-    m_editor->SetFocus();
+    newDoc.cleanText = editor->GetText();
+    editor->SetEncoding(newDoc.encoding);
+    editor->SetLineEnding(newDoc.lineEnding);
+    editor->SetSelection(0, 0);
+
+    // Show and focus the new editor
+    ShowWindow(editor->GetHandle(), SW_SHOW);
+    editor->SetFocus();
 
     return tabId;
 }
@@ -65,7 +134,7 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
                                    const std::wstring& content,
                                    TextEncoding encoding,
                                    LineEnding lineEnding) {
-    if (!m_tabBar || !m_editor) return -1;
+    if (!m_tabBar) return -1;
 
     // Check if file is already open
     int existingTab = FindDocumentByPath(filePath);
@@ -79,6 +148,13 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
         SaveCurrentState();
     }
 
+    // Hide the current active editor
+    if (auto* oldDoc = GetActiveDocument()) {
+        if (oldDoc->editor) {
+            ShowWindow(oldDoc->editor->GetHandle(), SW_HIDE);
+        }
+    }
+
     // Create document
     DocumentState doc;
     doc.filePath = filePath;
@@ -87,6 +163,10 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     doc.isModified = false;
     doc.encoding = encoding;
     doc.lineEnding = lineEnding;
+
+    // Create a per-tab editor
+    doc.editor = CreateEditorForDocument();
+    if (!doc.editor) return -1;
 
     // Extract filename for tab title
     std::wstring title = doc.GetDisplayTitle();
@@ -100,16 +180,22 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     m_activeTabId = tabId;
     m_tabBar->SetActiveTab(tabId);
 
+    auto& newDoc = m_documents.back();
+    Editor* editor = newDoc.editor.get();
+
     // Load into editor
-    m_editor->SetText(content);
-    m_editor->SetEncoding(encoding);
-    m_editor->SetLineEnding(lineEnding);
-    m_editor->SetModified(false);
-    m_editor->SetSelection(0, 0);
-    m_editor->SetFocus();
+    editor->SetText(content);
+    editor->SetEncoding(encoding);
+    editor->SetLineEnding(lineEnding);
+    editor->SetModified(false);
+    editor->SetSelection(0, 0);
+
+    // Show and focus the new editor
+    ShowWindow(editor->GetHandle(), SW_SHOW);
+    editor->SetFocus();
 
     // Record clean text for undo-to-clean detection
-    m_documents.back().cleanText = m_editor->GetText();
+    newDoc.cleanText = editor->GetText();
 
     return tabId;
 }
@@ -123,7 +209,7 @@ void DocumentManager::CloseDocument(int tabId) {
 
     bool wasActive = (tabId == m_activeTabId);
 
-    // Remove document
+    // The document's unique_ptr<Editor> will be destroyed when erased
     m_documents.erase(m_documents.begin() + idx);
 
     // Remove from tab bar
@@ -147,16 +233,21 @@ bool DocumentManager::SwitchToDocument(int tabId) {
     int idx = FindDocumentIndex(tabId);
     if (idx < 0) return false;
 
-    // Save current state
+    // Save current state and hide current editor
     if (m_activeTabId >= 0) {
         SaveCurrentState();
+        if (auto* oldDoc = GetActiveDocument()) {
+            if (oldDoc->editor) {
+                ShowWindow(oldDoc->editor->GetHandle(), SW_HIDE);
+            }
+        }
     }
 
     // Switch
     m_activeTabId = tabId;
     m_tabBar->SetActiveTab(tabId);
 
-    // Restore new document's state
+    // Show and restore the new document's editor
     RestoreState(tabId);
 
     return true;
@@ -166,25 +257,25 @@ bool DocumentManager::SwitchToDocument(int tabId) {
 // Save current editor state to the active document
 //------------------------------------------------------------------------------
 void DocumentManager::SaveCurrentState() {
-    if (!m_editor) return;
-
     DocumentState* doc = GetActiveDocument();
-    if (!doc) return;
+    if (!doc || !doc->editor) return;
 
-    doc->text = m_editor->GetText();
+    Editor* editor = doc->editor.get();
+
+    doc->text = editor->GetText();
     doc->isModified = (doc->text != doc->cleanText);
-    doc->encoding = m_editor->GetEncoding();
-    doc->lineEnding = m_editor->GetLineEnding();
+    doc->encoding = editor->GetEncoding();
+    doc->lineEnding = editor->GetLineEnding();
 
     // Save cursor position
     DWORD start = 0, end = 0;
-    m_editor->GetSelection(start, end);
+    editor->GetSelection(start, end);
     doc->cursorStart = start;
     doc->cursorEnd = end;
-    doc->firstVisibleLine = m_editor->GetFirstVisibleLine();
+    doc->firstVisibleLine = editor->GetFirstVisibleLine();
 
     // Save bookmarks
-    doc->bookmarks = m_editor->GetBookmarks();
+    doc->bookmarks = editor->GetBookmarks();
 
     // Update tab bar state
     if (m_tabBar) {
@@ -194,33 +285,18 @@ void DocumentManager::SaveCurrentState() {
 
 //------------------------------------------------------------------------------
 // Restore a document's state into the editor
+// With per-tab editors, the RichEdit control already holds the content and
+// undo/redo history.  We just need to show the HWND and focus it.
 //------------------------------------------------------------------------------
 void DocumentManager::RestoreState(int tabId) {
-    if (!m_editor) return;
-
     DocumentState* doc = GetDocument(tabId);
-    if (!doc) return;
+    if (!doc || !doc->editor) return;
 
-    // Restore content
-    m_editor->SetText(doc->text);
-    m_editor->SetEncoding(doc->encoding);
-    m_editor->SetLineEnding(doc->lineEnding);
-    m_editor->SetModified(doc->isModified);
+    Editor* editor = doc->editor.get();
 
-    // Restore cursor position
-    m_editor->SetSelection(doc->cursorStart, doc->cursorEnd);
-
-    // Restore scroll position
-    if (doc->firstVisibleLine > 0) {
-        m_editor->GoToLine(doc->firstVisibleLine);
-        // Re-set the cursor to its saved position (GoToLine changes it)
-        m_editor->SetSelection(doc->cursorStart, doc->cursorEnd);
-    }
-
-    // Restore bookmarks
-    m_editor->SetBookmarks(doc->bookmarks);
-
-    m_editor->SetFocus();
+    // Show the editor for this tab
+    ShowWindow(editor->GetHandle(), SW_SHOW);
+    editor->SetFocus();
 }
 
 //------------------------------------------------------------------------------
@@ -277,11 +353,11 @@ void DocumentManager::SetDocumentModified(int tabId, bool modified) {
     DocumentState* doc = GetDocument(tabId);
     if (doc) {
         doc->isModified = modified;
-        if (!modified && m_editor) {
+        if (!modified) {
             // When marking as not-modified (e.g. after save), update the clean text
             // so future undo-to-clean detection uses the current content as baseline
-            if (tabId == m_activeTabId) {
-                doc->cleanText = m_editor->GetText();
+            if (doc->editor) {
+                doc->cleanText = doc->editor->GetText();
             } else {
                 doc->cleanText = doc->text;
             }
@@ -339,21 +415,21 @@ void DocumentManager::SetDocumentNoteMode(int tabId, bool isNoteMode, const std:
 // Sync modified state from editor to active document
 //------------------------------------------------------------------------------
 void DocumentManager::SyncModifiedState() {
-    if (!m_editor) return;
-
     DocumentState* doc = GetActiveDocument();
-    if (!doc) return;
+    if (!doc || !doc->editor) return;
+
+    Editor* editor = doc->editor.get();
 
     // Determine modified state purely by comparing current text against the
     // clean (saved/loaded) text.  This ensures the indicator only appears when
     // content has actually been added or removed, regardless of what the
     // RichEdit EM_GETMODIFY flag reports.
-    std::wstring currentText = m_editor->GetText();
+    std::wstring currentText = editor->GetText();
     bool modified = (currentText != doc->cleanText);
 
     // Keep the RichEdit flag in sync with our content-based check
-    if (m_editor->IsModified() != modified) {
-        m_editor->SetModified(modified);
+    if (editor->IsModified() != modified) {
+        editor->SetModified(modified);
     }
 
     if (doc->isModified != modified) {
@@ -368,12 +444,13 @@ void DocumentManager::SyncModifiedState() {
 // Reset the active document to a fresh untitled state
 //------------------------------------------------------------------------------
 void DocumentManager::ResetActiveDocument() {
-    if (!m_editor || !m_tabBar) return;
+    if (!m_tabBar) return;
 
     DocumentState* doc = GetActiveDocument();
-    if (!doc) return;
+    if (!doc || !doc->editor) return;
 
     int tabId = doc->tabId;
+    Editor* editor = doc->editor.get();
 
     // Reset all document state
     doc->text.clear();
@@ -400,12 +477,12 @@ void DocumentManager::ResetActiveDocument() {
     m_tabBar->SetTabPinned(tabId, false);
 
     // Clear editor
-    m_editor->Clear();
-    m_editor->SetEncoding(doc->encoding);
-    m_editor->SetLineEnding(doc->lineEnding);
-    m_editor->SetSelection(0, 0);
-    m_editor->SetBookmarks({});
-    m_editor->SetFocus();
+    editor->Clear();
+    editor->SetEncoding(doc->encoding);
+    editor->SetLineEnding(doc->lineEnding);
+    editor->SetSelection(0, 0);
+    editor->SetBookmarks({});
+    editor->SetFocus();
 }
 
 //------------------------------------------------------------------------------
@@ -460,6 +537,37 @@ bool DocumentManager::HasUnsavedDocuments() const {
         if (doc.isModified) return true;
     }
     return false;
+}
+
+//------------------------------------------------------------------------------
+// Get the active document's editor
+//------------------------------------------------------------------------------
+Editor* DocumentManager::GetActiveEditor() {
+    DocumentState* doc = GetActiveDocument();
+    return doc ? doc->editor.get() : nullptr;
+}
+
+const Editor* DocumentManager::GetActiveEditor() const {
+    const DocumentState* doc = GetActiveDocument();
+    return doc ? doc->editor.get() : nullptr;
+}
+
+//------------------------------------------------------------------------------
+// Apply global settings (font, word wrap, etc.) to all editors
+//------------------------------------------------------------------------------
+void DocumentManager::ApplySettingsToAllEditors(const AppSettings& settings) {
+    for (auto& doc : m_documents) {
+        if (!doc.editor) continue;
+        Editor* editor = doc.editor.get();
+        editor->SetFont(settings.fontName, settings.fontSize,
+                        settings.fontWeight, settings.fontItalic);
+        editor->SetWordWrap(settings.wordWrap);
+        editor->SetTabSize(settings.tabSize);
+        editor->SetScrollLines(settings.scrollLines);
+        editor->SetRTL(settings.rightToLeft);
+        editor->SetShowWhitespace(settings.showWhitespace);
+        editor->ApplyZoom(settings.zoomLevel);
+    }
 }
 
 //------------------------------------------------------------------------------

@@ -156,6 +156,12 @@ bool SettingsManager::Load() {
     if (m_settings.minimizeMode < 0 || m_settings.minimizeMode > 1) m_settings.minimizeMode = 1;
     m_settings.autoUpdate = ParseBool(L"Behavior", L"AutoUpdate", false);
     m_settings.portableMode = ParseBool(L"Behavior", L"PortableMode", m_settings.portableMode);
+    m_settings.promptSaveOnClose = ParseBool(L"Behavior", L"PromptSaveOnClose", true);
+    int saveStyleVal = ParseInt(L"Behavior", L"SaveStyle", 0);
+    m_settings.saveStyle = (saveStyleVal == 1) ? SaveStyle::AutoSave : SaveStyle::Manual;
+    m_settings.autoSaveDelayMs = ParseInt(L"Behavior", L"AutoSaveDelayMs", 5000);
+    if (m_settings.autoSaveDelayMs < 1000) m_settings.autoSaveDelayMs = 1000;
+    if (m_settings.autoSaveDelayMs > 60000) m_settings.autoSaveDelayMs = 60000;
     
     // View state
     m_settings.alwaysOnTop = ParseBool(L"View", L"AlwaysOnTop", false);
@@ -224,6 +230,9 @@ bool SettingsManager::Save() {
     WriteInt(L"Behavior", L"MinimizeMode", m_settings.minimizeMode);
     WriteBool(L"Behavior", L"AutoUpdate", m_settings.autoUpdate);
     WriteBool(L"Behavior", L"PortableMode", m_settings.portableMode);
+    WriteBool(L"Behavior", L"PromptSaveOnClose", m_settings.promptSaveOnClose);
+    WriteInt(L"Behavior", L"SaveStyle", (m_settings.saveStyle == SaveStyle::AutoSave) ? 1 : 0);
+    WriteInt(L"Behavior", L"AutoSaveDelayMs", m_settings.autoSaveDelayMs);
     
     // View state
     WriteBool(L"View", L"AlwaysOnTop", m_settings.alwaysOnTop);

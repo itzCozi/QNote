@@ -39,7 +39,10 @@ static constexpr int DEFAULTS_PAGE_IDS[] = {
 
 static constexpr int BEHAVIOR_PAGE_IDS[] = {
     IDC_SET_LBL_MINIMIZE, IDC_SET_MINIMIZE_MODE,
-    IDC_SET_AUTOUPDATE, IDC_SET_PORTABLE
+    IDC_SET_AUTOUPDATE, IDC_SET_PORTABLE,
+    IDC_SET_PROMPTSAVE,
+    IDC_SET_LBL_SAVESTYLE, IDC_SET_SAVESTYLE,
+    IDC_SET_LBL_AUTOSAVEDELAY, IDC_SET_AUTOSAVEDELAY
 };
 
 static constexpr int FILEASSOC_PAGE_IDS[] = {
@@ -104,6 +107,14 @@ INT_PTR CALLBACK SettingsWindow::DlgProc(HWND hwnd, UINT msg, WPARAM wParam, LPA
                     return TRUE;
                 case IDC_SET_ASSOC_APPLY:
                     if (s_instance) s_instance->OnApplyAssociations();
+                    return TRUE;
+                case IDC_SET_SAVESTYLE:
+                    if (HIWORD(wParam) == CBN_SELCHANGE && s_instance) {
+                        HWND hwndSS = GetDlgItem(hwnd, IDC_SET_SAVESTYLE);
+                        bool isAuto = (SendMessageW(hwndSS, CB_GETCURSEL, 0, 0) == 1);
+                        EnableWindow(GetDlgItem(hwnd, IDC_SET_AUTOSAVEDELAY), isAuto);
+                        EnableWindow(GetDlgItem(hwnd, IDC_SET_LBL_AUTOSAVEDELAY), isAuto);
+                    }
                     return TRUE;
             }
             break;
@@ -305,6 +316,23 @@ void SettingsWindow::InitControlsFromSettings() {
         m_editSettings.autoUpdate ? BST_CHECKED : BST_UNCHECKED);
     CheckDlgButton(m_hwnd, IDC_SET_PORTABLE,
         m_editSettings.portableMode ? BST_CHECKED : BST_UNCHECKED);
+    CheckDlgButton(m_hwnd, IDC_SET_PROMPTSAVE,
+        m_editSettings.promptSaveOnClose ? BST_CHECKED : BST_UNCHECKED);
+    
+    // Save style combo
+    HWND hwndSaveStyle = GetDlgItem(m_hwnd, IDC_SET_SAVESTYLE);
+    SendMessageW(hwndSaveStyle, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Manual (Ctrl+S)"));
+    SendMessageW(hwndSaveStyle, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Auto Save"));
+    SendMessageW(hwndSaveStyle, CB_SETCURSEL,
+        (m_editSettings.saveStyle == SaveStyle::AutoSave) ? 1 : 0, 0);
+    
+    // Auto-save delay
+    SetDlgItemInt(m_hwnd, IDC_SET_AUTOSAVEDELAY, m_editSettings.autoSaveDelayMs, FALSE);
+    
+    // Show/hide delay field based on save style
+    bool isAutoSave = (m_editSettings.saveStyle == SaveStyle::AutoSave);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_SET_AUTOSAVEDELAY), isAutoSave);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_SET_LBL_AUTOSAVEDELAY), isAutoSave);
     
     // --- File Associations page ---
     // Check which extensions are currently associated
@@ -389,6 +417,16 @@ void SettingsWindow::ReadControlsToSettings() {
     
     m_editSettings.autoUpdate = IsDlgButtonChecked(m_hwnd, IDC_SET_AUTOUPDATE) == BST_CHECKED;
     m_editSettings.portableMode = IsDlgButtonChecked(m_hwnd, IDC_SET_PORTABLE) == BST_CHECKED;
+    m_editSettings.promptSaveOnClose = IsDlgButtonChecked(m_hwnd, IDC_SET_PROMPTSAVE) == BST_CHECKED;
+    
+    // Save style
+    HWND hwndSaveStyle = GetDlgItem(m_hwnd, IDC_SET_SAVESTYLE);
+    int ssIdx = static_cast<int>(SendMessageW(hwndSaveStyle, CB_GETCURSEL, 0, 0));
+    m_editSettings.saveStyle = (ssIdx == 1) ? SaveStyle::AutoSave : SaveStyle::Manual;
+    
+    // Auto-save delay
+    int delay = static_cast<int>(GetDlgItemInt(m_hwnd, IDC_SET_AUTOSAVEDELAY, nullptr, FALSE));
+    m_editSettings.autoSaveDelayMs = (std::max)(1000, (std::min)(60000, delay));
 }
 
 //------------------------------------------------------------------------------

@@ -781,19 +781,19 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
     // Draw modified indicator as a perfectly centered filled circle
     if (tab.isModified) {
         int dotRadius = Scale(3);
-        int dotCenterY = (textRc.top + textRc.bottom) / 2;
+        int dotCenterY = (textRc.top + textRc.bottom) / 2 - 1;
         int dotCenterX = textRc.left + dotRadius;
         HBRUSH dotBrush = CreateSolidBrush(CLR_MODIFIED);
         HPEN dotPen = CreatePen(PS_SOLID, 1, CLR_MODIFIED);
         HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, dotBrush));
         HPEN oldPen2 = static_cast<HPEN>(SelectObject(hdc, dotPen));
         Ellipse(hdc, dotCenterX - dotRadius, dotCenterY - dotRadius,
-                     dotCenterX + dotRadius, dotCenterY + dotRadius);
+                     dotCenterX + dotRadius + 5, dotCenterY + dotRadius + 5);
         SelectObject(hdc, oldBrush);
         SelectObject(hdc, oldPen2);
         DeleteObject(dotBrush);
         DeleteObject(dotPen);
-        textRc.left += dotRadius * 2 + Scale(5);  // Space after dot
+        textRc.left += dotRadius * 2 + Scale(12);  // Space after dot
     }
 
     // Build display text
@@ -863,7 +863,7 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
 void TabBar::DrawNewTabButton(HDC hdc, const RECT& rc, bool isHovered) {
     RECT btnRc = rc;
     btnRc.bottom -= 1;  // Leave room for bottom border line
-    HBRUSH brush = CreateSolidBrush(CLR_TAB_HOVER);
+    HBRUSH brush = CreateSolidBrush(isHovered ? CLR_NEWTAB_HOVER : CLR_BG);
     FillRect(hdc, &btnRc, brush);
     DeleteObject(brush);
 
@@ -1205,6 +1205,8 @@ static LRESULT CALLBACK RenameEditSubclassProc(HWND hwnd, UINT msg, WPARAM wPara
     } else if (msg == WM_KILLFOCUS) {
         self->EndRename(true);
         return 0;
+    } else if (msg == WM_NCDESTROY) {
+        RemoveWindowSubclass(hwnd, RenameEditSubclassProc, subclassId);
     }
     return DefSubclassProc(hwnd, msg, wParam, lParam);
 }

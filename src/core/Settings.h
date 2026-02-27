@@ -28,6 +28,14 @@ enum class LineEnding {
 };
 
 //------------------------------------------------------------------------------
+// Save style modes
+//------------------------------------------------------------------------------
+enum class SaveStyle {
+    Manual,     // User must save manually (Ctrl+S)
+    AutoSave    // Automatically save after a delay
+};
+
+//------------------------------------------------------------------------------
 // Text encoding types
 //------------------------------------------------------------------------------
 enum class TextEncoding {
@@ -74,6 +82,9 @@ struct AppSettings {
     int minimizeMode = 1;              // 0 = taskbar, 1 = system tray
     bool autoUpdate = false;           // Check for updates on startup
     bool portableMode = false;         // Use config next to exe
+    bool promptSaveOnClose = true;     // Show "Do you want to save?" dialog
+    SaveStyle saveStyle = SaveStyle::Manual;  // Manual or AutoSave
+    int autoSaveDelayMs = 5000;        // Auto-save delay in milliseconds (1000-60000)
     
     // Search settings (persistent across sessions)
     bool searchMatchCase = false;

@@ -28,6 +28,7 @@
 #include "TabBar.h"
 #include "DocumentManager.h"
 #include "SettingsWindow.h"
+#include "PrintPreviewWindow.h"
 
 namespace QNote {
 
@@ -252,6 +253,9 @@ private:
     // Line numbers gutter callback
     static void OnEditorScroll(void* userData);
     
+    // Update m_editor pointer and sub-component references on tab switch
+    void UpdateActiveEditor();
+    
     // Create child controls
     void CreateStatusBar();
     void ResizeControls();
@@ -264,7 +268,7 @@ private:
     
     // Core components
     std::unique_ptr<SettingsManager> m_settingsManager;
-    std::unique_ptr<Editor> m_editor;
+    Editor* m_editor = nullptr;  // Points to active tab's editor (owned by DocumentManager)
     std::unique_ptr<DialogManager> m_dialogManager;
     std::unique_ptr<FindBar> m_findBar;
     std::unique_ptr<LineNumbersGutter> m_lineNumbersGutter;

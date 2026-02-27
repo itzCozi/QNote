@@ -67,7 +67,22 @@ private:
 };
 
 //------------------------------------------------------------------------------
-// Editor control wrapper class (uses RichEdit for multi-level undo/redo)
+// Undo/Redo action types for grouping
+//------------------------------------------------------------------------------
+enum class EditAction { None, Typing, Deleting, Other };
+
+//------------------------------------------------------------------------------
+// Undo checkpoint - captures full editor state at a point in time
+//------------------------------------------------------------------------------
+struct UndoCheckpoint {
+    std::wstring text;
+    DWORD selStart = 0;
+    DWORD selEnd = 0;
+    int firstVisibleLine = 0;
+};
+
+//------------------------------------------------------------------------------
+// Editor control wrapper class (custom multi-level undo/redo)
 //------------------------------------------------------------------------------
 
 class Editor {
@@ -110,11 +125,14 @@ public:
     [[nodiscard]] std::wstring GetSelectedText() const;
     void ReplaceSelection(std::wstring_view text);
     
-    // Clipboard operations
+    // Undo/Redo (custom multi-level, VSCode-style)
     [[nodiscard]] bool CanUndo() const noexcept;
     [[nodiscard]] bool CanRedo() const noexcept;
-    void Undo() noexcept;
-    void Redo() noexcept;
+    void Undo();
+    void Redo();
+    void PushUndoCheckpoint(EditAction action, wchar_t ch = 0);
+    void ClearUndoHistory();
+    void SealUndoGroup();
     void Cut() noexcept;
     void Copy() noexcept;
     void Paste() noexcept;
@@ -264,8 +282,13 @@ private:
     ScrollCallback m_scrollCallback = nullptr;
     void* m_scrollCallbackData = nullptr;
     
-    // Undo limit
-    static constexpr int UNDO_LIMIT = 100;
+    // Custom undo/redo system
+    std::vector<UndoCheckpoint> m_undoStack;
+    std::vector<UndoCheckpoint> m_redoStack;
+    EditAction m_lastEditAction = EditAction::None;
+    DWORD m_lastEditTime = 0;
+    bool m_suppressUndo = false;
+    static constexpr int MAX_UNDO_LEVELS = 200;
     
     // RichEdit library handle
     static HMODULE s_hRichEditLib;

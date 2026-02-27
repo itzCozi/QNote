@@ -57,6 +57,9 @@ public:
     // Initialize with parent window and editor reference
     void Initialize(HWND parent, HINSTANCE hInstance, Editor* editor, AppSettings* settings) noexcept;
     
+    // Update the editor reference (called on tab switch)
+    void SetEditor(Editor* editor) noexcept { m_editor = editor; }
+    
     // Show Find dialog (modeless)
     void ShowFindDialog();
     

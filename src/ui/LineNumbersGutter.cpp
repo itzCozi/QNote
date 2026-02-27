@@ -313,7 +313,7 @@ void LineNumbersGutter::OnPaint() {
             // Draw bookmark marker (blue circle in left margin)
             if (bookmarks.count(lineIndex)) {
                 int cy = lineY + m_lineHeight / 2;
-                int cx = m_leftPadding / 2 + 2;
+                int cx = m_leftPadding / 2 + 5;
                 int r = (std::min)(m_lineHeight / 2 - 2, 5);
                 if (r < 2) r = 2;
                 HBRUSH bmBrush = CreateSolidBrush(RGB(60, 130, 214));

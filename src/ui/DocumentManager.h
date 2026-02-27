@@ -17,11 +17,12 @@
 #include <set>
 
 #include "Settings.h"  // Needed for TextEncoding, LineEnding enums
+#include "Editor.h"    // Needed for per-tab Editor instances
+#include <memory>
 
 namespace QNote {
 
 // Forward declarations to reduce include dependencies
-class Editor;
 class TabBar;
 
 //------------------------------------------------------------------------------
@@ -57,6 +58,9 @@ struct DocumentState {
     // Bookmarks
     std::set<int> bookmarks;
 
+    // Per-tab editor instance (owns its own RichEdit HWND and undo/redo stack)
+    std::unique_ptr<Editor> editor;
+
     // Get the display title for this document
     [[nodiscard]] std::wstring GetDisplayTitle() const {
         if (!customTitle.empty()) {
@@ -86,8 +90,15 @@ public:
     DocumentManager(const DocumentManager&) = delete;
     DocumentManager& operator=(const DocumentManager&) = delete;
 
-    // Initialize with editor and tab bar references
-    void Initialize(Editor* editor, TabBar* tabBar, SettingsManager* settings);
+    // Initialize with parent window info and tab bar reference
+    void Initialize(HWND parentHwnd, HINSTANCE hInstance, TabBar* tabBar, SettingsManager* settings);
+
+    // Get the active document's editor
+    [[nodiscard]] Editor* GetActiveEditor();
+    [[nodiscard]] const Editor* GetActiveEditor() const;
+
+    // Apply global settings (font, word wrap, etc.) to all editors
+    void ApplySettingsToAllEditors(const AppSettings& settings);
 
     // Document operations
     int NewDocument();                                     // Create a new untitled document, returns tab id
@@ -139,11 +150,15 @@ private:
     // Apply default settings to a new document
     void ApplyDefaults(DocumentState& doc);
 
+    // Create an Editor instance for a document
+    std::unique_ptr<Editor> CreateEditorForDocument();
+
     // Find document by tab id (internal)
     int FindDocumentIndex(int tabId) const;
 
 private:
-    Editor* m_editor = nullptr;
+    HWND m_parentHwnd = nullptr;
+    HINSTANCE m_hInstance = nullptr;
     TabBar* m_tabBar = nullptr;
     SettingsManager* m_settings = nullptr;
 
