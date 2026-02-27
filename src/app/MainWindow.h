@@ -294,6 +294,7 @@ private:
     
     // System tray
     NOTIFYICONDATAW m_trayIcon = {};
+    bool m_forceQuit = false;  // When true, OnClose always quits (bypasses minimize-to-tray)
     bool m_trayIconCreated = false;
     bool m_minimizedToTray = false;
     

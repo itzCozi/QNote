@@ -247,6 +247,8 @@
 #define IDC_SET_SAVESTYLE               1246
 #define IDC_SET_LBL_AUTOSAVEDELAY       1247
 #define IDC_SET_AUTOSAVEDELAY           1248
+#define IDC_SET_LBL_CLOSEMODE           1249
+#define IDC_SET_CLOSEMODE               1260
 
 // Settings dialog - File Associations page
 #define IDC_SET_ASSOC_TXT               1250

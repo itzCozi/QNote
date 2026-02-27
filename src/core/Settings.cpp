@@ -154,6 +154,8 @@ bool SettingsManager::Load() {
     // Behavior section
     m_settings.minimizeMode = ParseInt(L"Behavior", L"MinimizeMode", 1);
     if (m_settings.minimizeMode < 0 || m_settings.minimizeMode > 1) m_settings.minimizeMode = 1;
+    m_settings.closeMode = ParseInt(L"Behavior", L"CloseMode", 0);
+    if (m_settings.closeMode < 0 || m_settings.closeMode > 1) m_settings.closeMode = 0;
     m_settings.autoUpdate = ParseBool(L"Behavior", L"AutoUpdate", false);
     m_settings.portableMode = ParseBool(L"Behavior", L"PortableMode", m_settings.portableMode);
     m_settings.promptSaveOnClose = ParseBool(L"Behavior", L"PromptSaveOnClose", true);
@@ -228,6 +230,7 @@ bool SettingsManager::Save() {
     
     // Behavior section
     WriteInt(L"Behavior", L"MinimizeMode", m_settings.minimizeMode);
+    WriteInt(L"Behavior", L"CloseMode", m_settings.closeMode);
     WriteBool(L"Behavior", L"AutoUpdate", m_settings.autoUpdate);
     WriteBool(L"Behavior", L"PortableMode", m_settings.portableMode);
     WriteBool(L"Behavior", L"PromptSaveOnClose", m_settings.promptSaveOnClose);

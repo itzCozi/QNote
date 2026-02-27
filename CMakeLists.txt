@@ -118,13 +118,26 @@ set(CMAKE_RUNTIME_OUTPUT_DIRECTORY_RELEASE ${CMAKE_BINARY_DIR})
 set(SOURCES
     src/app/main.cpp
     src/app/MainWindow.cpp
+    src/app/MainWindowFile.cpp
+    src/app/MainWindowPrint.cpp
+    src/app/MainWindowEdit.cpp
+    src/app/MainWindowView.cpp
+    src/app/MainWindowTools.cpp
+    src/app/MainWindowNotes.cpp
+    src/app/MainWindowTabs.cpp
+    src/app/MainWindowUI.cpp
     src/ui/Editor.cpp
+    src/ui/EditorSearch.cpp
+    src/ui/EditorLineOps.cpp
+    src/ui/EditorSubclass.cpp
     src/ui/Dialogs.cpp
     src/ui/FindBar.cpp
     src/ui/CaptureWindow.cpp
     src/ui/NoteListWindow.cpp
     src/ui/LineNumbersGutter.cpp
     src/ui/TabBar.cpp
+    src/ui/TabBarPaint.cpp
+    src/ui/TabBarInteraction.cpp
     src/ui/DocumentManager.cpp
     src/ui/SettingsWindow.cpp
     src/ui/PrintPreviewWindow.cpp

@@ -42,7 +42,8 @@ static constexpr int BEHAVIOR_PAGE_IDS[] = {
     IDC_SET_AUTOUPDATE, IDC_SET_PORTABLE,
     IDC_SET_PROMPTSAVE,
     IDC_SET_LBL_SAVESTYLE, IDC_SET_SAVESTYLE,
-    IDC_SET_LBL_AUTOSAVEDELAY, IDC_SET_AUTOSAVEDELAY
+    IDC_SET_LBL_AUTOSAVEDELAY, IDC_SET_AUTOSAVEDELAY,
+    IDC_SET_LBL_CLOSEMODE, IDC_SET_CLOSEMODE
 };
 
 static constexpr int FILEASSOC_PAGE_IDS[] = {
@@ -319,6 +320,12 @@ void SettingsWindow::InitControlsFromSettings() {
     CheckDlgButton(m_hwnd, IDC_SET_PROMPTSAVE,
         m_editSettings.promptSaveOnClose ? BST_CHECKED : BST_UNCHECKED);
     
+    // Close mode combo
+    HWND hwndClose = GetDlgItem(m_hwnd, IDC_SET_CLOSEMODE);
+    SendMessageW(hwndClose, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Quit the application"));
+    SendMessageW(hwndClose, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Minimize to System Tray"));
+    SendMessageW(hwndClose, CB_SETCURSEL, m_editSettings.closeMode, 0);
+    
     // Save style combo
     HWND hwndSaveStyle = GetDlgItem(m_hwnd, IDC_SET_SAVESTYLE);
     SendMessageW(hwndSaveStyle, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Manual (Ctrl+S)"));
@@ -418,6 +425,11 @@ void SettingsWindow::ReadControlsToSettings() {
     m_editSettings.autoUpdate = IsDlgButtonChecked(m_hwnd, IDC_SET_AUTOUPDATE) == BST_CHECKED;
     m_editSettings.portableMode = IsDlgButtonChecked(m_hwnd, IDC_SET_PORTABLE) == BST_CHECKED;
     m_editSettings.promptSaveOnClose = IsDlgButtonChecked(m_hwnd, IDC_SET_PROMPTSAVE) == BST_CHECKED;
+    
+    // Close mode
+    HWND hwndClose = GetDlgItem(m_hwnd, IDC_SET_CLOSEMODE);
+    m_editSettings.closeMode = static_cast<int>(SendMessageW(hwndClose, CB_GETCURSEL, 0, 0));
+    if (m_editSettings.closeMode < 0) m_editSettings.closeMode = 0;
     
     // Save style
     HWND hwndSaveStyle = GetDlgItem(m_hwnd, IDC_SET_SAVESTYLE);

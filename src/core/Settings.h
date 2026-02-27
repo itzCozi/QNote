@@ -80,6 +80,7 @@ struct AppSettings {
     
     // Behavior settings
     int minimizeMode = 1;              // 0 = taskbar, 1 = system tray
+    int closeMode = 0;                 // 0 = quit the app, 1 = minimize to system tray
     bool autoUpdate = false;           // Check for updates on startup
     bool portableMode = false;         // Use config next to exe
     bool promptSaveOnClose = true;     // Show "Do you want to save?" dialog
