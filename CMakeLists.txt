@@ -144,6 +144,7 @@ set(SOURCES
     src/core/Settings.cpp
     src/core/FileIO.cpp
     src/core/NoteStore.cpp
+    src/core/SpellChecker.cpp
 )
 
 set(HEADERS
@@ -161,6 +162,7 @@ set(HEADERS
     src/core/Settings.h
     src/core/FileIO.h
     src/core/NoteStore.h
+    src/core/SpellChecker.h
     src/resources/resource.h
 )
 

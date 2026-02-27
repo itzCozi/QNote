@@ -60,6 +60,7 @@ std::unique_ptr<Editor> DocumentManager::CreateEditorForDocument() {
         }
         // Apply current global settings
         editor->SetShowWhitespace(settings.showWhitespace);
+        editor->SetSpellCheck(settings.spellCheckEnabled);
     } else {
         AppSettings defaults;
         if (!editor->Create(m_parentHwnd, m_hInstance, defaults)) {
@@ -566,6 +567,7 @@ void DocumentManager::ApplySettingsToAllEditors(const AppSettings& settings) {
         editor->SetScrollLines(settings.scrollLines);
         editor->SetRTL(settings.rightToLeft);
         editor->SetShowWhitespace(settings.showWhitespace);
+        editor->SetSpellCheck(settings.spellCheckEnabled);
         editor->ApplyZoom(settings.zoomLevel);
     }
 }

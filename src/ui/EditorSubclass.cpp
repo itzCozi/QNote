@@ -6,6 +6,7 @@
 #include "Editor.h"
 #include "../resources/resource.h"
 #include <CommCtrl.h>
+#include <windowsx.h>
 
 namespace QNote {
 
@@ -23,9 +24,14 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
     switch (msg) {
         case WM_PAINT: {
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
-            if (editor->m_showWhitespace) {
+            if (editor->m_showWhitespace || editor->m_spellCheckEnabled) {
                 HDC hdc = GetDC(hwnd);
-                editor->DrawWhitespace(hdc);
+                if (editor->m_showWhitespace) {
+                    editor->DrawWhitespace(hdc);
+                }
+                if (editor->m_spellCheckEnabled) {
+                    editor->DrawSpellCheck(hdc);
+                }
                 ReleaseDC(hwnd, hdc);
             }
             // Sync line-number gutter on every repaint so it tracks
@@ -115,6 +121,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (!ctrlDown && !altDown && wParam == VK_BACK) {
                 editor->PushUndoCheckpoint(EditAction::Deleting);
                 LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                editor->m_spellDirty = true;
                 if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
                 return result;
             }
@@ -122,6 +129,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (!ctrlDown && !altDown && wParam == VK_DELETE) {
                 editor->PushUndoCheckpoint(EditAction::Deleting);
                 LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                editor->m_spellDirty = true;
                 if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
                 return result;
             }
@@ -130,6 +138,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (ctrlDown && !altDown && wParam == VK_BACK) {
                 editor->PushUndoCheckpoint(EditAction::Other);
                 LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                editor->m_spellDirty = true;
                 if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
                 return result;
             }
@@ -138,6 +147,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (ctrlDown && !altDown && wParam == VK_DELETE) {
                 editor->PushUndoCheckpoint(EditAction::Other);
                 LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                editor->m_spellDirty = true;
                 if (editor->m_scrollCallback) editor->m_scrollCallback(editor->m_scrollCallbackData);
                 return result;
             }
@@ -256,6 +266,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             // WM_CUT has the same value; both should trigger line number update
             {
                 LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+                editor->m_spellDirty = true;
                 if (editor->m_scrollCallback) {
                     editor->m_scrollCallback(editor->m_scrollCallbackData);
                 }
@@ -267,6 +278,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             editor->PushUndoCheckpoint(EditAction::Other);
             // Paste may insert multiple lines; update line numbers after paste
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            editor->m_spellDirty = true;
             if (editor->m_scrollCallback) {
                 editor->m_scrollCallback(editor->m_scrollCallbackData);
             }
@@ -325,19 +337,258 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 if (editor->m_scrollCallback) {
                     editor->m_scrollCallback(editor->m_scrollCallbackData);
                 }
+                editor->m_spellDirty = true;
                 return result;
             }
 
             // Content change may affect line numbers
             LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
+            editor->m_spellDirty = true;
             if (editor->m_scrollCallback) {
                 editor->m_scrollCallback(editor->m_scrollCallbackData);
             }
             return result;
         }
+
+        case WM_CONTEXTMENU: {
+            int screenX = GET_X_LPARAM(lParam);
+            int screenY = GET_Y_LPARAM(lParam);
+
+            // Handle keyboard-invoked context menu (coordinates are -1, -1)
+            if (screenX == -1 && screenY == -1) {
+                DWORD selStart, selEnd;
+                editor->GetSelection(selStart, selEnd);
+                POINTL pt = {};
+                SendMessageW(hwnd, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&pt), selStart);
+                POINT sp = { pt.x, pt.y };
+                ClientToScreen(hwnd, &sp);
+                screenX = sp.x;
+                screenY = sp.y;
+            }
+
+            // Get character position from click
+            POINT clientPt = { screenX, screenY };
+            ScreenToClient(hwnd, &clientPt);
+            LRESULT charPos = SendMessageW(hwnd, EM_CHARFROMPOS, 0, reinterpret_cast<LPARAM>(&clientPt));
+            int charIndex = static_cast<int>(charPos);
+
+            // Build context menu
+            HMENU hMenu = CreatePopupMenu();
+            bool isMisspelledWord = false;
+
+            if (editor->m_spellCheckEnabled && editor->m_spellChecker.IsAvailable() && charIndex >= 0) {
+                // Find word at click position
+                int line = static_cast<int>(SendMessageW(hwnd, EM_LINEFROMCHAR, charIndex, 0));
+                int lineStart = static_cast<int>(SendMessageW(hwnd, EM_LINEINDEX, line, 0));
+                int lineLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, lineStart, 0));
+
+                if (lineLen > 0) {
+                    std::vector<wchar_t> buf(lineLen + 2, 0);
+                    *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
+                    SendMessageW(hwnd, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data()));
+
+                    int posInLine = charIndex - lineStart;
+                    if (posInLine >= 0 && posInLine < lineLen && iswalpha(buf[posInLine])) {
+                        // Walk backward to find word start
+                        int ws = posInLine;
+                        while (ws > 0 && (iswalpha(buf[ws - 1]) || buf[ws - 1] == L'\''))
+                            ws--;
+                        // Walk forward to find word end
+                        int we = posInLine;
+                        while (we < lineLen - 1 && (iswalpha(buf[we + 1]) || buf[we + 1] == L'\''))
+                            we++;
+
+                        std::wstring word(buf.data() + ws, we - ws + 1);
+                        if (!word.empty() && !editor->m_spellChecker.CheckWord(word)) {
+                            editor->m_rightClickWord = word;
+                            editor->m_rightClickStart = static_cast<DWORD>(lineStart + ws);
+                            editor->m_rightClickLen = static_cast<DWORD>(we - ws + 1);
+                            editor->m_rightClickSuggestions = editor->m_spellChecker.GetSuggestions(word, 5);
+
+                            if (!editor->m_rightClickSuggestions.empty()) {
+                                for (int i = 0; i < static_cast<int>(editor->m_rightClickSuggestions.size()); i++) {
+                                    AppendMenuW(hMenu, MF_STRING, IDM_SPELL_SUGGEST_BASE + i,
+                                                editor->m_rightClickSuggestions[i].c_str());
+                                }
+                                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                            } else {
+                                AppendMenuW(hMenu, MF_STRING | MF_GRAYED, 0, L"(No suggestions)");
+                                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                            }
+                            AppendMenuW(hMenu, MF_STRING, IDM_SPELL_ADDWORD, L"Add to Dictionary");
+                            AppendMenuW(hMenu, MF_STRING, IDM_SPELL_IGNORE, L"Ignore Word");
+                            isMisspelledWord = true;
+                        }
+                    }
+                }
+            }
+
+            // Standard edit context menu items (only when not on a misspelled word)
+            if (!isMisspelledWord) {
+                DWORD selStart, selEnd;
+                editor->GetSelection(selStart, selEnd);
+                bool hasSelection = (selStart != selEnd);
+                bool canPaste = IsClipboardFormatAvailable(CF_UNICODETEXT) ||
+                                IsClipboardFormatAvailable(CF_TEXT);
+
+                AppendMenuW(hMenu, MF_STRING | (editor->CanUndo() ? 0 : MF_GRAYED), IDM_EDIT_UNDO, L"&Undo");
+                AppendMenuW(hMenu, MF_STRING | (editor->CanRedo() ? 0 : MF_GRAYED), IDM_EDIT_REDO, L"&Redo");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_CUT, L"Cu&t");
+                AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_COPY, L"&Copy");
+                AppendMenuW(hMenu, MF_STRING | (canPaste ? 0 : MF_GRAYED), IDM_EDIT_PASTE, L"&Paste");
+                AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_DELETE, L"&Delete");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING, IDM_EDIT_SELECTALL, L"Select &All");
+            }
+
+            int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
+                                     screenX, screenY, 0, hwnd, nullptr);
+            DestroyMenu(hMenu);
+
+            if (cmd >= IDM_SPELL_SUGGEST_BASE &&
+                cmd < IDM_SPELL_SUGGEST_BASE + static_cast<int>(editor->m_rightClickSuggestions.size())) {
+                // Replace misspelled word with selected suggestion
+                int idx = cmd - IDM_SPELL_SUGGEST_BASE;
+                editor->PushUndoCheckpoint(EditAction::Other);
+                editor->SetSelection(editor->m_rightClickStart,
+                                     editor->m_rightClickStart + editor->m_rightClickLen);
+                editor->ReplaceSelection(editor->m_rightClickSuggestions[idx]);
+                editor->m_spellDirty = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            } else if (cmd == IDM_SPELL_ADDWORD) {
+                editor->m_spellChecker.AddWord(editor->m_rightClickWord);
+                editor->m_spellDirty = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            } else if (cmd == IDM_SPELL_IGNORE) {
+                editor->m_spellChecker.IgnoreWord(editor->m_rightClickWord);
+                editor->m_spellDirty = true;
+                InvalidateRect(hwnd, nullptr, FALSE);
+            } else if (cmd) {
+                switch (cmd) {
+                    case IDM_EDIT_UNDO: editor->Undo(); break;
+                    case IDM_EDIT_REDO: editor->Redo(); break;
+                    case IDM_EDIT_CUT: editor->Cut(); break;
+                    case IDM_EDIT_COPY: editor->Copy(); break;
+                    case IDM_EDIT_PASTE: editor->Paste(); break;
+                    case IDM_EDIT_DELETE: editor->Delete(); break;
+                    case IDM_EDIT_SELECTALL: editor->SelectAll(); break;
+                }
+            }
+            return 0;
+        }
     }
     
     return DefSubclassProc(hwnd, msg, wParam, lParam);
+}
+
+//------------------------------------------------------------------------------
+// Set spell check enabled
+//------------------------------------------------------------------------------
+void Editor::SetSpellCheck(bool enable) {
+    m_spellCheckEnabled = enable;
+    if (enable && !m_spellChecker.IsAvailable()) {
+        if (!m_spellChecker.Initialize()) {
+            m_spellCheckEnabled = false;
+        }
+    }
+    m_spellDirty = true;
+    if (m_hwndEdit) {
+        InvalidateRect(m_hwndEdit, nullptr, FALSE);
+    }
+}
+
+//------------------------------------------------------------------------------
+// Draw spell check wavy underlines for misspelled words
+//------------------------------------------------------------------------------
+void Editor::DrawSpellCheck(HDC hdc) {
+    if (!m_hwndEdit || !m_spellCheckEnabled || !m_spellChecker.IsAvailable()) return;
+    if (!m_font.get()) return;
+
+    int firstLine = GetFirstVisibleLine();
+
+    RECT clientRect;
+    GetClientRect(m_hwndEdit, &clientRect);
+
+    HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, m_font.get()));
+    TEXTMETRICW tm;
+    GetTextMetricsW(hdc, &tm);
+
+    // +2 accounts for partially visible lines at top and bottom of viewport
+    int visibleLines = (clientRect.bottom - clientRect.top) / tm.tmHeight + 2;
+    int totalLines = GetLineCount();
+    int lastLine = (std::min)(firstLine + visibleLines - 1, totalLines - 1);
+
+    // Check cache: recompute only when visible range or text changed
+    if (m_spellDirty || firstLine != m_spellCacheFirstLine || lastLine != m_spellCacheLastLine) {
+        m_spellCacheWords.clear();
+
+        // Get visible text range
+        int rangeStart = GetLineIndex(firstLine);
+        int rangeEndLine = (std::min)(lastLine, totalLines - 1);
+        int rangeEnd = GetLineIndex(rangeEndLine) + GetLineLength(rangeEndLine);
+
+        if (rangeEnd > rangeStart) {
+            // Extract visible text using EM_GETTEXTRANGE
+            int textLen = rangeEnd - rangeStart;
+            std::vector<wchar_t> buffer(textLen + 1, 0);
+            TEXTRANGEW tr = {};
+            tr.chrg.cpMin = rangeStart;
+            tr.chrg.cpMax = rangeEnd;
+            tr.lpstrText = buffer.data();
+            LRESULT len = SendMessageW(m_hwndEdit, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+
+            if (len > 0) {
+                std::wstring visibleText(buffer.data(), static_cast<size_t>(len));
+                m_spellCacheWords = m_spellChecker.CheckText(visibleText, static_cast<DWORD>(rangeStart));
+            }
+        }
+
+        m_spellCacheFirstLine = firstLine;
+        m_spellCacheLastLine = lastLine;
+        m_spellDirty = false;
+    }
+
+    // Draw wavy red underlines for each misspelled word
+    HPEN wavePen = CreatePen(PS_SOLID, 1, RGB(255, 0, 0));
+    HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, wavePen));
+
+    for (const auto& word : m_spellCacheWords) {
+        POINTL ptStart = {};
+        SendMessageW(m_hwndEdit, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&ptStart), word.startPos);
+
+        POINTL ptEnd = {};
+        DWORD endPos = word.startPos + word.length;
+        SendMessageW(m_hwndEdit, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&ptEnd), endPos);
+
+        // If end position is at or before start, estimate it
+        if (ptEnd.x <= ptStart.x) {
+            ptEnd.x = ptStart.x + static_cast<int>(word.length) * tm.tmAveCharWidth;
+            ptEnd.y = ptStart.y;
+        }
+
+        // Clip to client area
+        if (ptStart.y < clientRect.top - tm.tmHeight || ptStart.y > clientRect.bottom) continue;
+        if (ptEnd.x <= clientRect.left || ptStart.x >= clientRect.right) continue;
+
+        int startX = (std::max)(static_cast<int>(ptStart.x), static_cast<int>(clientRect.left));
+        int endX = (std::min)(static_cast<int>(ptEnd.x), static_cast<int>(clientRect.right));
+        int baseY = ptStart.y + tm.tmAscent + 2;
+
+        // Draw zigzag wave pattern
+        MoveToEx(hdc, startX, baseY, nullptr);
+        for (int x = startX + 1; x <= endX; x++) {
+            int phase = (x - startX) % 4;
+            int y = baseY;
+            if (phase == 1) y = baseY + 1;
+            else if (phase == 3) y = baseY - 1;
+            LineTo(hdc, x, y);
+        }
+    }
+
+    SelectObject(hdc, oldPen);
+    DeleteObject(wavePen);
+    SelectObject(hdc, oldFont);
 }
 
 //------------------------------------------------------------------------------

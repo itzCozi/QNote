@@ -124,19 +124,19 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
     // Draw modified indicator as a perfectly centered filled circle
     if (tab.isModified) {
         int dotRadius = Scale(3);
-        int dotCenterY = (textRc.top + textRc.bottom) / 2 - 1;
+        int dotCenterY = (textRc.top + textRc.bottom) / 2;
         int dotCenterX = textRc.left + dotRadius;
         HBRUSH dotBrush = CreateSolidBrush(CLR_MODIFIED);
         HPEN dotPen = CreatePen(PS_SOLID, 1, CLR_MODIFIED);
         HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, dotBrush));
         HPEN oldPen2 = static_cast<HPEN>(SelectObject(hdc, dotPen));
         Ellipse(hdc, dotCenterX - dotRadius, dotCenterY - dotRadius,
-                     dotCenterX + dotRadius + 5, dotCenterY + dotRadius + 5);
+                     dotCenterX + dotRadius + 3, dotCenterY + dotRadius + 3);
         SelectObject(hdc, oldBrush);
         SelectObject(hdc, oldPen2);
         DeleteObject(dotBrush);
         DeleteObject(dotPen);
-        textRc.left += dotRadius * 2 + Scale(12);  // Space after dot
+        textRc.left += dotRadius * 2 + Scale(10);  // Space after dot
     }
 
     // Build display text

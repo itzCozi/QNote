@@ -108,6 +108,7 @@ BEGIN
         MENUITEM "&Status Bar",                 IDM_VIEW_STATUSBAR
         MENUITEM "&Line Numbers",               IDM_VIEW_LINENUMBERS
         MENUITEM "Show &Whitespace",             IDM_VIEW_SHOWWHITESPACE
+        MENUITEM "Spell &Check\tF7",            IDM_VIEW_SPELLCHECK
         MENUITEM SEPARATOR
         MENUITEM "&Always on Top",              IDM_VIEW_ALWAYSONTOP
         MENUITEM "&Full Screen\tF11",           IDM_VIEW_FULLSCREEN
@@ -264,6 +265,9 @@ BEGIN
     VK_F2,      IDM_EDIT_PREVBOOKMARK,   VIRTKEY, SHIFT
     VK_F2,      IDM_EDIT_CLEARBOOKMARKS, VIRTKEY, CONTROL, SHIFT
     
+    // Spell check
+    VK_F7,      IDM_VIEW_SPELLCHECK, VIRTKEY
+
     // New features
     "S",        IDM_FILE_SAVEALL,    VIRTKEY, CONTROL, SHIFT, ALT
     VK_F11,     IDM_VIEW_FULLSCREEN, VIRTKEY
