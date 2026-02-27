@@ -130,6 +130,7 @@ private:
     void OnViewAlwaysOnTop();
     void OnViewFullScreen();
     void OnViewToggleMenuBar();
+    void OnViewSpellCheck();
     
     // Encoding operations
     void OnEncodingChange(TextEncoding encoding);

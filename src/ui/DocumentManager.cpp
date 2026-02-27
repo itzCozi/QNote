@@ -566,6 +566,7 @@ void DocumentManager::ApplySettingsToAllEditors(const AppSettings& settings) {
         editor->SetScrollLines(settings.scrollLines);
         editor->SetRTL(settings.rightToLeft);
         editor->SetShowWhitespace(settings.showWhitespace);
+        editor->SetSpellCheck(settings.spellCheckEnabled);
         editor->ApplyZoom(settings.zoomLevel);
     }
 }

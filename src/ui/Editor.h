@@ -19,6 +19,7 @@
 #include <memory>
 #include <set>
 #include "Settings.h"
+#include "SpellChecker.h"
 
 namespace QNote {
 
@@ -215,6 +216,10 @@ public:
     [[nodiscard]] const std::set<int>& GetBookmarks() const noexcept { return m_bookmarks; }
     void SetBookmarks(const std::set<int>& bookmarks);
     
+    // Spell check
+    void SetSpellCheck(bool enable);
+    [[nodiscard]] bool IsSpellCheckEnabled() const noexcept { return m_spellCheckEnabled; }
+    
     // Line operations (VS Code-like editing)
     void DeleteLine();
     void DuplicateLine();
@@ -246,6 +251,7 @@ private:
     
     // Paint helpers for overlays
     void DrawWhitespace(HDC hdc);
+    void DrawSpellCheck(HDC hdc);
     
     // Helper to get line text content (without line ending)
     [[nodiscard]] std::wstring GetLineText(int line) const;
@@ -275,6 +281,18 @@ private:
     
     // Bookmarks
     std::set<int> m_bookmarks;
+    
+    // Spell check
+    bool m_spellCheckEnabled = false;
+    SpellChecker m_spellChecker;
+    bool m_spellDirty = true;
+    int m_spellCacheFirstLine = -1;
+    int m_spellCacheLastLine = -1;
+    std::vector<MisspelledWord> m_spellCacheWords;
+    std::wstring m_rightClickWord;
+    DWORD m_rightClickStart = 0;
+    DWORD m_rightClickLen = 0;
+    std::vector<std::wstring> m_rightClickSuggestions;
     
     int m_scrollLines = 0;  // Lines per wheel notch (0 = system default)
     

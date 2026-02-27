@@ -128,6 +128,7 @@ bool SettingsManager::Load() {
     m_settings.showStatusBar = ParseBool(L"Editor", L"StatusBar", true);
     m_settings.showLineNumbers = ParseBool(L"Editor", L"LineNumbers", false);
     m_settings.showWhitespace = ParseBool(L"Editor", L"ShowWhitespace", false);
+    m_settings.spellCheckEnabled = ParseBool(L"Editor", L"SpellCheck", false);
     m_settings.fileAutoSave = ParseBool(L"Editor", L"FileAutoSave", true);
     m_settings.rightToLeft = ParseBool(L"Editor", L"RightToLeft", false);
     m_settings.scrollLines = ParseInt(L"Editor", L"ScrollLines", 0);
@@ -220,6 +221,7 @@ bool SettingsManager::Save() {
     WriteBool(L"Editor", L"StatusBar", m_settings.showStatusBar);
     WriteBool(L"Editor", L"LineNumbers", m_settings.showLineNumbers);
     WriteBool(L"Editor", L"ShowWhitespace", m_settings.showWhitespace);
+    WriteBool(L"Editor", L"SpellCheck", m_settings.spellCheckEnabled);
     WriteBool(L"Editor", L"FileAutoSave", m_settings.fileAutoSave);
     WriteBool(L"Editor", L"RightToLeft", m_settings.rightToLeft);
     WriteInt(L"Editor", L"ScrollLines", m_settings.scrollLines);

@@ -70,6 +70,7 @@ struct AppSettings {
     bool showStatusBar = true;
     bool showLineNumbers = false;  // Line numbers gutter
     bool showWhitespace = false;     // Show whitespace characters
+    bool spellCheckEnabled = false;  // Spell check with wavy underlines
     bool fileAutoSave = true;      // Auto-save backup files (.autosave)
     bool rightToLeft = false;  // Right-to-left reading order
     int scrollLines = 0;          // Lines per scroll wheel notch (0 = system default)

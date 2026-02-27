@@ -162,6 +162,7 @@
 #define IDM_VIEW_ALWAYSONTOP            4008
 #define IDM_VIEW_FULLSCREEN             4009
 #define IDM_VIEW_TOGGLEMENUBAR          4010
+#define IDM_VIEW_SPELLCHECK             4011
 
 // Tools menu (additional 2)
 #define IDM_TOOLS_CALCULATE             10021
@@ -173,6 +174,11 @@
 
 // Tools menu (Settings)
 #define IDM_TOOLS_SETTINGS              10020
+
+// Spell check context menu
+#define IDM_SPELL_SUGGEST_BASE          11000   // 11000-11004 for up to 5 suggestions
+#define IDM_SPELL_ADDWORD               11010
+#define IDM_SPELL_IGNORE                11011
 
 // System tray
 #define IDM_TRAY_SHOW                   9001

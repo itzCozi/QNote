@@ -270,4 +270,15 @@ void MainWindow::OnViewToggleMenuBar() {
                 MAKELPARAM(rc.right - rc.left, rc.bottom - rc.top));
 }
 
+//------------------------------------------------------------------------------
+// View -> Spell Check (F7)
+//------------------------------------------------------------------------------
+void MainWindow::OnViewSpellCheck() {
+    auto& settings = m_settingsManager->GetSettings();
+    settings.spellCheckEnabled = !settings.spellCheckEnabled;
+    if (m_documentManager) {
+        m_documentManager->ApplySettingsToAllEditors(settings);
+    }
+}
+
 } // namespace QNote
