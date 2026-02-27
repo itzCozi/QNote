@@ -374,6 +374,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
 
             // Build context menu
             HMENU hMenu = CreatePopupMenu();
+            bool isMisspelledWord = false;
 
             if (editor->m_spellCheckEnabled && editor->m_spellChecker.IsAvailable() && charIndex >= 0) {
                 // Find word at click position
@@ -416,28 +417,30 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                             }
                             AppendMenuW(hMenu, MF_STRING, IDM_SPELL_ADDWORD, L"Add to Dictionary");
                             AppendMenuW(hMenu, MF_STRING, IDM_SPELL_IGNORE, L"Ignore Word");
-                            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                            isMisspelledWord = true;
                         }
                     }
                 }
             }
 
-            // Standard edit context menu items
-            DWORD selStart, selEnd;
-            editor->GetSelection(selStart, selEnd);
-            bool hasSelection = (selStart != selEnd);
-            bool canPaste = IsClipboardFormatAvailable(CF_UNICODETEXT) ||
-                            IsClipboardFormatAvailable(CF_TEXT);
+            // Standard edit context menu items (only when not on a misspelled word)
+            if (!isMisspelledWord) {
+                DWORD selStart, selEnd;
+                editor->GetSelection(selStart, selEnd);
+                bool hasSelection = (selStart != selEnd);
+                bool canPaste = IsClipboardFormatAvailable(CF_UNICODETEXT) ||
+                                IsClipboardFormatAvailable(CF_TEXT);
 
-            AppendMenuW(hMenu, MF_STRING | (editor->CanUndo() ? 0 : MF_GRAYED), IDM_EDIT_UNDO, L"&Undo");
-            AppendMenuW(hMenu, MF_STRING | (editor->CanRedo() ? 0 : MF_GRAYED), IDM_EDIT_REDO, L"&Redo");
-            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_CUT, L"Cu&t");
-            AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_COPY, L"&Copy");
-            AppendMenuW(hMenu, MF_STRING | (canPaste ? 0 : MF_GRAYED), IDM_EDIT_PASTE, L"&Paste");
-            AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_DELETE, L"&Delete");
-            AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
-            AppendMenuW(hMenu, MF_STRING, IDM_EDIT_SELECTALL, L"Select &All");
+                AppendMenuW(hMenu, MF_STRING | (editor->CanUndo() ? 0 : MF_GRAYED), IDM_EDIT_UNDO, L"&Undo");
+                AppendMenuW(hMenu, MF_STRING | (editor->CanRedo() ? 0 : MF_GRAYED), IDM_EDIT_REDO, L"&Redo");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_CUT, L"Cu&t");
+                AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_COPY, L"&Copy");
+                AppendMenuW(hMenu, MF_STRING | (canPaste ? 0 : MF_GRAYED), IDM_EDIT_PASTE, L"&Paste");
+                AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_DELETE, L"&Delete");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING, IDM_EDIT_SELECTALL, L"Select &All");
+            }
 
             int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
                                      screenX, screenY, 0, hwnd, nullptr);

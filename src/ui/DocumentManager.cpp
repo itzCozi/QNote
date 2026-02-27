@@ -60,6 +60,7 @@ std::unique_ptr<Editor> DocumentManager::CreateEditorForDocument() {
         }
         // Apply current global settings
         editor->SetShowWhitespace(settings.showWhitespace);
+        editor->SetSpellCheck(settings.spellCheckEnabled);
     } else {
         AppSettings defaults;
         if (!editor->Create(m_parentHwnd, m_hInstance, defaults)) {
