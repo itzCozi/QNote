@@ -511,6 +511,7 @@ void Editor::DrawSpellCheck(HDC hdc) {
     TEXTMETRICW tm;
     GetTextMetricsW(hdc, &tm);
 
+    // +2 accounts for partially visible lines at top and bottom of viewport
     int visibleLines = (clientRect.bottom - clientRect.top) / tm.tmHeight + 2;
     int totalLines = GetLineCount();
     int lastLine = (std::min)(firstLine + visibleLines - 1, totalLines - 1);
@@ -575,14 +576,9 @@ void Editor::DrawSpellCheck(HDC hdc) {
         MoveToEx(hdc, startX, baseY, nullptr);
         for (int x = startX + 1; x <= endX; x++) {
             int phase = (x - startX) % 4;
-            int y;
-            switch (phase) {
-                case 0: y = baseY; break;
-                case 1: y = baseY + 1; break;
-                case 2: y = baseY; break;
-                case 3: y = baseY - 1; break;
-                default: y = baseY; break;
-            }
+            int y = baseY;
+            if (phase == 1) y = baseY + 1;
+            else if (phase == 3) y = baseY - 1;
             LineTo(hdc, x, y);
         }
     }
