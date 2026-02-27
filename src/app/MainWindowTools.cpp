@@ -1252,9 +1252,18 @@ void MainWindow::OnToolsSpellCheck() {
     int totalIgnored = 0;
     // Track cumulative offset from replacements
     int offsetAdjust = 0;
+    // Track ignored words to skip duplicates in the pre-computed list
+    std::set<std::wstring> ignoredWords;
 
     while (errorIndex < errors.size()) {
         const MisspelledWord& mw = errors[errorIndex];
+
+        // Skip words that were already ignored earlier in this session
+        if (ignoredWords.count(mw.word)) {
+            errorIndex++;
+            continue;
+        }
+
         DWORD adjStart = static_cast<DWORD>(static_cast<int>(mw.startPos) + offsetAdjust);
         DWORD adjEnd = adjStart + mw.length;
 
@@ -1296,6 +1305,7 @@ void MainWindow::OnToolsSpellCheck() {
         } else if (result == IDNO) {
             // Skip / ignore this word
             m_spellChecker.IgnoreWord(mw.word);
+            ignoredWords.insert(mw.word);
             totalIgnored++;
         } else {
             // Cancel
