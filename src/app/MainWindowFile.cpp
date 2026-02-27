@@ -297,7 +297,6 @@ bool MainWindow::LoadFile(const std::wstring& filePath) {
         if (doc) {
             doc->encoding = result.detectedEncoding;
             doc->lineEnding = result.detectedLineEnding;
-            doc->text = result.content;
             doc->isNewFile = false;
             doc->isNoteMode = false;
             doc->noteId.clear();

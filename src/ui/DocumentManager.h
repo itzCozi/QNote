@@ -32,7 +32,6 @@ struct DocumentState {
     int tabId = -1;                        // Associated TabBar tab id
 
     // Content
-    std::wstring text;                     // Document text content
     std::wstring cleanText;                // Text at last save/load (for undo-to-clean detection)
 
     // File info

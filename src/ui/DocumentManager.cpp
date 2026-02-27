@@ -8,34 +8,6 @@
 #include "TabBar.h"
 #include <algorithm>
 
-namespace {
-
-// Normalize line endings to \r to match RichEdit's internal representation.
-// RichEdit converts all line endings (\r\n, \n) to \r when text is loaded
-// via SetWindowTextW.  Any text compared against editor->GetText() must use
-// the same normalization, otherwise the modified-state check produces false
-// positives.
-std::wstring NormalizeForRichEdit(const std::wstring& text) {
-    std::wstring result;
-    result.reserve(text.size());
-    for (size_t i = 0; i < text.size(); i++) {
-        if (text[i] == L'\r') {
-            result += L'\r';
-            // Skip \n in a \r\n pair
-            if (i + 1 < text.size() && text[i + 1] == L'\n') {
-                i++;
-            }
-        } else if (text[i] == L'\n') {
-            result += L'\r';
-        } else {
-            result += text[i];
-        }
-    }
-    return result;
-}
-
-} // anonymous namespace
-
 namespace QNote {
 
 //------------------------------------------------------------------------------
@@ -159,7 +131,6 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     // Create document
     DocumentState doc;
     doc.filePath = filePath;
-    doc.text = content;
     doc.isNewFile = false;
     doc.isModified = false;
     doc.encoding = encoding;
@@ -263,8 +234,8 @@ void DocumentManager::SaveCurrentState() {
 
     Editor* editor = doc->editor.get();
 
-    doc->text = editor->GetText();
-    doc->isModified = (doc->text != doc->cleanText);
+    std::wstring currentText = editor->GetText();
+    doc->isModified = (currentText != doc->cleanText);
     doc->encoding = editor->GetEncoding();
     doc->lineEnding = editor->GetLineEnding();
 
@@ -360,7 +331,7 @@ void DocumentManager::SetDocumentModified(int tabId, bool modified) {
             if (doc->editor) {
                 doc->cleanText = doc->editor->GetText();
             } else {
-                doc->cleanText = doc->text;
+                doc->cleanText.clear();
             }
         }
         if (m_tabBar) {
@@ -454,7 +425,6 @@ void DocumentManager::ResetActiveDocument() {
     Editor* editor = doc->editor.get();
 
     // Reset all document state
-    doc->text.clear();
     doc->cleanText.clear();
     doc->filePath.clear();
     doc->customTitle.clear();

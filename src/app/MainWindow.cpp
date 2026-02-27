@@ -579,7 +579,7 @@ void MainWindow::OnClose() {
         auto ids = m_documentManager->GetAllTabIds();
         for (int id : ids) {
             auto* doc = m_documentManager->GetDocument(id);
-            if (doc && doc->isModified && !(doc->isNewFile && IsWhitespaceOnly(doc->text))) {
+            if (doc && doc->isModified && !(doc->isNewFile && IsWhitespaceOnly(doc->editor ? doc->editor->GetText() : L""))) {
                 if (!settings.promptSaveOnClose) {
                     // Skip the dialog - just discard changes
                     continue;
