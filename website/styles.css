@@ -40,6 +40,7 @@ a:hover {
   .site-links {
     flex-direction: column;
     gap: 0.25rem;
+    padding-bottom: 0.25rem;
   }
 
   .site-links a:not(:last-child)::after {
@@ -54,6 +55,19 @@ h1 img {
   width: auto;
   vertical-align: middle;
   margin-right: 0.5rem;
+}
+
+/* Demo gif */
+.demo-gif {
+  max-width: 80%;
+  border-radius: 4px;
+  margin: 1em 0;
+}
+
+@media (max-width: 480px) {
+  .demo-gif {
+    max-width: 100%;
+  }
 }
 
 /* Release notes markdown */
