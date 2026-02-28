@@ -32,8 +32,9 @@ struct DocumentState {
     int tabId = -1;                        // Associated TabBar tab id
 
     // Content
-    std::wstring text;                     // Document text content
-    std::wstring cleanText;                // Text at last save/load (for undo-to-clean detection)
+    // Note: text content lives in the Editor's RichEdit control.
+    // Use editor->GetText() to access current content.
+    size_t cleanTextHash = 0;              // Hash of text at last save/load (for undo-to-clean detection)
 
     // File info
     std::wstring filePath;                 // File path (empty for untitled)

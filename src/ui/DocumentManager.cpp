@@ -7,6 +7,7 @@
 #include "Editor.h"
 #include "TabBar.h"
 #include <algorithm>
+#include <functional>
 
 namespace {
 
@@ -115,8 +116,8 @@ int DocumentManager::NewDocument() {
     editor->Clear();
     editor->SetModified(false);
 
-    // Record clean text for undo-to-clean detection
-    newDoc.cleanText = editor->GetText();
+    // Record clean hash for undo-to-clean detection
+    newDoc.cleanTextHash = std::hash<std::wstring>{}(editor->GetText());
     editor->SetEncoding(newDoc.encoding);
     editor->SetLineEnding(newDoc.lineEnding);
     editor->SetSelection(0, 0);
@@ -159,7 +160,6 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     // Create document
     DocumentState doc;
     doc.filePath = filePath;
-    doc.text = content;
     doc.isNewFile = false;
     doc.isModified = false;
     doc.encoding = encoding;
@@ -195,8 +195,8 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     ShowWindow(editor->GetHandle(), SW_SHOW);
     editor->SetFocus();
 
-    // Record clean text for undo-to-clean detection
-    newDoc.cleanText = editor->GetText();
+    // Record clean hash for undo-to-clean detection
+    newDoc.cleanTextHash = std::hash<std::wstring>{}(editor->GetText());
 
     return tabId;
 }
@@ -263,8 +263,8 @@ void DocumentManager::SaveCurrentState() {
 
     Editor* editor = doc->editor.get();
 
-    doc->text = editor->GetText();
-    doc->isModified = (doc->text != doc->cleanText);
+    const std::wstring currentText = editor->GetText();
+    doc->isModified = (std::hash<std::wstring>{}(currentText) != doc->cleanTextHash);
     doc->encoding = editor->GetEncoding();
     doc->lineEnding = editor->GetLineEnding();
 
@@ -354,14 +354,8 @@ void DocumentManager::SetDocumentModified(int tabId, bool modified) {
     DocumentState* doc = GetDocument(tabId);
     if (doc) {
         doc->isModified = modified;
-        if (!modified) {
-            // When marking as not-modified (e.g. after save), update the clean text
-            // so future undo-to-clean detection uses the current content as baseline
-            if (doc->editor) {
-                doc->cleanText = doc->editor->GetText();
-            } else {
-                doc->cleanText = doc->text;
-            }
+        if (!modified && doc->editor) {
+            doc->cleanTextHash = std::hash<std::wstring>{}(doc->editor->GetText());
         }
         if (m_tabBar) {
             m_tabBar->SetTabModified(tabId, modified);
@@ -421,12 +415,15 @@ void DocumentManager::SyncModifiedState() {
 
     Editor* editor = doc->editor.get();
 
-    // Determine modified state purely by comparing current text against the
-    // clean (saved/loaded) text.  This ensures the indicator only appears when
-    // content has actually been added or removed, regardless of what the
-    // RichEdit EM_GETMODIFY flag reports.
+    // Fast path: if RichEdit says not modified and we agree, skip hashing
+    if (!editor->IsModified() && !doc->isModified) {
+        return;
+    }
+
+    // Determine modified state by comparing current text hash against the
+    // clean (saved/loaded) text hash.
     std::wstring currentText = editor->GetText();
-    bool modified = (currentText != doc->cleanText);
+    bool modified = (std::hash<std::wstring>{}(currentText) != doc->cleanTextHash);
 
     // Keep the RichEdit flag in sync with our content-based check
     if (editor->IsModified() != modified) {
@@ -454,8 +451,7 @@ void DocumentManager::ResetActiveDocument() {
     Editor* editor = doc->editor.get();
 
     // Reset all document state
-    doc->text.clear();
-    doc->cleanText.clear();
+    doc->cleanTextHash = 0;
     doc->filePath.clear();
     doc->customTitle.clear();
     doc->isNewFile = true;

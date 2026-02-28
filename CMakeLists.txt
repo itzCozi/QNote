@@ -201,6 +201,11 @@ target_link_libraries(QNote PRIVATE
     dwmapi
     uxtheme
     msimg32
+    shlwapi
+    shcore
+    winhttp
+    bcrypt
+    crypt32
 )
 
 #-------------------------------------------------------------------------------

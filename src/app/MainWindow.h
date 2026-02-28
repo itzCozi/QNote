@@ -222,7 +222,7 @@ private:
     // Note store operations
     void InitializeNoteStore();
     void AutoSaveCurrentNote();
-    void LoadNoteIntoEditor(const Note& note);
+    void LoadNoteIntoEditor(const NoteSummary& summary);
     void OpenNoteFromId(const std::wstring& noteId);
     
     // File auto-save operations

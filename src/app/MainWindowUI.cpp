@@ -7,6 +7,7 @@
 #include "resource.h"
 #include <CommCtrl.h>
 #include <shellapi.h>
+#include <functional>
 #include <sstream>
 #include <set>
 #include <winhttp.h>
@@ -501,7 +502,7 @@ void MainWindow::UpdateTitle() {
         if (m_currentNoteId.empty()) {
             title += L"New Note";
         } else if (m_noteStore) {
-            auto note = m_noteStore->GetNote(m_currentNoteId);
+            auto note = m_noteStore->GetNoteSummary(m_currentNoteId);
             if (note) {
                 std::wstring noteTitle = note->GetDisplayTitle();
                 if (note->isPinned) {
@@ -884,7 +885,7 @@ void MainWindow::SaveSession() {
     // Don't save session if there's only one empty untitled tab
     if (ids.size() == 1) {
         auto* doc = m_documentManager->GetDocument(ids[0]);
-        if (doc && doc->isNewFile && !doc->isModified && IsWhitespaceOnly(doc->text)) {
+        if (doc && doc->isNewFile && !doc->isModified && IsWhitespaceOnly(doc->editor ? doc->editor->GetText() : L"")) {
             return;
         }
     }
@@ -938,7 +939,7 @@ void MainWindow::SaveSession() {
         // For untitled or modified tabs, save content to sidecar file
         if (doc->isNewFile || doc->isModified) {
             // Get the latest text from the document's editor
-            std::wstring textToSave = doc->editor ? doc->editor->GetText() : doc->text;
+            std::wstring textToSave = doc->editor ? doc->editor->GetText() : L"";
             std::wstring contentPath = sessionDir + L"session_tab" + std::to_wstring(i) + L".txt";
             (void)FileIO::WriteFile(contentPath, textToSave, TextEncoding::UTF8, LineEnding::LF);
             writeInt(L"HasSavedContent", 1);
@@ -1048,7 +1049,6 @@ void MainWindow::LoadSession() {
                 doc->firstVisibleLine = firstVisibleLine;
                 doc->isNoteMode = isNoteMode;
                 doc->noteId = noteId;
-                doc->text = content;
                 doc->isModified = isModified;
                 doc->bookmarks = bookmarks;
                 
@@ -1071,16 +1071,16 @@ void MainWindow::LoadSession() {
                 // read back through the editor rather than using the raw
                 // file content which may have different line endings.
                 if (!doc->isModified && doc->editor) {
-                    doc->cleanText = doc->editor->GetText();
+                    doc->cleanTextHash = std::hash<std::wstring>{}(doc->editor->GetText());
                 } else if (doc->editor) {
                     // For modified docs, temporarily load clean content to
                     // get the normalized form, then restore modified content
                     doc->editor->SetText(cleanContent);
-                    doc->cleanText = doc->editor->GetText();
+                    doc->cleanTextHash = std::hash<std::wstring>{}(doc->editor->GetText());
                     doc->editor->SetText(content);
                     doc->editor->SetModified(true);
                 } else {
-                    doc->cleanText = cleanContent;
+                    doc->cleanTextHash = std::hash<std::wstring>{}(cleanContent);
                 }
                 
                 m_currentFile = filePath;
@@ -1108,11 +1108,11 @@ void MainWindow::LoadSession() {
                 // was loaded into the editor.
                 if (isModified && doc->editor) {
                     doc->editor->SetText(cleanContent);
-                    doc->cleanText = doc->editor->GetText();
+                    doc->cleanTextHash = std::hash<std::wstring>{}(doc->editor->GetText());
                     doc->editor->SetText(content);
                     doc->editor->SetModified(true);
                 } else if (!isModified && doc->editor) {
-                    doc->cleanText = doc->editor->GetText();
+                    doc->cleanTextHash = std::hash<std::wstring>{}(doc->editor->GetText());
                 }
                 
                 doc->isModified = isModified;

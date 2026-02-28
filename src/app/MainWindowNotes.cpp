@@ -92,8 +92,8 @@ void MainWindow::InitializeNoteStore() {
     m_noteListWindow = std::make_unique<NoteListWindow>();
     (void)m_noteListWindow->Create(m_hInstance, m_hwnd, m_noteStore.get());
     // Set callback for opening notes
-    m_noteListWindow->SetOpenCallback([this](const Note& note) {
-        LoadNoteIntoEditor(note);
+    m_noteListWindow->SetOpenCallback([this](const NoteSummary& summary) {
+        LoadNoteIntoEditor(summary);
     });
     
     // Register global hotkey (Ctrl+Shift+Q)
@@ -131,21 +131,25 @@ void MainWindow::AutoSaveCurrentNote() {
 //------------------------------------------------------------------------------
 // Load a note into the editor
 //------------------------------------------------------------------------------
-void MainWindow::LoadNoteIntoEditor(const Note& note) {
-    if (!m_editor) return;
+void MainWindow::LoadNoteIntoEditor(const NoteSummary& summary) {
+    if (!m_editor || !m_noteStore) return;
     // Save current note if in note mode
     if (m_isNoteMode && m_editor->IsModified()) {
         AutoSaveCurrentNote();
     }
     
+    // Load full note content on demand
+    auto note = m_noteStore->GetNote(summary.id);
+    if (!note) return;
+    
     // Switch to note mode
     m_isNoteMode = true;
-    m_currentNoteId = note.id;
+    m_currentNoteId = note->id;
     m_currentFile.clear();
     m_isNewFile = true;
     
     // Load note content
-    m_editor->SetText(note.content);
+    m_editor->SetText(note->content);
     m_editor->SetModified(false);
     m_editor->SetSelection(0, 0);
     m_editor->SetFocus();
@@ -263,7 +267,7 @@ void MainWindow::OnNotesPinCurrent() {
     
     (void)m_noteStore->TogglePin(m_currentNoteId);
     
-    auto note = m_noteStore->GetNote(m_currentNoteId);
+    auto note = m_noteStore->GetNoteSummary(m_currentNoteId);
     if (note) {
         std::wstring msg = note->isPinned ? L"Note pinned." : L"Note unpinned.";
         // Could show in status bar instead
@@ -293,7 +297,7 @@ void MainWindow::OnNotesDeleteCurrent() {
         return;
     }
     
-    auto note = m_noteStore->GetNote(m_currentNoteId);
+    auto note = m_noteStore->GetNoteSummary(m_currentNoteId);
     std::wstring title = note ? note->GetDisplayTitle() : L"this note";
     
     std::wstring msg = L"Delete \"" + title + L"\"? This cannot be undone.";

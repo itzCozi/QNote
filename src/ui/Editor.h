@@ -306,7 +306,9 @@ private:
     EditAction m_lastEditAction = EditAction::None;
     DWORD m_lastEditTime = 0;
     bool m_suppressUndo = false;
-    static constexpr int MAX_UNDO_LEVELS = 200;
+    static constexpr int MAX_UNDO_LEVELS = 100;
+    static constexpr size_t MAX_UNDO_MEMORY_BYTES = 50 * 1024 * 1024;  // 50 MB cap
+    size_t m_undoMemoryUsage = 0;
     
     // RichEdit library handle
     static HMODULE s_hRichEditLib;

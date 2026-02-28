@@ -181,20 +181,16 @@ BEGIN
             MENUITEM "&Minify JSON",                  IDM_TOOLS_MINIFYJSON
         END
         MENUITEM SEPARATOR
-        POPUP "&Checksums"
-        BEGIN
-            MENUITEM "MD5 Hash...",                  IDM_TOOLS_CHECKSUM
-            MENUITEM "SHA-256 Hash...",               IDM_TOOLS_CHECKSUM
-        END
         MENUITEM SEPARATOR
         MENUITEM "&Word Count...",                    IDM_TOOLS_WORDCOUNT
+        MENUITEM "&Checksum (File/Selection)...",      IDM_TOOLS_CHECKSUM
+        MENUITEM SEPARATOR
         MENUITEM "Insert &Lorem Ipsum",               IDM_TOOLS_INSERTLOREM
         MENUITEM "Insert &GUID/UUID",                 IDM_TOOLS_INSERTGUID
         MENUITEM "Insert &File Path...",               IDM_TOOLS_INSERTFILEPATH
         MENUITEM SEPARATOR
         MENUITEM "&Calculate Selection",               IDM_TOOLS_CALCULATE
         MENUITEM "Convert Line Endings (Selection)",  IDM_TOOLS_CONVERTEOL_SEL
-        MENUITEM "Checksum (File/Selection)...",       IDM_TOOLS_CHECKSUM
         MENUITEM "&Run Selection as Command",          IDM_TOOLS_RUNSELECTION
         MENUITEM SEPARATOR
         MENUITEM "&Copy File Path to Clipboard",      IDM_TOOLS_COPYFILEPATH
@@ -456,49 +452,122 @@ END
 //------------------------------------------------------------------------------
 // Print Preview Dialog
 //------------------------------------------------------------------------------
-IDD_PRINTPREVIEW DIALOGEX 0, 0, 530, 400
+IDD_PRINTPREVIEW DIALOGEX 0, 0, 690, 510
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Print Preview"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     // Preview area (custom-painted static control)
-    CONTROL         "",IDC_PP_PREVIEW,"Static",SS_OWNERDRAW | SS_NOTIFY | WS_BORDER,7,7,360,380
+    CONTROL         "",IDC_PP_PREVIEW,"Static",SS_OWNERDRAW | SS_NOTIFY | WS_BORDER,7,7,360,490
 
-    // Margins group
-    GROUPBOX        "Margins (inches)",IDC_PP_GRP_MARGINS,375,7,148,100
-    LTEXT           "&Left:",IDC_PP_LBL_LEFT,383,23,25,8
-    EDITTEXT        IDC_PP_MARGIN_LEFT,412,21,40,14,ES_AUTOHSCROLL
-    LTEXT           "&Right:",IDC_PP_LBL_RIGHT,458,23,25,8
-    EDITTEXT        IDC_PP_MARGIN_RIGHT,486,21,30,14,ES_AUTOHSCROLL
-    LTEXT           "&Top:",IDC_PP_LBL_TOP,383,43,25,8
-    EDITTEXT        IDC_PP_MARGIN_TOP,412,41,40,14,ES_AUTOHSCROLL
-    LTEXT           "&Bottom:",IDC_PP_LBL_BOTTOM,458,43,28,8
-    EDITTEXT        IDC_PP_MARGIN_BOTTOM,486,41,30,14,ES_AUTOHSCROLL
+    // ===== RIGHT COLUMN =====
+
+    // Margins group (all 4 on one row)
+    GROUPBOX        "Margins (inches)",IDC_PP_GRP_MARGINS,375,7,308,42
+    LTEXT           "&Left:",IDC_PP_LBL_LEFT,383,23,20,8
+    EDITTEXT        IDC_PP_MARGIN_LEFT,403,21,38,14,ES_AUTOHSCROLL
+    LTEXT           "&Right:",IDC_PP_LBL_RIGHT,448,23,22,8
+    EDITTEXT        IDC_PP_MARGIN_RIGHT,472,21,38,14,ES_AUTOHSCROLL
+    LTEXT           "&Top:",IDC_PP_LBL_TOP,517,23,16,8
+    EDITTEXT        IDC_PP_MARGIN_TOP,535,21,38,14,ES_AUTOHSCROLL
+    LTEXT           "&Bottom:",IDC_PP_LBL_BOTTOM,580,23,28,8
+    EDITTEXT        IDC_PP_MARGIN_BOTTOM,610,21,38,14,ES_AUTOHSCROLL
 
     // Header / Footer group
-    GROUPBOX        "Header && Footer",IDC_PP_GRP_HEADFOOT,375,112,148,120
-    LTEXT           "Header:",IDC_PP_LBL_HEADER,383,128,70,8
-    EDITTEXT        IDC_PP_HEADER,383,140,132,14,ES_AUTOHSCROLL
-    LTEXT           "Footer left:",IDC_PP_LBL_FOOTER_LEFT,383,160,50,8
-    EDITTEXT        IDC_PP_FOOTER_LEFT,383,172,132,14,ES_AUTOHSCROLL
-    LTEXT           "Footer right:",IDC_PP_LBL_FOOTER_RIGHT,383,192,50,8
-    EDITTEXT        IDC_PP_FOOTER_RIGHT,383,204,132,14,ES_AUTOHSCROLL
-    LTEXT           "&&f = filename  &&p = page  &&P = pages\n&&d = date  &&t = time",IDC_PP_LBL_HINTS,383,222,132,20
+    GROUPBOX        "Header && Footer",IDC_PP_GRP_HEADFOOT,375,54,308,95
+    LTEXT           "Header:",IDC_PP_LBL_HEADER,383,67,70,8
+    EDITTEXT        IDC_PP_HEADER,383,78,292,14,ES_AUTOHSCROLL
+    LTEXT           "Footer left:",IDC_PP_LBL_FOOTER_LEFT,383,97,50,8
+    EDITTEXT        IDC_PP_FOOTER_LEFT,383,108,155,14,ES_AUTOHSCROLL
+    LTEXT           "Footer right:",IDC_PP_LBL_FOOTER_RIGHT,544,97,50,8
+    EDITTEXT        IDC_PP_FOOTER_RIGHT,544,108,131,14,ES_AUTOHSCROLL
+    LTEXT           "&&f = filename  &&p = page  &&P = pages  &&d = date  &&t = time",IDC_PP_LBL_HINTS,383,128,292,12
 
     // Font group
-    GROUPBOX        "Font",IDC_PP_GRP_FONT,375,240,148,45
-    LTEXT           "",IDC_PP_FONT_LABEL,383,255,132,10
-    PUSHBUTTON      "Change...",IDC_PP_FONT_BTN,383,268,55,14
+    GROUPBOX        "Font",IDC_PP_GRP_FONT,375,154,150,45
+    LTEXT           "",IDC_PP_FONT_LABEL,383,168,135,10
+    PUSHBUTTON      "Change...",IDC_PP_FONT_BTN,383,181,55,14
+
+    // Options group (Line Numbers with styling, Line Spacing)
+    GROUPBOX        "Options",IDC_PP_GRP_OPTIONS,531,154,152,55
+    AUTOCHECKBOX    "Line numbers",IDC_PP_LINE_NUMBERS,539,168,58,10
+    PUSHBUTTON      "Color",IDC_PP_LINENUM_COLOR,600,166,35,14
+    PUSHBUTTON      "Font",IDC_PP_LINENUM_FONT,638,166,38,14
+    LTEXT           "",IDC_PP_LINENUM_FONT_LABEL,539,182,138,10
+    LTEXT           "Spacing:",IDC_PP_LBL_LINE_SPACING,539,195,30,8
+    COMBOBOX        IDC_PP_LINE_SPACING,571,193,35,60,CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "x",IDC_STATIC,608,195,8,8
+
+    // Layout group (Columns, Column Gap, Gutter)
+    GROUPBOX        "Layout",IDC_PP_GRP_LAYOUT,375,214,150,55
+    LTEXT           "Columns:",IDC_PP_LBL_COLUMNS,383,228,32,8
+    COMBOBOX        IDC_PP_COLUMNS,417,226,30,50,CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Gap:",IDC_PP_LBL_COL_GAP,453,228,16,8
+    EDITTEXT        IDC_PP_COL_GAP,471,226,25,14,ES_AUTOHSCROLL
+    LTEXT           "pt",IDC_STATIC,499,228,8,8
+    LTEXT           "Gutter:",IDC_PP_LBL_GUTTER,383,248,24,8
+    EDITTEXT        IDC_PP_GUTTER,410,246,30,14,ES_AUTOHSCROLL
+    LTEXT           "in",IDC_STATIC,443,248,8,8
+
+    // Border group
+    GROUPBOX        "Border",IDC_PP_GRP_BORDER,531,214,152,55
+    AUTOCHECKBOX    "Enable page border",IDC_PP_BORDER_ENABLE,539,227,90,10
+    LTEXT           "Style:",IDC_PP_LBL_BORDER_STYLE,539,244,20,8
+    COMBOBOX        IDC_PP_BORDER_STYLE,561,242,55,60,CBS_DROPDOWNLIST | WS_TABSTOP
+    PUSHBUTTON      "More...",IDC_PP_BORDER_COLOR,621,242,55,14
+
+    // Watermark group (compact row)
+    GROUPBOX        "Watermark",IDC_PP_GRP_WATERMARK,375,274,308,35
+    AUTOCHECKBOX    "Enable",IDC_PP_WATERMARK_ENABLE,383,288,40,10
+    LTEXT           "Text:",IDC_PP_LBL_WATERMARK_TEXT,428,288,18,8
+    EDITTEXT        IDC_PP_WATERMARK_TEXT,448,286,100,14,ES_AUTOHSCROLL
+    PUSHBUTTON      "Color...",IDC_PP_WATERMARK_COLOR,553,286,45,14
+    PUSHBUTTON      "Font...",IDC_PP_WATERMARK_FONT_BTN,602,286,45,14
+
+    // Border details (sides, width, padding)
+    GROUPBOX        "Border Details",IDC_STATIC,375,314,150,55
+    LTEXT           "Width:",IDC_PP_LBL_BORDER_WIDTH,383,328,22,8
+    EDITTEXT        IDC_PP_BORDER_WIDTH,407,326,25,14,ES_AUTOHSCROLL
+    LTEXT           "pt",IDC_STATIC,435,328,8,8
+    LTEXT           "Padding:",IDC_PP_LBL_BORDER_PADDING,448,328,30,8
+    EDITTEXT        IDC_PP_BORDER_PADDING,480,326,25,14,ES_AUTOHSCROLL
+    LTEXT           "pt",IDC_STATIC,508,328,8,8
+    LTEXT           "Sides:",IDC_STATIC,383,348,20,8
+    AUTOCHECKBOX    "T",IDC_PP_BORDER_TOP,407,347,20,10
+    AUTOCHECKBOX    "B",IDC_PP_BORDER_BOTTOM,430,347,20,10
+    AUTOCHECKBOX    "L",IDC_PP_BORDER_LEFT,455,347,20,10
+    AUTOCHECKBOX    "R",IDC_PP_BORDER_RIGHT,480,347,20,10
+
+    // Orientation group
+    GROUPBOX        "Orientation",IDC_PP_LBL_ORIENTATION,531,314,152,30
+    COMBOBOX        IDC_PP_ORIENTATION,539,326,135,40,CBS_DROPDOWNLIST | WS_TABSTOP
+
+    // Page Range group
+    GROUPBOX        "Page Range",IDC_PP_GRP_PAGERANGE,531,349,152,30
+    AUTORADIOBUTTON "All",IDC_PP_RANGE_ALL,539,361,22,10,WS_GROUP
+    AUTORADIOBUTTON "",IDC_PP_RANGE_PAGES,565,361,10,10
+    EDITTEXT        IDC_PP_RANGE_EDIT,577,359,98,14,ES_AUTOHSCROLL
+
+    // Print Options group (Copies, Collate)
+    GROUPBOX        "Print Options",IDC_PP_GRP_PRINTOPTS,375,374,150,50
+    LTEXT           "Copies:",IDC_PP_LBL_COPIES,383,388,26,8
+    EDITTEXT        IDC_PP_COPIES,411,386,30,14,ES_AUTOHSCROLL | ES_NUMBER
+    AUTOCHECKBOX    "Collate",IDC_PP_COLLATE,448,388,40,10
+    PUSHBUTTON      "Save Settings",IDC_PP_SAVE_SETTINGS,383,406,60,14
+    PUSHBUTTON      "Load Settings",IDC_PP_LOAD_SETTINGS,448,406,60,14
 
     // Page selection
-    PUSHBUTTON      "< Prev",IDC_PP_PREVPAGE,375,295,40,14
-    LTEXT           "Page 1 of 1",IDC_PP_PAGEINFO,418,297,65,8
-    PUSHBUTTON      "Next >",IDC_PP_NEXTPAGE,483,295,40,14
-    PUSHBUTTON      "Apply to All Pages",IDC_PP_APPLYALL,375,315,100,14
+    PUSHBUTTON      "< Prev",IDC_PP_PREVPAGE,375,429,40,14
+    LTEXT           "Page 1 of 1",IDC_PP_PAGEINFO,418,431,65,8
+    PUSHBUTTON      "Next >",IDC_PP_NEXTPAGE,483,429,40,14
+    PUSHBUTTON      "Apply to All Pages",IDC_PP_APPLYALL,375,447,100,14
+
+    // Hidden label for watermark font (repurposed)
+    LTEXT           "",IDC_PP_WATERMARK_FONT_LABEL,0,0,0,0
 
     // Buttons
-    DEFPUSHBUTTON   "&Print...",IDC_PP_PRINT,375,370,68,17
-    PUSHBUTTON      "Cancel",IDCANCEL,450,370,68,17
+    DEFPUSHBUTTON   "&Print...",IDC_PP_PRINT,535,485,68,17
+    PUSHBUTTON      "Cancel",IDCANCEL,610,485,68,17
 END
 
 //------------------------------------------------------------------------------

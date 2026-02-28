@@ -296,6 +296,67 @@
 #define IDC_PP_FONT_BTN                 1324
 #define IDC_PP_APPLYALL                 1325
 
+// Print Preview - Border group
+#define IDC_PP_GRP_BORDER               1340
+#define IDC_PP_BORDER_ENABLE            1341
+#define IDC_PP_BORDER_STYLE             1342
+#define IDC_PP_BORDER_WIDTH             1343
+#define IDC_PP_BORDER_COLOR             1344
+#define IDC_PP_BORDER_TOP               1345
+#define IDC_PP_BORDER_BOTTOM            1346
+#define IDC_PP_BORDER_LEFT              1347
+#define IDC_PP_BORDER_RIGHT             1348
+#define IDC_PP_LBL_BORDER_STYLE         1349
+#define IDC_PP_LBL_BORDER_WIDTH         1350
+#define IDC_PP_BORDER_PADDING           1351
+#define IDC_PP_LBL_BORDER_PADDING       1352
+
+// Print Preview - Options group
+#define IDC_PP_GRP_OPTIONS              1360
+#define IDC_PP_LINE_NUMBERS             1361
+#define IDC_PP_LINE_SPACING             1362
+#define IDC_PP_LBL_LINE_SPACING         1363
+#define IDC_PP_ORIENTATION              1364
+#define IDC_PP_LBL_ORIENTATION          1365
+
+// Print Preview - Watermark group
+#define IDC_PP_GRP_WATERMARK            1370
+#define IDC_PP_WATERMARK_ENABLE         1371
+#define IDC_PP_WATERMARK_TEXT           1372
+#define IDC_PP_WATERMARK_COLOR          1373
+#define IDC_PP_LBL_WATERMARK_TEXT       1374
+#define IDC_PP_WATERMARK_FONT_BTN       1375
+#define IDC_PP_WATERMARK_FONT_LABEL     1376
+
+// Print Preview - Page Range
+#define IDC_PP_GRP_PAGERANGE            1380
+#define IDC_PP_RANGE_ALL                1381
+#define IDC_PP_RANGE_PAGES              1382
+#define IDC_PP_RANGE_EDIT               1383
+#define IDC_PP_LBL_RANGE_HINT          1384
+
+// Print Preview - Layout group (Columns, Gutter)
+#define IDC_PP_GRP_LAYOUT               1390
+#define IDC_PP_COLUMNS                  1391
+#define IDC_PP_LBL_COLUMNS              1392
+#define IDC_PP_COL_GAP                  1393
+#define IDC_PP_LBL_COL_GAP              1394
+#define IDC_PP_GUTTER                   1395
+#define IDC_PP_LBL_GUTTER               1396
+
+// Print Preview - Line Number styling
+#define IDC_PP_LINENUM_COLOR            1410
+#define IDC_PP_LINENUM_FONT             1411
+#define IDC_PP_LINENUM_FONT_LABEL       1412
+
+// Print Preview - Print Options group (Copies, Collate, Remember)
+#define IDC_PP_GRP_PRINTOPTS            1400
+#define IDC_PP_COPIES                   1401
+#define IDC_PP_LBL_COPIES               1402
+#define IDC_PP_COLLATE                  1403
+#define IDC_PP_SAVE_SETTINGS            1404
+#define IDC_PP_LOAD_SETTINGS            1405
+
 // Convert EOL selection dialog
 #define IDD_CONVERTEOL                  209
 #define IDC_EOL_CRLF                    1260

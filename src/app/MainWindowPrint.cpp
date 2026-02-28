@@ -8,6 +8,9 @@
 #include <CommCtrl.h>
 #include <Commdlg.h>
 #include <ctime>
+#include <algorithm>
+#include <sstream>
+#include <cmath>
 
 namespace QNote {
 
@@ -155,6 +158,15 @@ void MainWindow::OnFilePrint() {
     // Gather text and document name - allow multi-tab selection
     std::wstring text;
     std::wstring docName;
+    bool hasSelection = false;
+
+    // Check if current editor has a selection
+    if (m_editor) {
+        std::wstring selText = m_editor->GetSelectedText();
+        if (!selText.empty()) {
+            hasSelection = true;
+        }
+    }
 
     if (m_documentManager && m_documentManager->GetDocumentCount() > 1) {
         // Multiple tabs open - show tab selection dialog
@@ -228,7 +240,24 @@ void MainWindow::OnFilePrint() {
     } else {
         // Single tab - use current editor directly
         if (!m_editor) return;
-        text = m_editor->GetText();
+
+        // If there's a selection, ask user whether to print selection or full document
+        if (hasSelection) {
+            int choice = MessageBoxW(m_hwnd,
+                L"You have text selected. Do you want to print only the selected text?\n\n"
+                L"Click Yes to print selection, No to print the full document.",
+                L"Print",
+                MB_YESNOCANCEL | MB_ICONQUESTION);
+            if (choice == IDCANCEL) return;
+            if (choice == IDYES) {
+                text = m_editor->GetSelectedText();
+            } else {
+                text = m_editor->GetText();
+                hasSelection = false;
+            }
+        } else {
+            text = m_editor->GetText();
+        }
         if (text.empty()) return;
         docName = m_isNewFile ? L"Untitled" : FileIO::GetFileName(m_currentFile);
     }
@@ -238,7 +267,7 @@ void MainWindow::OnFilePrint() {
     PrintSettings ps = PrintPreviewWindow::Show(
         m_hwnd, m_hInstance, text, docName,
         settings.fontName, settings.fontSize, settings.fontWeight, settings.fontItalic,
-        m_pageSetup);
+        m_pageSetup, hasSelection);
 
     if (!ps.accepted) return;
 
@@ -260,6 +289,24 @@ void MainWindow::OnFilePrint() {
     pd.nToPage = 1;
     pd.nMinPage = 1;
     pd.nMaxPage = 0xFFFF;
+
+    // Apply landscape orientation if selected
+    if (ps.landscape) {
+        PRINTDLGW pdQuery = {};
+        pdQuery.lStructSize = sizeof(pdQuery);
+        pdQuery.hwndOwner = m_hwnd;
+        pdQuery.Flags = PD_RETURNDEFAULT;
+        if (PrintDlgW(&pdQuery) && pdQuery.hDevMode) {
+            DEVMODEW* dm = reinterpret_cast<DEVMODEW*>(GlobalLock(pdQuery.hDevMode));
+            if (dm) {
+                dm->dmOrientation = DMORIENT_LANDSCAPE;
+                dm->dmFields |= DM_ORIENTATION;
+                GlobalUnlock(pdQuery.hDevMode);
+            }
+            pd.hDevMode = pdQuery.hDevMode;
+            if (pdQuery.hDevNames) pd.hDevNames = pdQuery.hDevNames;
+        }
+    }
 
     if (!PrintDlgW(&pd)) {
         if (pd.hDC) DeleteDC(pd.hDC);
@@ -294,6 +341,39 @@ void MainWindow::OnFilePrint() {
 
     int totalPages = static_cast<int>(ps.pageLines.size());
 
+    // Determine which pages to print based on page range
+    std::vector<int> pagesToPrint;
+    if (ps.pageRange.empty()) {
+        for (int i = 0; i < totalPages; ++i) pagesToPrint.push_back(i);
+    } else {
+        // Parse range string like "1-3,5,7-9"
+        std::wistringstream ss(ps.pageRange);
+        std::wstring token;
+        while (std::getline(ss, token, L',')) {
+            size_t s = token.find_first_not_of(L" \t");
+            size_t e = token.find_last_not_of(L" \t");
+            if (s == std::wstring::npos) continue;
+            token = token.substr(s, e - s + 1);
+            size_t dash = token.find(L'-');
+            if (dash != std::wstring::npos) {
+                int from = _wtoi(token.substr(0, dash).c_str());
+                int to   = _wtoi(token.substr(dash + 1).c_str());
+                if (from < 1) from = 1;
+                if (to > totalPages) to = totalPages;
+                for (int i = from; i <= to; ++i) pagesToPrint.push_back(i - 1);
+            } else {
+                int p = _wtoi(token.c_str());
+                if (p >= 1 && p <= totalPages) pagesToPrint.push_back(p - 1);
+            }
+        }
+        std::sort(pagesToPrint.begin(), pagesToPrint.end());
+        pagesToPrint.erase(std::unique(pagesToPrint.begin(), pagesToPrint.end()),
+                           pagesToPrint.end());
+        if (pagesToPrint.empty()) {
+            for (int i = 0; i < totalPages; ++i) pagesToPrint.push_back(i);
+        }
+    }
+
     // Token expansion for headers/footers
     auto expandTokens = [&](const std::wstring& tmpl, int pageNum) -> std::wstring {
         std::wstring result;
@@ -324,8 +404,33 @@ void MainWindow::OnFilePrint() {
         return result;
     };
 
-    // Print each page with its own per-page settings
-    for (int p = 0; p < totalPages; ++p) {
+    // Handle multiple copies with collation
+    int numCopies = ps.copies;
+    if (numCopies < 1) numCopies = 1;
+    if (numCopies > 99) numCopies = 99;
+    bool collate = ps.collate;
+
+    // Build the print order based on collation
+    // Collated:     1,2,3, 1,2,3, 1,2,3 (complete set, then repeat)
+    // Uncollated:   1,1,1, 2,2,2, 3,3,3 (each page repeated, then next)
+    std::vector<int> printOrder;
+    if (collate) {
+        for (int copy = 0; copy < numCopies; ++copy) {
+            for (int pi = 0; pi < static_cast<int>(pagesToPrint.size()); ++pi) {
+                printOrder.push_back(pagesToPrint[pi]);
+            }
+        }
+    } else {
+        for (int pi = 0; pi < static_cast<int>(pagesToPrint.size()); ++pi) {
+            for (int copy = 0; copy < numCopies; ++copy) {
+                printOrder.push_back(pagesToPrint[pi]);
+            }
+        }
+    }
+
+    // Print each page in order
+    for (int i = 0; i < static_cast<int>(printOrder.size()); ++i) {
+        int p = printOrder[i];
         if (StartPage(hdc) <= 0) break;
 
         const PageSettings& pg = ps.pageSettings[p];
@@ -335,8 +440,24 @@ void MainWindow::OnFilePrint() {
         int topMarg    = MulDiv(pg.marginTop,    dpiY, 1000);
         int rightMarg  = MulDiv(pg.marginRight,  dpiX, 1000);
         int bottomMarg = MulDiv(pg.marginBottom, dpiY, 1000);
-        int printW = printerPageW - leftMarg - rightMarg;
+
+        // Gutter margin (extra inside margin for binding)
+        int gutterMarg = MulDiv(pg.gutterMil, dpiX, 1000);
+
+        int printW = printerPageW - leftMarg - rightMarg - gutterMarg;
         int printH = printerPageH - topMarg  - bottomMarg;
+
+        // Calculate border padding for text area
+        int padPx = 0;
+        if (pg.borderEnabled && pg.borderPaddingPt > 0) {
+            padPx = MulDiv(pg.borderPaddingPt, dpiY, 72);
+        }
+        int leftMargText   = leftMarg   + padPx + gutterMarg;
+        int topMargText    = topMarg    + padPx;
+        int rightMargText  = rightMarg  + padPx;
+        int bottomMargText = bottomMarg + padPx;
+        int printWText = printerPageW - leftMargText - rightMargText;
+        int printHText = printerPageH - topMargText  - bottomMargText;
 
         // Create font for this page
         LOGFONTW lf = {};
@@ -357,6 +478,38 @@ void MainWindow::OnFilePrint() {
         GetTextMetricsW(hdc, &metrics);
         int lineHeight = metrics.tmHeight + metrics.tmExternalLeading;
 
+        // Apply line spacing multiplier
+        int spacedLineHeight = MulDiv(lineHeight, pg.lineSpacing, 100);
+        if (spacedLineHeight < lineHeight) spacedLineHeight = lineHeight;
+
+        // Calculate line number gutter width
+        int gutterWidth = 0;
+        if (pg.lineNumbers) {
+            SIZE gutterSz;
+            GetTextExtentPoint32W(hdc, L"99999 ", 6, &gutterSz);
+            gutterWidth = gutterSz.cx;
+        }
+
+        // Create line number font (use custom or fallback to body font)
+        HFONT hLineNumFont = nullptr;
+        if (pg.lineNumbers) {
+            LOGFONTW lfNum = {};
+            if (pg.lineNumberFontName.empty() || pg.lineNumberFontSize == 0) {
+                lfNum = lf;
+            } else {
+                lfNum.lfHeight = -MulDiv(pg.lineNumberFontSize, dpiY, 72);
+                lfNum.lfWeight = pg.lineNumberFontWeight ? pg.lineNumberFontWeight : FW_NORMAL;
+                lfNum.lfItalic = pg.lineNumberFontItalic ? TRUE : FALSE;
+                lfNum.lfCharSet = DEFAULT_CHARSET;
+                lfNum.lfOutPrecision = OUT_DEFAULT_PRECIS;
+                lfNum.lfClipPrecision = CLIP_DEFAULT_PRECIS;
+                lfNum.lfQuality = DEFAULT_QUALITY;
+                lfNum.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+                wcscpy_s(lfNum.lfFaceName, pg.lineNumberFontName.c_str());
+            }
+            hLineNumFont = CreateFontIndirectW(&lfNum);
+        }
+
         // Header (centered across full page width, in top margin)
         if (!pg.headerText.empty()) {
             std::wstring hdr = expandTokens(pg.headerText, p + 1);
@@ -367,12 +520,95 @@ void MainWindow::OnFilePrint() {
                       &rcH, DT_CENTER | DT_SINGLELINE | DT_NOPREFIX);
         }
 
-        // Body lines
-        int y = topMarg;
-        for (const auto& lineText : lines) {
-            TextOutW(hdc, leftMarg, y, lineText.c_str(),
-                     static_cast<int>(lineText.length()));
-            y += lineHeight;
+        // Watermark (behind body text)
+        if (pg.watermarkEnabled && !pg.watermarkText.empty()) {
+            // Font height: use custom size if set, otherwise auto-size
+            int wmFontH;
+            if (pg.watermarkFontSize > 0) {
+                wmFontH = -MulDiv(pg.watermarkFontSize, dpiY, 72);
+            } else {
+                wmFontH = -(std::min)(printW, printH) / 2;
+                if (wmFontH > -20) wmFontH = -20;
+            }
+
+            // Calculate diagonal angle based on page aspect ratio
+            double angle = atan2(static_cast<double>(printH), static_cast<double>(printW));
+            int escapement = static_cast<int>(angle * 1800.0 / 3.14159265);
+
+            LOGFONTW wmLf = {};
+            wmLf.lfHeight = wmFontH;
+            wmLf.lfWeight = pg.watermarkFontWeight;
+            wmLf.lfItalic = pg.watermarkFontItalic ? TRUE : FALSE;
+            wmLf.lfCharSet = DEFAULT_CHARSET;
+            wmLf.lfEscapement = escapement;
+            wmLf.lfOrientation = escapement;
+            wmLf.lfQuality = DEFAULT_QUALITY;
+            wcscpy_s(wmLf.lfFaceName, pg.watermarkFontName.c_str());
+            HFONT hWmFont = CreateFontIndirectW(&wmLf);
+            HFONT hPrevFont = static_cast<HFONT>(SelectObject(hdc, hWmFont));
+
+            // Center of printable area
+            int cx = leftMarg + printW / 2;
+            int cy = topMarg + printH / 2;
+
+            UINT oldAlign = SetTextAlign(hdc, TA_CENTER | TA_BASELINE);
+            SetTextColor(hdc, pg.watermarkColor);
+            TextOutW(hdc, cx, cy, pg.watermarkText.c_str(),
+                     static_cast<int>(pg.watermarkText.length()));
+            SetTextAlign(hdc, oldAlign);
+
+            SelectObject(hdc, hPrevFont);
+            DeleteObject(hWmFont);
+            // Restore font and color for body text
+            SelectObject(hdc, hFont);
+            SetTextColor(hdc, RGB(0, 0, 0));
+        }
+
+        // Body lines with column support
+        int numCols = pg.columns;
+        if (numCols < 1) numCols = 1;
+        if (numCols > 3) numCols = 3;
+
+        int colGapPx = MulDiv(pg.columnGapPt, dpiX, 72);
+        int columnWidth = printWText - gutterWidth;
+        if (numCols > 1) {
+            int totalGapPx = (numCols - 1) * colGapPx;
+            columnWidth = (printWText - gutterWidth - totalGapPx) / numCols;
+            if (columnWidth < 50) columnWidth = 50;
+        }
+
+        int linesPerColumn = printHText / spacedLineHeight;
+        if (linesPerColumn < 1) linesPerColumn = 1;
+
+        int lineNum = (p < static_cast<int>(ps.pageFirstLineNumber.size()))
+                      ? ps.pageFirstLineNumber[p] : 1;
+        int lineIdx = 0;
+        int totalLines = static_cast<int>(lines.size());
+
+        for (int col = 0; col < numCols && lineIdx < totalLines; ++col) {
+            int colX = leftMargText + gutterWidth + col * (columnWidth + colGapPx);
+            int y = topMargText;
+
+            for (int row = 0; row < linesPerColumn && lineIdx < totalLines; ++row, ++lineIdx) {
+                const auto& lineText = lines[lineIdx];
+
+                // Draw line number (only for first column)
+                if (pg.lineNumbers && gutterWidth > 0 && col == 0) {
+                    wchar_t numBuf[16];
+                    swprintf_s(numBuf, L"%d", lineNum);
+                    if (hLineNumFont) SelectObject(hdc, hLineNumFont);
+                    SetTextColor(hdc, pg.lineNumberColor);
+                    RECT rcNum = { leftMargText, y, leftMargText + gutterWidth - 4, y + lineHeight };
+                    DrawTextW(hdc, numBuf, -1, &rcNum, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
+                    SetTextColor(hdc, RGB(0, 0, 0));
+                    if (hLineNumFont) SelectObject(hdc, hFont);
+                }
+
+                TextOutW(hdc, colX, y, lineText.c_str(),
+                         static_cast<int>(lineText.length()));
+                y += spacedLineHeight;
+                lineNum++;
+            }
         }
 
         // Footer (in bottom margin)
@@ -392,7 +628,47 @@ void MainWindow::OnFilePrint() {
                       &rcFR, DT_RIGHT | DT_SINGLELINE | DT_NOPREFIX);
         }
 
+        // Page border
+        if (pg.borderEnabled) {
+            int borderPx = MulDiv(pg.borderWidthPt, dpiY, 72);
+            if (borderPx < 1) borderPx = 1;
+
+            int penStyle = PS_SOLID;
+            switch (pg.borderStyle) {
+                case 1: penStyle = PS_DASH; break;
+                case 2: penStyle = PS_DOT; break;
+                case 3: penStyle = PS_SOLID; break;
+            }
+
+            HPEN hBorderPen = CreatePen(penStyle, borderPx, pg.borderColor);
+            HPEN hOldBorderPen = static_cast<HPEN>(SelectObject(hdc, hBorderPen));
+
+            int bx1 = leftMarg;
+            int by1 = topMarg;
+            int bx2 = printerPageW - rightMarg;
+            int by2 = printerPageH - bottomMarg;
+
+            if (pg.borderTop)    { MoveToEx(hdc, bx1, by1, nullptr); LineTo(hdc, bx2, by1); }
+            if (pg.borderBottom) { MoveToEx(hdc, bx1, by2, nullptr); LineTo(hdc, bx2, by2); }
+            if (pg.borderLeft)   { MoveToEx(hdc, bx1, by1, nullptr); LineTo(hdc, bx1, by2); }
+            if (pg.borderRight)  { MoveToEx(hdc, bx2, by1, nullptr); LineTo(hdc, bx2, by2); }
+
+            // Double border: draw inner parallel line
+            if (pg.borderStyle == 3) {
+                int gap = borderPx * 2;
+                if (gap < 2) gap = 2;
+                if (pg.borderTop)    { MoveToEx(hdc, bx1 + gap, by1 + gap, nullptr); LineTo(hdc, bx2 - gap, by1 + gap); }
+                if (pg.borderBottom) { MoveToEx(hdc, bx1 + gap, by2 - gap, nullptr); LineTo(hdc, bx2 - gap, by2 - gap); }
+                if (pg.borderLeft)   { MoveToEx(hdc, bx1 + gap, by1 + gap, nullptr); LineTo(hdc, bx1 + gap, by2 - gap); }
+                if (pg.borderRight)  { MoveToEx(hdc, bx2 - gap, by1 + gap, nullptr); LineTo(hdc, bx2 - gap, by2 - gap); }
+            }
+
+            SelectObject(hdc, hOldBorderPen);
+            DeleteObject(hBorderPen);
+        }
+
         SelectObject(hdc, GetStockObject(SYSTEM_FONT));
+        if (hLineNumFont) DeleteObject(hLineNumFont);
         DeleteObject(hFont);
         EndPage(hdc);
     }

@@ -14,46 +14,21 @@
 namespace QNote {
 
 //------------------------------------------------------------------------------
-// Note methods
+// NoteSummary methods
 //------------------------------------------------------------------------------
 
-std::wstring Note::GetDisplayTitle() const {
+std::wstring NoteSummary::GetDisplayTitle() const {
     if (!title.empty()) {
         return title;
     }
-    
-    // Generate from first line of content
-    if (content.empty()) {
-        return L"Untitled Note";
-    }
-    
-    // Find first newline
-    size_t newlinePos = content.find_first_of(L"\r\n");
-    std::wstring firstLine = (newlinePos != std::wstring::npos) 
-        ? content.substr(0, newlinePos) 
-        : content;
-    
-    // Trim whitespace
-    size_t start = firstLine.find_first_not_of(L" \t");
-    if (start == std::wstring::npos) {
-        return L"Untitled Note";
-    }
-    size_t end = firstLine.find_last_not_of(L" \t");
-    firstLine = firstLine.substr(start, end - start + 1);
-    
-    // Truncate if too long
-    if (firstLine.length() > 50) {
-        firstLine = firstLine.substr(0, 47) + L"...";
-    }
-    
-    return firstLine.empty() ? L"Untitled Note" : firstLine;
+    return L"Untitled Note";
 }
 
-std::wstring Note::GetCreatedDateString() const {
+std::wstring NoteSummary::GetCreatedDateString() const {
     return FormatTimestamp(createdAt);
 }
 
-std::wstring Note::GetUpdatedDateString() const {
+std::wstring NoteSummary::GetUpdatedDateString() const {
     return FormatTimestamp(updatedAt);
 }
 
@@ -67,7 +42,9 @@ NoteStore::NoteStore() {
     if (SUCCEEDED(SHGetFolderPathW(nullptr, CSIDL_APPDATA, nullptr, 0, appDataPath))) {
         m_storeDir = appDataPath;
         m_storeDir += L"\\QNote";
-        m_storePath = m_storeDir + L"\\notes.json";
+        m_notesDir = m_storeDir + L"\\notes";
+        m_storePath = m_storeDir + L"\\notes_index.json";
+        m_legacyStorePath = m_storeDir + L"\\notes.json";
     }
 }
 
@@ -83,7 +60,7 @@ bool NoteStore::Initialize() {
         return false;
     }
     
-    // Ensure directory exists
+    // Ensure base directory exists
     DWORD attrs = GetFileAttributesW(m_storeDir.c_str());
     if (attrs == INVALID_FILE_ATTRIBUTES) {
         if (!CreateDirectoryW(m_storeDir.c_str(), nullptr)) {
@@ -91,8 +68,44 @@ bool NoteStore::Initialize() {
         }
     }
     
-    // Load existing notes
-    return LoadFromFile();
+    // Ensure notes content directory exists
+    attrs = GetFileAttributesW(m_notesDir.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        if (!CreateDirectoryW(m_notesDir.c_str(), nullptr)) {
+            return false;
+        }
+    }
+    
+    // Try loading new index format first
+    if (GetFileAttributesW(m_storePath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        if (!LoadFromFile()) {
+            return false;
+        }
+        // Backfill content previews for notes saved before preview support
+        bool needsSave = false;
+        for (auto& summary : m_notes) {
+            if (summary.contentPreview.empty()) {
+                std::wstring content = LoadNoteContentFromDisk(summary.id);
+                if (!content.empty()) {
+                    summary.contentPreview = MakeContentPreview(content);
+                    needsSave = true;
+                }
+            }
+        }
+        if (needsSave) {
+            m_dirty = true;
+            (void)Save();
+        }
+        return true;
+    }
+    
+    // Check for legacy format and migrate
+    if (GetFileAttributesW(m_legacyStorePath.c_str()) != INVALID_FILE_ATTRIBUTES) {
+        return MigrateFromLegacyFormat();
+    }
+    
+    // No notes file yet, start fresh
+    return true;
 }
 
 Note NoteStore::CreateNote(const std::wstring& content) {
@@ -103,16 +116,60 @@ Note NoteStore::CreateNote(const std::wstring& content) {
     note.updatedAt = note.createdAt;
     note.isPinned = false;
     
-    m_notes.push_back(note);
+    // Generate title from first line of content
+    if (!content.empty()) {
+        size_t newlinePos = content.find_first_of(L"\r\n");
+        std::wstring firstLine = (newlinePos != std::wstring::npos) 
+            ? content.substr(0, newlinePos) 
+            : content;
+        size_t start = firstLine.find_first_not_of(L" \t");
+        if (start != std::wstring::npos) {
+            size_t end = firstLine.find_last_not_of(L" \t");
+            firstLine = firstLine.substr(start, end - start + 1);
+            if (firstLine.length() > 50) {
+                firstLine = firstLine.substr(0, 47) + L"...";
+            }
+            note.title = firstLine;
+        }
+    }
+    
+    // Save content to individual file
+    (void)SaveNoteContent(note.id, content);
+    
+    // Add only metadata to in-memory index
+    NoteSummary summary;
+    summary.id = note.id;
+    summary.title = note.title;
+    summary.contentPreview = MakeContentPreview(content);
+    summary.createdAt = note.createdAt;
+    summary.updatedAt = note.updatedAt;
+    summary.isPinned = note.isPinned;
+    m_notes.push_back(summary);
+    
     m_dirty = true;
-    (void)Save();  // Autosave
+    (void)Save();  // Autosave index
     
     return note;
 }
 
 std::optional<Note> NoteStore::GetNote(const std::wstring& id) const {
     auto it = std::find_if(m_notes.begin(), m_notes.end(),
-        [&id](const Note& n) { return n.id == id; });
+        [&id](const NoteSummary& n) { return n.id == id; });
+    
+    if (it != m_notes.end()) {
+        Note note;
+        // Copy metadata from summary
+        static_cast<NoteSummary&>(note) = *it;
+        // Load content from individual file
+        note.content = LoadNoteContent(id);
+        return note;
+    }
+    return std::nullopt;
+}
+
+std::optional<NoteSummary> NoteStore::GetNoteSummary(const std::wstring& id) const {
+    auto it = std::find_if(m_notes.begin(), m_notes.end(),
+        [&id](const NoteSummary& n) { return n.id == id; });
     
     if (it != m_notes.end()) {
         return *it;
@@ -122,15 +179,36 @@ std::optional<Note> NoteStore::GetNote(const std::wstring& id) const {
 
 bool NoteStore::UpdateNote(const Note& note) {
     auto it = std::find_if(m_notes.begin(), m_notes.end(),
-        [&note](const Note& n) { return n.id == note.id; });
+        [&note](const NoteSummary& n) { return n.id == note.id; });
     
     if (it != m_notes.end()) {
-        it->content = note.content;
-        it->title = note.title;
+        // Update title from content if not explicitly set
+        std::wstring newTitle = note.title;
+        if (newTitle.empty() && !note.content.empty()) {
+            size_t newlinePos = note.content.find_first_of(L"\r\n");
+            std::wstring firstLine = (newlinePos != std::wstring::npos) 
+                ? note.content.substr(0, newlinePos) 
+                : note.content;
+            size_t start = firstLine.find_first_not_of(L" \t");
+            if (start != std::wstring::npos) {
+                size_t end = firstLine.find_last_not_of(L" \t");
+                firstLine = firstLine.substr(start, end - start + 1);
+                if (firstLine.length() > 50) {
+                    firstLine = firstLine.substr(0, 47) + L"...";
+                }
+                newTitle = firstLine;
+            }
+        }
+        
+        it->title = newTitle;
         it->updatedAt = std::time(nullptr);
         it->isPinned = note.isPinned;
+        
+        // Save content to individual file
+        (void)SaveNoteContent(note.id, note.content);
+        
         m_dirty = true;
-        (void)Save();  // Autosave
+        (void)Save();  // Autosave index
         return true;
     }
     return false;
@@ -138,12 +216,13 @@ bool NoteStore::UpdateNote(const Note& note) {
 
 bool NoteStore::DeleteNote(const std::wstring& id) {
     auto it = std::find_if(m_notes.begin(), m_notes.end(),
-        [&id](const Note& n) { return n.id == id; });
+        [&id](const NoteSummary& n) { return n.id == id; });
     
     if (it != m_notes.end()) {
         m_notes.erase(it);
+        DeleteNoteContent(id);  // Remove content file
         m_dirty = true;
-        (void)Save();  // Autosave
+        (void)Save();  // Autosave index
         return true;
     }
     return false;
@@ -151,23 +230,23 @@ bool NoteStore::DeleteNote(const std::wstring& id) {
 
 bool NoteStore::TogglePin(const std::wstring& id) {
     auto it = std::find_if(m_notes.begin(), m_notes.end(),
-        [&id](const Note& n) { return n.id == id; });
+        [&id](const NoteSummary& n) { return n.id == id; });
     
     if (it != m_notes.end()) {
         it->isPinned = !it->isPinned;
         it->updatedAt = std::time(nullptr);
         m_dirty = true;
-        (void)Save();  // Autosave
+        (void)Save();  // Autosave index
         return true;
     }
     return false;
 }
 
-std::vector<Note> NoteStore::GetNotes(const NoteFilter& filter) const {
+std::vector<NoteSummary> NoteStore::GetNotes(const NoteFilter& filter) const {
     return FilterAndSort(filter);
 }
 
-std::vector<Note> NoteStore::GetPinnedNotes() const {
+std::vector<NoteSummary> NoteStore::GetPinnedNotes() const {
     NoteFilter filter;
     filter.pinnedOnly = true;
     return FilterAndSort(filter);
@@ -180,15 +259,32 @@ std::vector<NoteSearchResult> NoteStore::SearchNotes(const std::wstring& query, 
         return results;
     }
     
-    results.reserve(m_notes.size());  // Pre-allocate worst case
-    
     std::wstring searchQuery = query;
     if (!matchCase) {
         std::transform(searchQuery.begin(), searchQuery.end(), searchQuery.begin(), ::towlower);
     }
     
-    for (const auto& note : m_notes) {
-        std::wstring searchText = note.content;
+    for (const auto& summary : m_notes) {
+        // Quick pre-filter: check title and preview before loading full content
+        std::wstring titleText = summary.title;
+        std::wstring previewText = summary.contentPreview;
+        if (!matchCase) {
+            std::transform(titleText.begin(), titleText.end(), titleText.begin(), ::towlower);
+            std::transform(previewText.begin(), previewText.end(), previewText.begin(), ::towlower);
+        }
+        
+        bool mightMatch = (titleText.find(searchQuery) != std::wstring::npos) ||
+                          (previewText.find(searchQuery) != std::wstring::npos);
+        
+        // If preview didn't match and the note is longer than the preview, still check full content
+        if (!mightMatch && summary.contentPreview.length() < PREVIEW_LENGTH) {
+            continue;  // Short note — preview IS the full content, no match
+        }
+        
+        // Load full content (needed for match position and snippet, uses LRU cache)
+        std::wstring content = LoadNoteContent(summary.id);
+        
+        std::wstring searchText = content;
         if (!matchCase) {
             std::transform(searchText.begin(), searchText.end(), searchText.begin(), ::towlower);
         }
@@ -196,17 +292,17 @@ std::vector<NoteSearchResult> NoteStore::SearchNotes(const std::wstring& query, 
         size_t pos = searchText.find(searchQuery);
         if (pos != std::wstring::npos) {
             NoteSearchResult result;
-            result.note = note;
+            result.summary = summary;
             result.matchStart = pos;
             result.matchLength = query.length();
             
             // Create context snippet
             size_t snippetStart = (pos > 30) ? pos - 30 : 0;
-            size_t snippetEnd = std::min(pos + query.length() + 50, note.content.length());
+            size_t snippetEnd = std::min(pos + query.length() + 50, content.length());
             result.contextSnippet = L"";
             if (snippetStart > 0) result.contextSnippet = L"...";
-            result.contextSnippet += note.content.substr(snippetStart, snippetEnd - snippetStart);
-            if (snippetEnd < note.content.length()) result.contextSnippet += L"...";
+            result.contextSnippet += content.substr(snippetStart, snippetEnd - snippetStart);
+            if (snippetEnd < content.length()) result.contextSnippet += L"...";
             
             results.push_back(result);
         }
@@ -215,9 +311,8 @@ std::vector<NoteSearchResult> NoteStore::SearchNotes(const std::wstring& query, 
     return results;
 }
 
-std::vector<Note> NoteStore::GetNotesForDate(int year, int month, int day) const {
-    std::vector<Note> result;
-    result.reserve(m_notes.size());  // Pre-allocate worst case
+std::vector<NoteSummary> NoteStore::GetNotesForDate(int year, int month, int day) const {
+    std::vector<NoteSummary> result;
     
     struct tm targetDate = {};
     targetDate.tm_year = year - 1900;
@@ -226,15 +321,15 @@ std::vector<Note> NoteStore::GetNotesForDate(int year, int month, int day) const
     time_t targetStart = mktime(&targetDate);
     time_t targetEnd = targetStart + 24 * 60 * 60;  // Next day
     
-    for (const auto& note : m_notes) {
-        if (note.createdAt >= targetStart && note.createdAt < targetEnd) {
-            result.push_back(note);
+    for (const auto& summary : m_notes) {
+        if (summary.createdAt >= targetStart && summary.createdAt < targetEnd) {
+            result.push_back(summary);
         }
     }
     
     // Sort by creation time descending
     std::sort(result.begin(), result.end(),
-        [](const Note& a, const Note& b) { return a.createdAt > b.createdAt; });
+        [](const NoteSummary& a, const NoteSummary& b) { return a.createdAt > b.createdAt; });
     
     return result;
 }
@@ -321,8 +416,10 @@ bool NoteStore::SaveToFile() {
     std::vector<char> utf8Data(utf8Len);
     WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, utf8Data.data(), utf8Len, nullptr, nullptr);
     
-    // Write to file
-    HandleGuard hFile(CreateFileW(m_storePath.c_str(), GENERIC_WRITE, 0,
+    // Atomic write: write to temp file, then rename over the real file
+    std::wstring tempPath = m_storePath + L".tmp";
+    
+    HandleGuard hFile(CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0,
                                nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
     if (!hFile.valid()) {
         return false;
@@ -331,21 +428,37 @@ bool NoteStore::SaveToFile() {
     DWORD bytesWritten;
     BOOL result = WriteFile(hFile.get(), utf8Data.data(), static_cast<DWORD>(utf8Len - 1), &bytesWritten, nullptr);
     
-    return result != FALSE;
+    // Flush to disk before renaming
+    FlushFileBuffers(hFile.get());
+    hFile = HandleGuard();  // Close before rename
+    
+    if (!result) {
+        DeleteFileW(tempPath.c_str());
+        return false;
+    }
+    
+    // Atomic replace: MoveFileEx with MOVEFILE_REPLACE_EXISTING
+    if (!MoveFileExW(tempPath.c_str(), m_storePath.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(tempPath.c_str());
+        return false;
+    }
+    
+    return true;
 }
 
 std::wstring NoteStore::GenerateNoteId() const {
-    // Generate ID based on timestamp + random component
+    // Generate ID: timestamp + high-resolution counter for uniqueness
     time_t now = std::time(nullptr);
-    DWORD tick = GetTickCount();
+    LARGE_INTEGER counter;
+    QueryPerformanceCounter(&counter);
     
     std::wstringstream ss;
-    ss << std::hex << now << L"-" << tick;
+    ss << std::hex << now << L"-" << (counter.QuadPart & 0xFFFFFFFF);
     return ss.str();
 }
 
 bool NoteStore::ParseJson(const std::wstring& json) {
-    // Simple JSON parser for our notes format
+    // Simple JSON parser for note index (metadata only, no content)
     m_notes.clear();
     
     if (json.empty() || json.find(L"[") == std::wstring::npos) {
@@ -379,8 +492,7 @@ bool NoteStore::ParseJson(const std::wstring& json) {
         
         std::wstring noteJson = json.substr(objStart, objEnd - objStart);
         
-        // Parse note fields
-        Note note;
+        NoteSummary summary;
         
         // Helper: find end of a JSON string value, handling escape sequences
         auto findStringEnd = [&noteJson](size_t start) -> size_t {
@@ -397,7 +509,156 @@ bool NoteStore::ParseJson(const std::wstring& json) {
             return std::wstring::npos;
         };
         
-        // Parse id (with escape-aware string end)
+        // Parse id
+        size_t idPos = noteJson.find(L"\"id\"");
+        if (idPos != std::wstring::npos) {
+            size_t valStart = noteJson.find(L"\"", idPos + 4) + 1;
+            size_t valEnd = findStringEnd(valStart);
+            if (valEnd != std::wstring::npos) {
+                summary.id = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            }
+        }
+        
+        // Parse title
+        size_t titlePos = noteJson.find(L"\"title\"");
+        if (titlePos != std::wstring::npos) {
+            size_t valStart = noteJson.find(L"\"", titlePos + 7) + 1;
+            size_t valEnd = findStringEnd(valStart);
+            if (valEnd != std::wstring::npos) {
+                summary.title = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            }
+        }
+        
+        // Parse createdAt
+        size_t createdPos = noteJson.find(L"\"createdAt\"");
+        if (createdPos != std::wstring::npos) {
+            size_t valStart = noteJson.find(L":", createdPos) + 1;
+            while (valStart < noteJson.length() && (noteJson[valStart] == L' ' || noteJson[valStart] == L'\t')) valStart++;
+            std::wstring numStr;
+            while (valStart < noteJson.length() && noteJson[valStart] >= L'0' && noteJson[valStart] <= L'9') {
+                numStr += noteJson[valStart++];
+            }
+            if (!numStr.empty()) {
+                summary.createdAt = static_cast<time_t>(_wtoll(numStr.c_str()));
+            }
+        }
+        
+        // Parse updatedAt
+        size_t updatedPos = noteJson.find(L"\"updatedAt\"");
+        if (updatedPos != std::wstring::npos) {
+            size_t valStart = noteJson.find(L":", updatedPos) + 1;
+            while (valStart < noteJson.length() && (noteJson[valStart] == L' ' || noteJson[valStart] == L'\t')) valStart++;
+            std::wstring numStr;
+            while (valStart < noteJson.length() && noteJson[valStart] >= L'0' && noteJson[valStart] <= L'9') {
+                numStr += noteJson[valStart++];
+            }
+            if (!numStr.empty()) {
+                summary.updatedAt = static_cast<time_t>(_wtoll(numStr.c_str()));
+            }
+        }
+        
+        // Parse isPinned
+        size_t pinnedPos = noteJson.find(L"\"isPinned\"");
+        if (pinnedPos != std::wstring::npos) {
+            size_t valStart = noteJson.find(L":", pinnedPos) + 1;
+            while (valStart < noteJson.length() && (noteJson[valStart] == L' ' || noteJson[valStart] == L'\t')) valStart++;
+            summary.isPinned = (valStart < noteJson.length() && noteJson[valStart] == L't');
+        }
+        
+        // Parse contentPreview
+        size_t previewPos = noteJson.find(L"\"contentPreview\"");
+        if (previewPos != std::wstring::npos) {
+            size_t valStart = noteJson.find(L"\"", previewPos + 16) + 1;
+            size_t valEnd = findStringEnd(valStart);
+            if (valEnd != std::wstring::npos) {
+                summary.contentPreview = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            }
+        }
+        
+        if (!summary.id.empty()) {
+            m_notes.push_back(summary);
+        }
+        
+        pos = objEnd;
+    }
+    
+    return true;
+}
+
+std::wstring NoteStore::ToJson() const {
+    // Serialize index only (metadata, no content)
+    std::wstringstream ss;
+    ss << L"[\n";
+    
+    for (size_t i = 0; i < m_notes.size(); ++i) {
+        const NoteSummary& summary = m_notes[i];
+        ss << L"  {\n";
+        ss << L"    \"id\": \"" << JsonEscape(summary.id) << L"\",\n";
+        ss << L"    \"title\": \"" << JsonEscape(summary.title) << L"\",\n";
+        ss << L"    \"contentPreview\": \"" << JsonEscape(summary.contentPreview) << L"\",\n";
+        ss << L"    \"createdAt\": " << summary.createdAt << L",\n";
+        ss << L"    \"updatedAt\": " << summary.updatedAt << L",\n";
+        ss << L"    \"isPinned\": " << (summary.isPinned ? L"true" : L"false") << L"\n";
+        ss << L"  }";
+        if (i < m_notes.size() - 1) {
+            ss << L",";
+        }
+        ss << L"\n";
+    }
+    
+    ss << L"]\n";
+    return ss.str();
+}
+
+bool NoteStore::ParseLegacyJson(const std::wstring& json,
+                                 std::vector<Note>& outNotes) const {
+    // Parse the old format that has embedded content
+    outNotes.clear();
+    
+    if (json.empty() || json.find(L"[") == std::wstring::npos) {
+        return true;
+    }
+    
+    size_t arrStart = json.find(L"[");
+    size_t arrEnd = json.rfind(L"]");
+    if (arrStart == std::wstring::npos || arrEnd == std::wstring::npos) {
+        return true;
+    }
+    
+    size_t pos = arrStart + 1;
+    while (pos < arrEnd) {
+        size_t objStart = json.find(L"{", pos);
+        if (objStart == std::wstring::npos || objStart >= arrEnd) break;
+        
+        int braceCount = 1;
+        size_t objEnd = objStart + 1;
+        while (objEnd < arrEnd && braceCount > 0) {
+            if (json[objEnd] == L'{') braceCount++;
+            else if (json[objEnd] == L'}') braceCount--;
+            objEnd++;
+        }
+        
+        if (braceCount != 0) break;
+        
+        std::wstring noteJson = json.substr(objStart, objEnd - objStart);
+        
+        Note note;
+        
+        auto findStringEnd = [&noteJson](size_t start) -> size_t {
+            size_t pos = start;
+            while (pos < noteJson.length()) {
+                if (noteJson[pos] == L'\\') {
+                    pos += 2;
+                } else if (noteJson[pos] == L'"') {
+                    return pos;
+                } else {
+                    pos++;
+                }
+            }
+            return std::wstring::npos;
+        };
+        
+        // Parse id
         size_t idPos = noteJson.find(L"\"id\"");
         if (idPos != std::wstring::npos) {
             size_t valStart = noteJson.find(L"\"", idPos + 4) + 1;
@@ -407,15 +668,14 @@ bool NoteStore::ParseJson(const std::wstring& json) {
             }
         }
         
-        // Parse content (already escape-aware)
+        // Parse content
         size_t contentPos = noteJson.find(L"\"content\"");
         if (contentPos != std::wstring::npos) {
             size_t valStart = noteJson.find(L"\"", contentPos + 9) + 1;
-            // Find end quote (handling escapes)
             size_t valEnd = valStart;
             while (valEnd < noteJson.length()) {
                 if (noteJson[valEnd] == L'\\') {
-                    valEnd += 2;  // Skip escaped char
+                    valEnd += 2;
                 } else if (noteJson[valEnd] == L'"') {
                     break;
                 } else {
@@ -425,7 +685,7 @@ bool NoteStore::ParseJson(const std::wstring& json) {
             note.content = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
         }
         
-        // Parse title (with escape-aware string end)
+        // Parse title
         size_t titlePos = noteJson.find(L"\"title\"");
         if (titlePos != std::wstring::npos) {
             size_t valStart = noteJson.find(L"\"", titlePos + 7) + 1;
@@ -467,14 +727,12 @@ bool NoteStore::ParseJson(const std::wstring& json) {
         size_t pinnedPos = noteJson.find(L"\"isPinned\"");
         if (pinnedPos != std::wstring::npos) {
             size_t valStart = noteJson.find(L":", pinnedPos) + 1;
-            // Skip whitespace
             while (valStart < noteJson.length() && (noteJson[valStart] == L' ' || noteJson[valStart] == L'\t')) valStart++;
-            // Check if value starts with 't' (true)
             note.isPinned = (valStart < noteJson.length() && noteJson[valStart] == L't');
         }
         
         if (!note.id.empty()) {
-            m_notes.push_back(note);
+            outNotes.push_back(note);
         }
         
         pos = objEnd;
@@ -483,12 +741,13 @@ bool NoteStore::ParseJson(const std::wstring& json) {
     return true;
 }
 
-std::wstring NoteStore::ToJson() const {
+std::wstring NoteStore::ToFullJson(const std::vector<Note>& notes) const {
+    // Serialize with content (for export)
     std::wstringstream ss;
     ss << L"[\n";
     
-    for (size_t i = 0; i < m_notes.size(); ++i) {
-        const Note& note = m_notes[i];
+    for (size_t i = 0; i < notes.size(); ++i) {
+        const Note& note = notes[i];
         ss << L"  {\n";
         ss << L"    \"id\": \"" << JsonEscape(note.id) << L"\",\n";
         ss << L"    \"title\": \"" << JsonEscape(note.title) << L"\",\n";
@@ -497,7 +756,7 @@ std::wstring NoteStore::ToJson() const {
         ss << L"    \"updatedAt\": " << note.updatedAt << L",\n";
         ss << L"    \"isPinned\": " << (note.isPinned ? L"true" : L"false") << L"\n";
         ss << L"  }";
-        if (i < m_notes.size() - 1) {
+        if (i < notes.size() - 1) {
             ss << L",";
         }
         ss << L"\n";
@@ -575,68 +834,92 @@ std::wstring NoteStore::JsonUnescape(const std::wstring& str) {
     return result;
 }
 
-std::vector<Note> NoteStore::FilterAndSort(const NoteFilter& filter) const {
-    std::vector<Note> result;
-    result.reserve(m_notes.size());  // Pre-allocate worst case
+std::vector<NoteSummary> NoteStore::FilterAndSort(const NoteFilter& filter) const {
+    std::vector<NoteSummary> result;
+    result.reserve(m_notes.size());
     
-    for (const auto& note : m_notes) {
+    for (const auto& summary : m_notes) {
         // Apply filters
-        if (filter.pinnedOnly && !note.isPinned) {
+        if (filter.pinnedOnly && !summary.isPinned) {
             continue;
         }
         
-        if (filter.fromDate != 0 && note.createdAt < filter.fromDate) {
+        if (filter.fromDate != 0 && summary.createdAt < filter.fromDate) {
             continue;
         }
         
-        if (filter.toDate != 0 && note.createdAt > filter.toDate) {
+        if (filter.toDate != 0 && summary.createdAt > filter.toDate) {
             continue;
         }
         
         if (!filter.searchQuery.empty()) {
-            std::wstring lowerContent = note.content;
-            std::wstring lowerTitle = note.title;
             std::wstring lowerQuery = filter.searchQuery;
-            std::transform(lowerContent.begin(), lowerContent.end(), lowerContent.begin(), ::towlower);
-            std::transform(lowerTitle.begin(), lowerTitle.end(), lowerTitle.begin(), ::towlower);
             std::transform(lowerQuery.begin(), lowerQuery.end(), lowerQuery.begin(), ::towlower);
             
-            if (lowerContent.find(lowerQuery) == std::wstring::npos &&
-                lowerTitle.find(lowerQuery) == std::wstring::npos) {
+            // 1) Quick check: title match (no disk I/O)
+            std::wstring lowerTitle = summary.title;
+            std::transform(lowerTitle.begin(), lowerTitle.end(), lowerTitle.begin(), ::towlower);
+            if (lowerTitle.find(lowerQuery) != std::wstring::npos) {
+                // Title matched — include without loading full content
+                result.push_back(summary);
                 continue;
             }
+            
+            // 2) Check content preview (still no disk I/O)
+            std::wstring lowerPreview = summary.contentPreview;
+            std::transform(lowerPreview.begin(), lowerPreview.end(), lowerPreview.begin(), ::towlower);
+            if (lowerPreview.find(lowerQuery) != std::wstring::npos) {
+                // Preview matched — include without loading full content
+                result.push_back(summary);
+                continue;
+            }
+            
+            // 3) Preview didn't match but note may be longer — load full content
+            //    (skip if preview IS the full content, i.e. note is short)
+            if (summary.contentPreview.length() >= PREVIEW_LENGTH) {
+                std::wstring content = LoadNoteContent(summary.id);
+                std::wstring lowerContent = content;
+                std::transform(lowerContent.begin(), lowerContent.end(), lowerContent.begin(), ::towlower);
+                if (lowerContent.find(lowerQuery) != std::wstring::npos) {
+                    result.push_back(summary);
+                    continue;
+                }
+            }
+            
+            // No match in title, preview, or full content
+            continue;
         }
         
-        result.push_back(note);
+        result.push_back(summary);
     }
     
     // Apply sorting
     switch (filter.sortBy) {
         case NoteFilter::SortBy::UpdatedDesc:
             std::sort(result.begin(), result.end(),
-                [](const Note& a, const Note& b) { return a.updatedAt > b.updatedAt; });
+                [](const NoteSummary& a, const NoteSummary& b) { return a.updatedAt > b.updatedAt; });
             break;
         case NoteFilter::SortBy::UpdatedAsc:
             std::sort(result.begin(), result.end(),
-                [](const Note& a, const Note& b) { return a.updatedAt < b.updatedAt; });
+                [](const NoteSummary& a, const NoteSummary& b) { return a.updatedAt < b.updatedAt; });
             break;
         case NoteFilter::SortBy::CreatedDesc:
             std::sort(result.begin(), result.end(),
-                [](const Note& a, const Note& b) { return a.createdAt > b.createdAt; });
+                [](const NoteSummary& a, const NoteSummary& b) { return a.createdAt > b.createdAt; });
             break;
         case NoteFilter::SortBy::CreatedAsc:
             std::sort(result.begin(), result.end(),
-                [](const Note& a, const Note& b) { return a.createdAt < b.createdAt; });
+                [](const NoteSummary& a, const NoteSummary& b) { return a.createdAt < b.createdAt; });
             break;
         case NoteFilter::SortBy::TitleAsc:
             std::sort(result.begin(), result.end(),
-                [](const Note& a, const Note& b) { 
+                [](const NoteSummary& a, const NoteSummary& b) { 
                     return _wcsicmp(a.GetDisplayTitle().c_str(), b.GetDisplayTitle().c_str()) < 0; 
                 });
             break;
         case NoteFilter::SortBy::TitleDesc:
             std::sort(result.begin(), result.end(),
-                [](const Note& a, const Note& b) { 
+                [](const NoteSummary& a, const NoteSummary& b) { 
                     return _wcsicmp(a.GetDisplayTitle().c_str(), b.GetDisplayTitle().c_str()) > 0; 
                 });
             break;
@@ -700,10 +983,20 @@ time_t ParseDate(const std::wstring& dateStr) {
 }
 
 //------------------------------------------------------------------------------
-// Export all notes to a JSON file
+// Export all notes to a JSON file (loads content from individual files)
 //------------------------------------------------------------------------------
 bool NoteStore::ExportNotes(const std::wstring& filePath) {
-    std::wstring json = ToJson();
+    // Build full notes with content for export
+    std::vector<Note> fullNotes;
+    fullNotes.reserve(m_notes.size());
+    for (const auto& summary : m_notes) {
+        Note note;
+        static_cast<NoteSummary&>(note) = summary;
+        note.content = LoadNoteContent(summary.id);
+        fullNotes.push_back(std::move(note));
+    }
+    
+    std::wstring json = ToFullJson(fullNotes);
     
     // Convert to UTF-8
     int utf8Len = WideCharToMultiByte(CP_UTF8, 0, json.c_str(), -1, nullptr, 0, nullptr, nullptr);
@@ -748,16 +1041,11 @@ bool NoteStore::ImportNotes(const std::wstring& filePath) {
     std::wstring json(wideLen, 0);
     MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, &json[0], wideLen);
     
-    // Save current notes, parse import, then merge
-    auto savedNotes = m_notes;
-    
-    if (!ParseJson(json)) {
-        m_notes = savedNotes;
+    // Parse imported notes (with content)
+    std::vector<Note> importedNotes;
+    if (!ParseLegacyJson(json, importedNotes)) {
         return false;
     }
-    
-    auto importedNotes = m_notes;
-    m_notes = savedNotes;
     
     // Merge: add imported notes whose IDs don't already exist
     int addedCount = 0;
@@ -770,7 +1058,36 @@ bool NoteStore::ImportNotes(const std::wstring& filePath) {
             }
         }
         if (!exists) {
-            m_notes.push_back(imported);
+            // Save content to individual file
+            (void)SaveNoteContent(imported.id, imported.content);
+            
+            // Generate title if empty
+            std::wstring title = imported.title;
+            if (title.empty() && !imported.content.empty()) {
+                size_t newlinePos = imported.content.find_first_of(L"\r\n");
+                std::wstring firstLine = (newlinePos != std::wstring::npos) 
+                    ? imported.content.substr(0, newlinePos) 
+                    : imported.content;
+                size_t start = firstLine.find_first_not_of(L" \t");
+                if (start != std::wstring::npos) {
+                    size_t end = firstLine.find_last_not_of(L" \t");
+                    firstLine = firstLine.substr(start, end - start + 1);
+                    if (firstLine.length() > 50) {
+                        firstLine = firstLine.substr(0, 47) + L"...";
+                    }
+                    title = firstLine;
+                }
+            }
+            
+            // Add summary to index
+            NoteSummary summary;
+            summary.id = imported.id;
+            summary.title = title;
+            summary.contentPreview = MakeContentPreview(imported.content);
+            summary.createdAt = imported.createdAt;
+            summary.updatedAt = imported.updatedAt;
+            summary.isPinned = imported.isPinned;
+            m_notes.push_back(summary);
             addedCount++;
         }
     }
@@ -779,6 +1096,267 @@ bool NoteStore::ImportNotes(const std::wstring& filePath) {
         m_dirty = true;
         (void)Save();
     }
+    
+    return true;
+}
+
+//------------------------------------------------------------------------------
+// Per-note content file I/O
+//------------------------------------------------------------------------------
+
+std::wstring NoteStore::GetNoteContentPath(const std::wstring& id) const {
+    return m_notesDir + L"\\" + id + L".txt";
+}
+
+//------------------------------------------------------------------------------
+// LRU content cache helpers
+//------------------------------------------------------------------------------
+
+void NoteStore::CacheContent(const std::wstring& id, const std::wstring& content) const {
+    auto it = m_contentCache.find(id);
+    if (it != m_contentCache.end()) {
+        // Move to front (most recently used)
+        m_cacheOrder.erase(it->second.first);
+        m_cacheOrder.push_front(id);
+        it->second.first = m_cacheOrder.begin();
+        it->second.second = content;
+        return;
+    }
+    
+    // Evict LRU entry if at capacity
+    if (m_contentCache.size() >= MAX_CACHE_ENTRIES) {
+        const std::wstring& evictId = m_cacheOrder.back();
+        m_contentCache.erase(evictId);
+        m_cacheOrder.pop_back();
+    }
+    
+    m_cacheOrder.push_front(id);
+    m_contentCache[id] = { m_cacheOrder.begin(), content };
+}
+
+void NoteStore::InvalidateCache(const std::wstring& id) const {
+    auto it = m_contentCache.find(id);
+    if (it != m_contentCache.end()) {
+        m_cacheOrder.erase(it->second.first);
+        m_contentCache.erase(it);
+    }
+}
+
+std::wstring NoteStore::MakeContentPreview(const std::wstring& content, size_t maxLen) {
+    if (content.length() <= maxLen) {
+        return content;
+    }
+    // Cut at a word boundary if possible
+    size_t cutPos = content.rfind(L' ', maxLen);
+    if (cutPos == std::wstring::npos || cutPos < maxLen / 2) {
+        cutPos = maxLen;
+    }
+    return content.substr(0, cutPos);
+}
+
+//------------------------------------------------------------------------------
+// Content loading with LRU cache
+//------------------------------------------------------------------------------
+
+std::wstring NoteStore::LoadNoteContent(const std::wstring& id) const {
+    // Check cache first
+    auto cacheIt = m_contentCache.find(id);
+    if (cacheIt != m_contentCache.end()) {
+        // Move to front (most recently used)
+        m_cacheOrder.erase(cacheIt->second.first);
+        m_cacheOrder.push_front(id);
+        cacheIt->second.first = m_cacheOrder.begin();
+        return cacheIt->second.second;
+    }
+    
+    // Cache miss — load from disk
+    std::wstring content = LoadNoteContentFromDisk(id);
+    
+    // Cache the result
+    CacheContent(id, content);
+    
+    return content;
+}
+
+std::wstring NoteStore::LoadNoteContentFromDisk(const std::wstring& id) const {
+    std::wstring path = GetNoteContentPath(id);
+    
+    HandleGuard hFile(CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!hFile.valid()) {
+        return L"";
+    }
+    
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile.get(), &fileSize)) {
+        return L"";
+    }
+    
+    if (fileSize.QuadPart == 0) {
+        return L"";
+    }
+    
+    // Read as UTF-8
+    std::vector<char> buffer(static_cast<size_t>(fileSize.QuadPart) + 1, 0);
+    DWORD bytesRead;
+    if (!ReadFile(hFile.get(), buffer.data(), static_cast<DWORD>(fileSize.QuadPart), &bytesRead, nullptr)) {
+        return L"";
+    }
+    
+    // Convert UTF-8 to wstring
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, nullptr, 0);
+    if (wideLen <= 0) return L"";
+    
+    std::wstring content(wideLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, &content[0], wideLen);
+    
+    return content;
+}
+
+bool NoteStore::SaveNoteContent(const std::wstring& id, const std::wstring& content) {
+    std::wstring path = GetNoteContentPath(id);
+    
+    // Convert to UTF-8
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, content.c_str(), -1, nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return false;
+    
+    std::vector<char> utf8Data(utf8Len);
+    WideCharToMultiByte(CP_UTF8, 0, content.c_str(), -1, utf8Data.data(), utf8Len, nullptr, nullptr);
+    
+    // Atomic write: write to temp file, then rename
+    std::wstring tempPath = path + L".tmp";
+    
+    HandleGuard hFile(CreateFileW(tempPath.c_str(), GENERIC_WRITE, 0,
+                               nullptr, CREATE_ALWAYS, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!hFile.valid()) {
+        return false;
+    }
+    
+    DWORD bytesWritten;
+    BOOL result = WriteFile(hFile.get(), utf8Data.data(), static_cast<DWORD>(utf8Len - 1), &bytesWritten, nullptr);
+    FlushFileBuffers(hFile.get());
+    hFile = HandleGuard();  // Close before rename
+    
+    if (!result) {
+        DeleteFileW(tempPath.c_str());
+        return false;
+    }
+    
+    if (!MoveFileExW(tempPath.c_str(), path.c_str(), MOVEFILE_REPLACE_EXISTING)) {
+        DeleteFileW(tempPath.c_str());
+        return false;
+    }
+    
+    result = TRUE;  // Rename succeeded
+    
+    if (result) {
+        // Update cache with new content
+        CacheContent(id, content);
+        
+        // Update content preview in the index
+        auto it = std::find_if(m_notes.begin(), m_notes.end(),
+            [&id](const NoteSummary& n) { return n.id == id; });
+        if (it != m_notes.end()) {
+            it->contentPreview = MakeContentPreview(content);
+        }
+    }
+    
+    return result != FALSE;
+}
+
+void NoteStore::DeleteNoteContent(const std::wstring& id) {
+    std::wstring path = GetNoteContentPath(id);
+    DeleteFileW(path.c_str());
+    InvalidateCache(id);
+}
+
+//------------------------------------------------------------------------------
+// Migration from legacy single-file format
+//------------------------------------------------------------------------------
+
+bool NoteStore::MigrateFromLegacyFormat() {
+    // Read legacy file
+    HandleGuard hFile(CreateFileW(m_legacyStorePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+                               nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+    if (!hFile.valid()) {
+        return false;
+    }
+    
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile.get(), &fileSize)) {
+        return false;
+    }
+    
+    std::vector<char> buffer(static_cast<size_t>(fileSize.QuadPart) + 1, 0);
+    DWORD bytesRead;
+    if (!ReadFile(hFile.get(), buffer.data(), static_cast<DWORD>(fileSize.QuadPart), &bytesRead, nullptr)) {
+        return false;
+    }
+    hFile = HandleGuard();
+    
+    // Convert UTF-8 to wstring
+    int wideLen = MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, nullptr, 0);
+    std::wstring json(wideLen, 0);
+    MultiByteToWideChar(CP_UTF8, 0, buffer.data(), bytesRead, &json[0], wideLen);
+    
+    // Parse legacy format (with embedded content)
+    std::vector<Note> legacyNotes;
+    if (!ParseLegacyJson(json, legacyNotes)) {
+        return false;
+    }
+    
+    // Ensure notes directory exists
+    DWORD attrs = GetFileAttributesW(m_notesDir.c_str());
+    if (attrs == INVALID_FILE_ATTRIBUTES) {
+        if (!CreateDirectoryW(m_notesDir.c_str(), nullptr)) {
+            return false;
+        }
+    }
+    
+    // Migrate each note: save content to individual file, keep summary in index
+    m_notes.clear();
+    for (const auto& note : legacyNotes) {
+        // Save content to individual file
+        (void)SaveNoteContent(note.id, note.content);
+        
+        // Generate title from content if not set
+        std::wstring title = note.title;
+        if (title.empty() && !note.content.empty()) {
+            size_t newlinePos = note.content.find_first_of(L"\r\n");
+            std::wstring firstLine = (newlinePos != std::wstring::npos) 
+                ? note.content.substr(0, newlinePos) 
+                : note.content;
+            size_t start = firstLine.find_first_not_of(L" \t");
+            if (start != std::wstring::npos) {
+                size_t end = firstLine.find_last_not_of(L" \t");
+                firstLine = firstLine.substr(start, end - start + 1);
+                if (firstLine.length() > 50) {
+                    firstLine = firstLine.substr(0, 47) + L"...";
+                }
+                title = firstLine;
+            }
+        }
+        
+        // Add summary to index
+        NoteSummary summary;
+        summary.id = note.id;
+        summary.title = title;
+        summary.contentPreview = MakeContentPreview(note.content);
+        summary.createdAt = note.createdAt;
+        summary.updatedAt = note.updatedAt;
+        summary.isPinned = note.isPinned;
+        m_notes.push_back(summary);
+    }
+    
+    // Save the new index
+    m_dirty = true;
+    if (!Save()) {
+        return false;
+    }
+    
+    // Rename legacy file as backup (don't delete it)
+    std::wstring backupPath = m_legacyStorePath + L".bak";
+    MoveFileW(m_legacyStorePath.c_str(), backupPath.c_str());
     
     return true;
 }

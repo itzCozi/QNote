@@ -17,33 +17,42 @@
 #include <memory>
 #include <ctime>
 #include <optional>
+#include <list>
+#include <unordered_map>
 
 namespace QNote {
 
 //------------------------------------------------------------------------------
-// Note structure - represents a single note
+// NoteSummary - lightweight metadata kept in RAM (no content)
 //------------------------------------------------------------------------------
-struct Note {
+struct NoteSummary {
     std::wstring id;           // Unique identifier (timestamp-based)
-    std::wstring content;      // Note text content
     std::wstring title;        // Auto-generated from first line or explicit
+    std::wstring contentPreview; // First ~200 chars for search/display (avoids full content load)
     time_t createdAt = 0;      // Creation timestamp
     time_t updatedAt = 0;      // Last modification timestamp
     bool isPinned = false;     // Whether the note is starred/pinned
-    
-    // Generate a display title from content
+
+    // Generate a display title
     [[nodiscard]] std::wstring GetDisplayTitle() const;
-    
+
     // Get formatted date strings
     [[nodiscard]] std::wstring GetCreatedDateString() const;
     [[nodiscard]] std::wstring GetUpdatedDateString() const;
 };
 
 //------------------------------------------------------------------------------
+// Note structure - full note with content (loaded on demand)
+//------------------------------------------------------------------------------
+struct Note : NoteSummary {
+    std::wstring content;      // Note text content (loaded lazily from file)
+};
+
+//------------------------------------------------------------------------------
 // Search result structure
 //------------------------------------------------------------------------------
 struct NoteSearchResult {
-    Note note;
+    NoteSummary summary;
     size_t matchStart = 0;     // Start position of match in content
     size_t matchLength = 0;    // Length of match
     std::wstring contextSnippet; // Text snippet around the match
@@ -88,8 +97,11 @@ public:
     // Create a new note and return it
     [[nodiscard]] Note CreateNote(const std::wstring& content = L"");
     
-    // Get a note by ID
+    // Get a note by ID (loads content from disk on demand)
     [[nodiscard]] std::optional<Note> GetNote(const std::wstring& id) const;
+    
+    // Get a note summary by ID (metadata only, no disk I/O)
+    [[nodiscard]] std::optional<NoteSummary> GetNoteSummary(const std::wstring& id) const;
     
     // Update an existing note (autosaves)
     [[nodiscard]] bool UpdateNote(const Note& note);
@@ -100,18 +112,18 @@ public:
     // Toggle pin status
     [[nodiscard]] bool TogglePin(const std::wstring& id);
     
-    // Get all notes with optional filtering
-    [[nodiscard]] std::vector<Note> GetNotes(const NoteFilter& filter = NoteFilter()) const;
+    // Get note summaries with optional filtering (no content loaded)
+    [[nodiscard]] std::vector<NoteSummary> GetNotes(const NoteFilter& filter = NoteFilter()) const;
     
-    // Get pinned notes
-    [[nodiscard]] std::vector<Note> GetPinnedNotes() const;
+    // Get pinned note summaries
+    [[nodiscard]] std::vector<NoteSummary> GetPinnedNotes() const;
     
-    // Search notes
+    // Search notes (loads content on demand during search)
     [[nodiscard]] std::vector<NoteSearchResult> SearchNotes(const std::wstring& query, 
                                                             bool matchCase = false) const;
     
     // Get notes for a specific date (timeline view)
-    [[nodiscard]] std::vector<Note> GetNotesForDate(int year, int month, int day) const;
+    [[nodiscard]] std::vector<NoteSummary> GetNotesForDate(int year, int month, int day) const;
     
     // Get unique dates that have notes (for timeline)
     [[nodiscard]] std::vector<time_t> GetNoteDates() const;
@@ -138,20 +150,45 @@ public:
     [[nodiscard]] const std::wstring& GetStorePath() const { return m_storePath; }
     
 private:
-    // Load notes from JSON file
+    // Load note index from JSON file (metadata only)
     [[nodiscard]] bool LoadFromFile();
     
-    // Save notes to JSON file
+    // Save note index to JSON file (metadata only)
     [[nodiscard]] bool SaveToFile();
+    
+    // Load note content from individual file (uses cache)
+    [[nodiscard]] std::wstring LoadNoteContent(const std::wstring& id) const;
+    
+    // Load note content bypassing cache (direct disk read)
+    [[nodiscard]] std::wstring LoadNoteContentFromDisk(const std::wstring& id) const;
+    
+    // Save note content to individual file
+    [[nodiscard]] bool SaveNoteContent(const std::wstring& id, const std::wstring& content);
+    
+    // Delete note content file
+    void DeleteNoteContent(const std::wstring& id);
+    
+    // Get the file path for a note's content
+    [[nodiscard]] std::wstring GetNoteContentPath(const std::wstring& id) const;
+    
+    // Migrate from legacy single-file format (notes.json with embedded content)
+    [[nodiscard]] bool MigrateFromLegacyFormat();
     
     // Generate a unique ID for a new note
     [[nodiscard]] std::wstring GenerateNoteId() const;
     
-    // Parse JSON content
+    // Parse JSON index (metadata only)
     [[nodiscard]] bool ParseJson(const std::wstring& json);
     
-    // Serialize notes to JSON
+    // Serialize note index to JSON (metadata only)
     [[nodiscard]] std::wstring ToJson() const;
+    
+    // Parse legacy JSON format (with embedded content) for migration
+    [[nodiscard]] bool ParseLegacyJson(const std::wstring& json,
+                                        std::vector<Note>& outNotes) const;
+    
+    // Serialize notes with content to JSON (for export)
+    [[nodiscard]] std::wstring ToFullJson(const std::vector<Note>& notes) const;
     
     // Escape string for JSON
     [[nodiscard]] static std::wstring JsonEscape(const std::wstring& str);
@@ -159,23 +196,42 @@ private:
     // Unescape JSON string
     [[nodiscard]] static std::wstring JsonUnescape(const std::wstring& str);
     
-    // Apply filter and sort to notes
-    [[nodiscard]] std::vector<Note> FilterAndSort(const NoteFilter& filter) const;
+    // Apply filter and sort to note summaries
+    [[nodiscard]] std::vector<NoteSummary> FilterAndSort(const NoteFilter& filter) const;
     
     // Case-insensitive string search
     [[nodiscard]] static size_t FindCaseInsensitive(const std::wstring& haystack, 
                                                     const std::wstring& needle,
                                                     size_t startPos = 0);
     
+    // Generate a content preview from full content
+    [[nodiscard]] static std::wstring MakeContentPreview(const std::wstring& content,
+                                                         size_t maxLen = PREVIEW_LENGTH);
+    
+    // Update cached content and invalidate stale entry
+    void CacheContent(const std::wstring& id, const std::wstring& content) const;
+    void InvalidateCache(const std::wstring& id) const;
+    
 private:
-    std::vector<Note> m_notes;
-    std::wstring m_storeDir;
-    std::wstring m_storePath;
+    std::vector<NoteSummary> m_notes;      // Only metadata in RAM
+    std::wstring m_storeDir;               // Base directory (AppData/QNote)
+    std::wstring m_notesDir;               // Per-note content directory (AppData/QNote/notes)
+    std::wstring m_storePath;              // Index file path (notes_index.json)
+    std::wstring m_legacyStorePath;        // Legacy file path (notes.json)
     std::wstring m_activeNoteId;
     bool m_dirty = false;
     
+    // LRU content cache: avoids redundant disk reads for recently-accessed notes
+    // Key = note id, Value = full content string
+    // m_cacheOrder front = most recently used, back = least recently used
+    mutable std::list<std::wstring> m_cacheOrder;  // LRU order (note ids)
+    mutable std::unordered_map<std::wstring, 
+        std::pair<std::list<std::wstring>::iterator, std::wstring>> m_contentCache;
+    
     // Auto-save timer related
     static constexpr DWORD AUTOSAVE_INTERVAL_MS = 3000;  // 3 seconds
+    static constexpr size_t MAX_CACHE_ENTRIES = 32;       // Max cached note contents
+    static constexpr size_t PREVIEW_LENGTH = 200;         // Chars stored in contentPreview
 };
 
 //------------------------------------------------------------------------------

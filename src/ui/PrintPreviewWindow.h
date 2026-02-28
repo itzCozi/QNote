@@ -28,6 +28,9 @@ struct PageSettings {
     int marginTop    = 1000;
     int marginBottom = 1000;
 
+    // Gutter margin (extra inside margin) in thousandths of an inch
+    int gutterMil = 0;
+
     // Header/footer text (substitution tokens: &f, &p, &P, &d, &t)
     std::wstring headerText;
     std::wstring footerLeft;
@@ -38,6 +41,41 @@ struct PageSettings {
     int          fontSize   = 11;
     int          fontWeight = FW_NORMAL;
     bool         fontItalic = false;
+
+    // Columns
+    int columns     = 1;        // 1, 2, or 3 columns
+    int columnGapPt = 12;       // Gap between columns in points
+
+    // Border
+    bool     borderEnabled   = false;
+    int      borderStyle     = 0;     // 0=Solid, 1=Dash, 2=Dot, 3=Double
+    int      borderWidthPt   = 1;     // Width in points (1-10)
+    int      borderPaddingPt = 0;     // Padding between border and text in points
+    bool     borderTop       = true;
+    bool     borderBottom    = true;
+    bool     borderLeft      = true;
+    bool     borderRight     = true;
+    COLORREF borderColor     = RGB(0, 0, 0);
+
+    // Line numbers
+    bool         lineNumbers         = false;
+    COLORREF     lineNumberColor     = RGB(140, 140, 140);
+    std::wstring lineNumberFontName;  // Empty = use body font
+    int          lineNumberFontSize  = 0;   // 0 = use body font size
+    int          lineNumberFontWeight = FW_NORMAL;
+    bool         lineNumberFontItalic = false;
+
+    // Line spacing multiplier (100 = 1.0x, 115 = 1.15x, 150 = 1.5x, 200 = 2.0x)
+    int lineSpacing = 100;
+
+    // Watermark
+    bool         watermarkEnabled    = false;
+    std::wstring watermarkText       = L"DRAFT";
+    COLORREF     watermarkColor      = RGB(220, 220, 220);
+    std::wstring watermarkFontName   = L"Arial";
+    int          watermarkFontSize   = 0;          // 0 = auto-size
+    int          watermarkFontWeight = FW_BOLD;
+    bool         watermarkFontItalic = false;
 };
 
 //------------------------------------------------------------------------------
@@ -56,6 +94,19 @@ struct PrintSettings {
 
     // Set to true when user clicks Print
     bool accepted = false;
+
+    // Orientation: false=Portrait, true=Landscape
+    bool landscape = false;
+
+    // Page range: empty = all, otherwise e.g. "1-3,5"
+    std::wstring pageRange;
+
+    // First original line number for each page (for line number printing)
+    std::vector<int> pageFirstLineNumber;
+
+    // Print options
+    int  copies  = 1;      // Number of copies (1-99)
+    bool collate = true;   // Collate copies (1,2,3,1,2,3 vs 1,1,2,2,3,3)
 };
 
 //------------------------------------------------------------------------------
@@ -76,7 +127,8 @@ public:
                               const std::wstring& docName,
                               const std::wstring& fontName,
                               int fontSize, int fontWeight, bool fontItalic,
-                              const PAGESETUPDLGW& pageSetup);
+                              const PAGESETUPDLGW& pageSetup,
+                              bool hasSelection = false);
 
 private:
     // Dialog procedure
@@ -88,6 +140,7 @@ private:
     void OnCommand(WORD id, WORD code);
     void OnSpinDelta(int editId, int delta);
     void OnMouseWheel(int delta);
+    void OnMouseWheelZoom(int delta);
     void OnPreviewClick();
 
     // Page management
@@ -101,6 +154,22 @@ private:
     void InvalidatePreview();
     void UpdateFontLabel();
     void OnChooseFont();
+    void UpdateBorderControlStates();
+    void OnBorderColorPick();
+    void UpdateWatermarkControlStates();
+    void OnWatermarkColorPick();
+    void OnWatermarkChooseFont();
+    void UpdateWatermarkFontLabel();
+    void OnOrientationChange();
+    void UpdateColumnControlStates();
+    void OnSaveSettings();
+    void OnLoadSettings();
+    void OnBorderMore();
+    void UpdateLineNumberControlStates();
+    void OnLineNumberColorPick();
+    void OnLineNumberChooseFont();
+    void UpdateLineNumberFontLabel();
+    std::vector<int> ParsePageRange(const std::wstring& range, int totalPages) const;
 
     // Helpers
     std::wstring ExpandTokens(const std::wstring& tmpl, int pageNum, int totalPages) const;
@@ -133,13 +202,36 @@ private:
 
     int m_selectedPage = 0;
     int m_scrollY      = 0;
+    double m_zoom      = 1.0;  // Preview zoom factor (0.25 to 4.0)
 
     // Paper dimensions (thousandths of an inch)
     int m_pageWidthMil  = 8500;
     int m_pageHeightMil = 11000;
+    int m_origPageWidthMil  = 8500;
+    int m_origPageHeightMil = 11000;
+    bool m_landscape = false;
+
+    // Whether a text selection was provided
+    bool m_hasSelection = false;
+
+    // First original line number for each page (tracks wrapping)
+    std::vector<int> m_pageFirstLineNum;
 
     // Suppress control-change feedback during programmatic updates
     bool m_suppressSync = false;
+
+    // Custom colors for border color picker
+    COLORREF m_customColors[16] = {};
+
+    // Custom colors for watermark color picker
+    COLORREF m_watermarkCustomColors[16] = {};
+
+    // Custom colors for line number color picker
+    COLORREF m_lineNumCustomColors[16] = {};
+
+    // Print options
+    int  m_copies  = 1;
+    bool m_collate = true;
 
     // Static instance for dialog-proc callback
     static PrintPreviewWindow* s_instance;

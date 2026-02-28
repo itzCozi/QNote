@@ -419,7 +419,7 @@ void NoteListWindow::PopulateList() {
     }
 }
 
-void NoteListWindow::AddNoteToList(const Note& note, int index) {
+void NoteListWindow::AddNoteToList(const NoteSummary& note, int index) {
     if (!m_hwndList) return;
     
     LVITEMW lvi = {};
@@ -450,7 +450,7 @@ void NoteListWindow::AddNoteToList(const Note& note, int index) {
 void NoteListWindow::OnListItemActivated(int index) {
     if (index < 0 || index >= static_cast<int>(m_displayedNotes.size())) return;
     
-    const Note& note = m_displayedNotes[index];
+    const NoteSummary& note = m_displayedNotes[index];
     if (m_openCallback) {
         m_openCallback(note);
     }
@@ -472,7 +472,7 @@ void NoteListWindow::ShowContextMenu(int index, POINT pt) {
     bool multiSelect = selected.size() > 1;
     
     if (!multiSelect) {
-        const Note& note = m_displayedNotes[index];
+        const NoteSummary& note = m_displayedNotes[index];
         AppendMenuW(hMenu, MF_STRING, IDM_CTX_OPEN, L"&Open");
         AppendMenuW(hMenu, MF_STRING, IDM_CTX_PIN, note.isPinned ? L"&Unpin" : L"&Pin");
         AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
@@ -524,7 +524,7 @@ void NoteListWindow::OnContextMenuPin(int index) {
 void NoteListWindow::OnContextMenuDelete(int index) {
     if (index < 0 || index >= static_cast<int>(m_displayedNotes.size())) return;
     
-    const Note& note = m_displayedNotes[index];
+    const NoteSummary& note = m_displayedNotes[index];
     
     // Confirm deletion
     std::wstring msg = L"Delete \"" + note.GetDisplayTitle() + L"\"?";

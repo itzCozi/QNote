@@ -278,7 +278,7 @@ bool MainWindow::PromptSaveTab(int tabId) {
     if (!doc || !doc->isModified) return true;
     
     // An untitled file with whitespace-only content has nothing to save
-    if (doc->isNewFile && IsWhitespaceOnly(doc->text)) return true;
+    if (doc->isNewFile && IsWhitespaceOnly(doc->editor ? doc->editor->GetText() : L"")) return true;
     
     // Skip the dialog if the user has disabled it
     if (!m_settingsManager->GetSettings().promptSaveOnClose) {

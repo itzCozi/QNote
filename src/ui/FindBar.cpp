@@ -790,6 +790,8 @@ void FindBar::UpdateMatchCount() {
         pattern = L"\\b" + searchText + L"\\b";
     }
     
+    static constexpr int MAX_MATCH_COUNT = 10000;  // Cap to avoid UI freeze
+
     if (m_options.useRegex || m_options.wholeWord) {
         try {
             std::wregex::flag_type flags = std::regex::ECMAScript;
@@ -797,9 +799,12 @@ void FindBar::UpdateMatchCount() {
                 flags |= std::regex::icase;
             }
             std::wregex regex(pattern, flags);
-            auto begin = std::wsregex_iterator(text.begin(), text.end(), regex);
+            auto it = std::wsregex_iterator(text.begin(), text.end(), regex);
             auto end = std::wsregex_iterator();
-            count = static_cast<int>(std::distance(begin, end));
+            while (it != end && count < MAX_MATCH_COUNT) {
+                ++count;
+                ++it;
+            }
         } catch (const std::regex_error&) {
             SetWindowTextW(m_hwndMatchCount, L"Invalid regex");
             return;
@@ -818,7 +823,7 @@ void FindBar::UpdateMatchCount() {
         const std::wstring& needle = m_options.matchCase ? searchText : searchLower;
         
         size_t pos = 0;
-        while ((pos = haystack.find(needle, pos)) != std::wstring::npos) {
+        while ((pos = haystack.find(needle, pos)) != std::wstring::npos && count < MAX_MATCH_COUNT) {
             ++count;
             pos += needle.length();
         }
@@ -831,6 +836,8 @@ void FindBar::UpdateMatchCount() {
         wcscpy_s(buf, L"No results");
     } else if (count == 1) {
         wcscpy_s(buf, L"1 match");
+    } else if (count >= MAX_MATCH_COUNT) {
+        swprintf_s(buf, L"%d+ matches", MAX_MATCH_COUNT);
     } else {
         swprintf_s(buf, L"%d matches", count);
     }

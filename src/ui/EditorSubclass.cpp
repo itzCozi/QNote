@@ -623,6 +623,7 @@ void Editor::DrawWhitespace(HDC hdc) {
     COLORREF wsColor = RGB(180, 180, 180);
     HPEN wsPen = CreatePen(PS_SOLID, 1, wsColor);
     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, wsPen));
+    HBRUSH dotBrush = CreateSolidBrush(wsColor);
     
     for (int i = 0; i < visibleLines && (firstLine + i) < totalLines; i++) {
         int line = firstLine + i;
@@ -648,9 +649,7 @@ void Editor::DrawWhitespace(HDC hdc) {
                         int dotX = pt.x + tm.tmAveCharWidth / 2;
                         int dotY = pt.y + tm.tmHeight / 2;
                         RECT dotRect = { dotX - 1, dotY - 1, dotX + 1, dotY + 1 };
-                        HBRUSH dotBrush = CreateSolidBrush(wsColor);
                         FillRect(hdc, &dotRect, dotBrush);
-                        DeleteObject(dotBrush);
                     } else {
                         // Draw right arrow for tab
                         int arrowY = pt.y + tm.tmHeight / 2;
@@ -673,6 +672,7 @@ void Editor::DrawWhitespace(HDC hdc) {
     
     SelectObject(hdc, oldPen);
     DeleteObject(wsPen);
+    DeleteObject(dotBrush);
     SelectObject(hdc, oldFont);
 }
 

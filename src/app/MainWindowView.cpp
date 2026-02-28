@@ -175,7 +175,6 @@ void MainWindow::OnReopenWithEncoding(TextEncoding encoding) {
             if (doc) {
                 doc->encoding = encoding;
                 doc->lineEnding = result.detectedLineEnding;
-                doc->text = result.content;
             }
             m_documentManager->SetDocumentModified(m_documentManager->GetActiveTabId(), false);
         }

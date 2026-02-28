@@ -554,8 +554,8 @@ bool GlobalHotkeyManager::Register(HWND targetWindow, int hotkeyId) {
         return true;
     }
     
-    // If Ctrl+Shift+Q fails, try Win+Q (less likely to conflict)
-    m_modifiers = MOD_WIN;
+    // If Ctrl+Shift+Q fails, try Ctrl+Alt+Q (Win+Q conflicts with Windows 11 Widgets)
+    m_modifiers = MOD_CONTROL | MOD_ALT;
     m_virtualKey = 'Q';
     if (RegisterHotKey(targetWindow, hotkeyId, m_modifiers | MOD_NOREPEAT, m_virtualKey)) {
         m_registered = true;

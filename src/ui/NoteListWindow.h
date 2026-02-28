@@ -23,7 +23,7 @@ namespace QNote {
 //------------------------------------------------------------------------------
 // Callback when user wants to open a note in the main editor
 //------------------------------------------------------------------------------
-using NoteOpenCallback = std::function<void(const Note& note)>;
+using NoteOpenCallback = std::function<void(const NoteSummary& note)>;
 using NoteDeleteCallback = std::function<void(const std::wstring& noteId)>;
 
 //------------------------------------------------------------------------------
@@ -91,7 +91,7 @@ private:
     
     // List operations
     void PopulateList();
-    void AddNoteToList(const Note& note, int index);
+    void AddNoteToList(const NoteSummary& note, int index);
     void OnListItemActivated(int index);
     void OnListItemRightClick(int index, POINT pt);
     
@@ -134,7 +134,7 @@ private:
     NoteStore* m_noteStore = nullptr;
     NoteListViewMode m_viewMode = NoteListViewMode::AllNotes;
     std::wstring m_currentSearch;
-    std::vector<Note> m_displayedNotes;
+    std::vector<NoteSummary> m_displayedNotes;
     
     NoteOpenCallback m_openCallback;
     NoteDeleteCallback m_deleteCallback;

@@ -252,16 +252,24 @@ void Editor::SelectAll() noexcept {
 // Get selected text
 //------------------------------------------------------------------------------
 std::wstring Editor::GetSelectedText() const {
+    if (!m_hwndEdit) return L"";
+    
     DWORD start, end;
     GetSelection(start, end);
     
     if (start == end) return L"";
-    
-    std::wstring text = GetText();
-    if (end > text.size()) end = static_cast<DWORD>(text.size());
     if (start > end) std::swap(start, end);
     
-    return text.substr(start, end - start);
+    // Use EM_GETTEXTRANGE to read only the selected portion
+    int len = end - start;
+    std::vector<wchar_t> buf(len + 1, 0);
+    TEXTRANGEW tr = {};
+    tr.chrg.cpMin = start;
+    tr.chrg.cpMax = end;
+    tr.lpstrText = buf.data();
+    LRESULT actual = SendMessageW(m_hwndEdit, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+    
+    return std::wstring(buf.data(), static_cast<size_t>(actual));
 }
 
 //------------------------------------------------------------------------------
@@ -433,10 +441,14 @@ void Editor::PushUndoCheckpoint(EditAction action, wchar_t ch) {
     GetSelection(cp.selStart, cp.selEnd);
     cp.firstVisibleLine = GetFirstVisibleLine();
 
+    m_undoMemoryUsage += cp.text.size() * sizeof(wchar_t);
     m_undoStack.push_back(std::move(cp));
 
-    // Enforce max undo levels
-    if (static_cast<int>(m_undoStack.size()) > MAX_UNDO_LEVELS) {
+    // Enforce max undo levels and memory cap
+    while (m_undoStack.size() > 1 &&
+           (static_cast<int>(m_undoStack.size()) > MAX_UNDO_LEVELS ||
+            m_undoMemoryUsage > MAX_UNDO_MEMORY_BYTES)) {
+        m_undoMemoryUsage -= m_undoStack.front().text.size() * sizeof(wchar_t);
         m_undoStack.erase(m_undoStack.begin());
     }
 
@@ -457,6 +469,7 @@ void Editor::SealUndoGroup() {
 void Editor::ClearUndoHistory() {
     m_undoStack.clear();
     m_redoStack.clear();
+    m_undoMemoryUsage = 0;
     m_lastEditAction = EditAction::None;
     m_lastEditTime = 0;
 }
