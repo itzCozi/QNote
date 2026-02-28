@@ -29,6 +29,8 @@
 #include "DocumentManager.h"
 #include "SettingsWindow.h"
 #include "PrintPreviewWindow.h"
+#include "CharacterMap.h"
+#include "ClipboardHistory.h"
 
 namespace QNote {
 
@@ -139,6 +141,7 @@ private:
     // Help operations
     void OnHelpAbout();
     void OnHelpCheckUpdate();
+    void CheckForUpdates(bool silent);
     
     // File operations (additional)
     void OnFileRevert();
@@ -187,6 +190,8 @@ private:
     void OnToolsConvertEolSelection();
     void OnToolsChecksum();
     void OnToolsRunSelection();
+    void OnToolsCharacterMap();
+    void OnToolsClipboardHistory();
     
     // Tools dialog procs
     static INT_PTR CALLBACK AutoSaveDlgProc(HWND hDlg, UINT msg, WPARAM wParam, LPARAM lParam);
@@ -276,6 +281,10 @@ private:
     std::unique_ptr<LineNumbersGutter> m_lineNumbersGutter;
     std::unique_ptr<TabBar> m_tabBar;
     std::unique_ptr<DocumentManager> m_documentManager;
+    
+    // Character map & clipboard history
+    std::unique_ptr<CharacterMap> m_characterMap;
+    std::unique_ptr<ClipboardHistory> m_clipboardHistory;
     
     // Note store and windows
     std::unique_ptr<NoteStore> m_noteStore;

@@ -300,6 +300,13 @@ void MainWindow::OnHelpAbout() {
 // Queries GitHub Releases API and compares version to current
 //------------------------------------------------------------------------------
 void MainWindow::OnHelpCheckUpdate() {
+    CheckForUpdates(false);
+}
+
+//------------------------------------------------------------------------------
+// Check for updates (silent = suppress messages when up-to-date or on failure)
+//------------------------------------------------------------------------------
+void MainWindow::CheckForUpdates(bool silent) {
     // Current version from resource.h
     const int currentMajor = VER_MAJOR;
     const int currentMinor = VER_MINOR;
@@ -441,12 +448,14 @@ void MainWindow::OnHelpCheckUpdate() {
     
     // Show result to user
     if (checkFailed) {
-        MessageBoxW(m_hwnd,
-            L"Unable to check for updates.\n\n"
-            L"Please check your internet connection or visit:\n"
-            L"https://github.com/itzcozi/qnote/releases",
-            L"Update Check Failed",
-            MB_OK | MB_ICONWARNING);
+        if (!silent) {
+            MessageBoxW(m_hwnd,
+                L"Unable to check for updates.\n\n"
+                L"Please check your internet connection or visit:\n"
+                L"https://github.com/itzcozi/qnote/releases",
+                L"Update Check Failed",
+                MB_OK | MB_ICONWARNING);
+        }
     } else if (updateAvailable) {
         std::wstring message = L"A new version of QNote is available!\n\n"
             L"Current version: " + std::to_wstring(currentMajor) + L"." + 
@@ -459,11 +468,13 @@ void MainWindow::OnHelpCheckUpdate() {
             ShellExecuteW(nullptr, L"open", downloadUrl.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
         }
     } else {
-        std::wstring message = L"You are running the latest version of QNote.\n\n"
-            L"Version: " + std::to_wstring(currentMajor) + L"." + 
-            std::to_wstring(currentMinor) + L"." + std::to_wstring(currentPatch);
-        
-        MessageBoxW(m_hwnd, message.c_str(), L"No Updates Available", MB_OK | MB_ICONINFORMATION);
+        if (!silent) {
+            std::wstring message = L"You are running the latest version of QNote.\n\n"
+                L"Version: " + std::to_wstring(currentMajor) + L"." + 
+                std::to_wstring(currentMinor) + L"." + std::to_wstring(currentPatch);
+            
+            MessageBoxW(m_hwnd, message.c_str(), L"No Updates Available", MB_OK | MB_ICONINFORMATION);
+        }
     }
 }
 

@@ -1231,4 +1231,36 @@ void MainWindow::OnToolsRunSelection() {
     }
 }
 
+//------------------------------------------------------------------------------
+// Tools -> Character Map
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsCharacterMap() {
+    if (!m_characterMap) return;
+    
+    m_characterMap->Show(m_hwnd, m_hInstance,
+        [this](const std::wstring& ch) {
+            if (m_editor) {
+                // Focus the editor and insert at cursor
+                ::SetFocus(m_editor->GetHandle());
+                m_editor->ReplaceSelection(ch);
+            }
+        });
+}
+
+//------------------------------------------------------------------------------
+// Tools -> Clipboard History
+//------------------------------------------------------------------------------
+void MainWindow::OnToolsClipboardHistory() {
+    if (!m_clipboardHistory || !m_editor) return;
+    
+    HWND editorHwnd = m_editor->GetHandle();
+    m_clipboardHistory->ShowPicker(editorHwnd, m_hInstance,
+        [this](const std::wstring& text) {
+            if (m_editor) {
+                ::SetFocus(m_editor->GetHandle());
+                m_editor->ReplaceSelection(text);
+            }
+        });
+}
+
 } // namespace QNote

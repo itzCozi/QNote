@@ -99,6 +99,15 @@ struct AppSettings {
     bool fullScreen = false;
     bool menuBarVisible = true;
     
+    // Print settings (persistent)
+    int printQuality = 0;    // 0=Normal, 1=Draft, 2=High, 3=Letter Quality
+    int paperSource  = 0;    // 0=Auto, 1=Upper, 2=Lower, 3=Manual, 4=Tractor, 5=Continuous
+    int paperSize    = 0;    // 0=Default, 1-11 = specific sizes
+    int duplex       = 0;    // 0=None, 1=Long Edge, 2=Short Edge
+    int pageFilter   = 0;    // 0=All, 1=Odd Only, 2=Even Only
+    bool condensed   = false; // Condensed mode for dot matrix
+    bool formFeed    = false; // Send form feed after print job
+    
     // Recent files list (max 10)
     static constexpr size_t MAX_RECENT_FILES = 10;
     std::vector<std::wstring> recentFiles;

@@ -1,6 +1,7 @@
 #===============================================================================
 # QNote - A Better Notepad for Windows
 # CMakeLists.txt - CMake build configuration
+# Author: Cooper Ransom
 #===============================================================================
 
 cmake_minimum_required(VERSION 3.16)
@@ -142,6 +143,8 @@ set(SOURCES
     src/ui/DocumentManager.cpp
     src/ui/SettingsWindow.cpp
     src/ui/PrintPreviewWindow.cpp
+    src/ui/CharacterMap.cpp
+    src/ui/ClipboardHistory.cpp
     src/core/Settings.cpp
     src/core/FileIO.cpp
     src/core/NoteStore.cpp
@@ -160,6 +163,8 @@ set(HEADERS
     src/ui/DocumentManager.h
     src/ui/SettingsWindow.h
     src/ui/PrintPreviewWindow.h
+    src/ui/CharacterMap.h
+    src/ui/ClipboardHistory.h
     src/core/Settings.h
     src/core/FileIO.h
     src/core/NoteStore.h

@@ -20,34 +20,8 @@ QNote is a free, open-source notepad replacement for Windows. Small footprint, n
 - Text tools — sort, trim, join, split, case conversion, URL/Base64 encode, JSON format
 - UTF-8, UTF-16, ANSI encodings · CRLF/LF/CR line endings
 - Auto-save, drag-and-drop, print, dark title bar, customisable shortcuts
-
----
-
-## Keyboard Shortcuts
-
-| Shortcut | Action | Shortcut | Action |
-|---|---|---|---|
-| Ctrl+N | New file | Ctrl+T | New tab |
-| Ctrl+O | Open | Ctrl+W | Close tab |
-| Ctrl+S | Save | Ctrl+Tab | Next tab |
-| Ctrl+Shift+S | Save as | Ctrl+P | Print |
-| Ctrl+Z | Undo | Ctrl+Y | Redo |
-| Ctrl+X | Cut *(line if no sel)* | Ctrl+C | Copy *(line if no sel)* |
-| Ctrl+V | Paste | Ctrl+A | Select all |
-| Ctrl+D | Duplicate line | Ctrl+L | Select line |
-| Ctrl+Shift+K | Delete line | Home | Smart Home |
-| Alt+Up/Down | Move line up/down | Alt+Shift+Up/Down | Copy line up/down |
-| Ctrl+Enter | Insert line below | Ctrl+Shift+Enter | Insert line above |
-| Tab *(selection)* | Indent | Shift+Tab | Unindent |
-| Ctrl+F | Find | Ctrl+H | Replace |
-| F3 | Find next | Ctrl+G | Go to line |
-| F2 | Toggle bookmark | Ctrl+F2 | Next bookmark |
-| Ctrl++/- | Zoom in/out | Ctrl+0 | Reset zoom |
-| Ctrl+Shift+U | Uppercase | Ctrl+U | Lowercase |
-| Ctrl+Shift+Q | Quick capture | Ctrl+Shift+F | Search notes |
-| F5 | Insert date/time | Ctrl+Shift+A | All notes |
-
----
+- Advanced printing with headers/footers, page numbers, print preview, and PDF export
+- Portable mode available
 
 ## Building
 
@@ -82,6 +56,10 @@ release.bat 1.0.0
 ```
 
 Produces `QNote-1.0.0-Portable.zip` and `QNote-1.0.0-Setup.exe` (if Inno Setup is installed).
+
+## Author
+
+Cooper Ransom
 
 ## License
 

@@ -263,11 +263,13 @@ void MainWindow::OnFilePrint() {
     }
     const AppSettings& settings = m_settingsManager->GetSettings();
 
-    // Show print preview dialog
+    // Show print preview dialog with persistent printer settings
     PrintSettings ps = PrintPreviewWindow::Show(
         m_hwnd, m_hInstance, text, docName,
         settings.fontName, settings.fontSize, settings.fontWeight, settings.fontItalic,
-        m_pageSetup, hasSelection);
+        m_pageSetup, hasSelection,
+        settings.printQuality, settings.paperSource, settings.paperSize,
+        settings.duplex, settings.pageFilter, settings.condensed, settings.formFeed);
 
     if (!ps.accepted) return;
 
@@ -277,6 +279,19 @@ void MainWindow::OnFilePrint() {
         m_pageSetup.rtMargin.top    = ps.pageSettings[0].marginTop;
         m_pageSetup.rtMargin.right  = ps.pageSettings[0].marginRight;
         m_pageSetup.rtMargin.bottom = ps.pageSettings[0].marginBottom;
+    }
+
+    // Persist printer settings back to AppSettings
+    {
+        AppSettings& mutableSettings = m_settingsManager->GetSettings();
+        mutableSettings.printQuality = ps.printQuality;
+        mutableSettings.paperSource  = ps.paperSource;
+        mutableSettings.paperSize    = ps.paperSize;
+        mutableSettings.duplex       = ps.duplex;
+        mutableSettings.pageFilter   = ps.pageFilter;
+        mutableSettings.condensed    = ps.condensed;
+        mutableSettings.formFeed     = ps.formFeed;
+        (void)m_settingsManager->Save();
     }
 
     // Now show the system print dialog and print
@@ -290,8 +305,8 @@ void MainWindow::OnFilePrint() {
     pd.nMinPage = 1;
     pd.nMaxPage = 0xFFFF;
 
-    // Apply landscape orientation if selected
-    if (ps.landscape) {
+    // Apply printer settings (orientation, quality, paper, duplex, etc.)
+    {
         PRINTDLGW pdQuery = {};
         pdQuery.lStructSize = sizeof(pdQuery);
         pdQuery.hwndOwner = m_hwnd;
@@ -300,8 +315,128 @@ void MainWindow::OnFilePrint() {
             if (pdQuery.hDevMode) {
                 DEVMODEW* dm = reinterpret_cast<DEVMODEW*>(GlobalLock(pdQuery.hDevMode));
                 if (dm) {
-                    dm->dmOrientation = DMORIENT_LANDSCAPE;
-                    dm->dmFields |= DM_ORIENTATION;
+                    // Orientation
+                    if (ps.landscape) {
+                        dm->dmOrientation = DMORIENT_LANDSCAPE;
+                        dm->dmFields |= DM_ORIENTATION;
+                    }
+
+                    // Print quality (Draft/Normal/High/Letter Quality)
+                    switch (ps.printQuality) {
+                        case 1:  // Draft
+                            dm->dmPrintQuality = DMRES_DRAFT;
+                            dm->dmFields |= DM_PRINTQUALITY;
+                            break;
+                        case 2:  // High
+                            dm->dmPrintQuality = DMRES_HIGH;
+                            dm->dmFields |= DM_PRINTQUALITY;
+                            break;
+                        case 3:  // Letter Quality
+                            dm->dmPrintQuality = DMRES_HIGH;
+                            dm->dmFields |= DM_PRINTQUALITY;
+                            break;
+                        default: // Normal (0) - use printer default
+                            dm->dmPrintQuality = DMRES_MEDIUM;
+                            dm->dmFields |= DM_PRINTQUALITY;
+                            break;
+                    }
+
+                    // Paper source / bin
+                    switch (ps.paperSource) {
+                        case 1:  // Upper Tray
+                            dm->dmDefaultSource = DMBIN_UPPER;
+                            dm->dmFields |= DM_DEFAULTSOURCE;
+                            break;
+                        case 2:  // Lower Tray
+                            dm->dmDefaultSource = DMBIN_LOWER;
+                            dm->dmFields |= DM_DEFAULTSOURCE;
+                            break;
+                        case 3:  // Manual Feed
+                            dm->dmDefaultSource = DMBIN_MANUAL;
+                            dm->dmFields |= DM_DEFAULTSOURCE;
+                            break;
+                        case 4:  // Tractor Feed
+                            dm->dmDefaultSource = DMBIN_TRACTOR;
+                            dm->dmFields |= DM_DEFAULTSOURCE;
+                            break;
+                        case 5:  // Continuous
+                            dm->dmDefaultSource = DMBIN_AUTO;
+                            dm->dmFields |= DM_DEFAULTSOURCE;
+                            break;
+                        default: // Auto (0)
+                            dm->dmDefaultSource = DMBIN_AUTO;
+                            dm->dmFields |= DM_DEFAULTSOURCE;
+                            break;
+                    }
+
+                    // Paper size
+                    switch (ps.paperSize) {
+                        case 1:  // Letter
+                            dm->dmPaperSize = DMPAPER_LETTER;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 2:  // Legal
+                            dm->dmPaperSize = DMPAPER_LEGAL;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 3:  // A4
+                            dm->dmPaperSize = DMPAPER_A4;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 4:  // A5
+                            dm->dmPaperSize = DMPAPER_A5;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 5:  // B5
+                            dm->dmPaperSize = DMPAPER_B5;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 6:  // Envelope #10
+                            dm->dmPaperSize = DMPAPER_ENV_10;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 7:  // Envelope DL
+                            dm->dmPaperSize = DMPAPER_ENV_DL;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 8:  // Envelope C5
+                            dm->dmPaperSize = DMPAPER_ENV_C5;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 9:  // Fanfold US (14.875" x 11")
+                            dm->dmPaperSize = DMPAPER_FANFOLD_US;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 10: // Fanfold EU (8.5" x 12")
+                            dm->dmPaperSize = DMPAPER_FANFOLD_STD_GERMAN;
+                            dm->dmFields |= DM_PAPERSIZE;
+                            break;
+                        case 11: // Custom Continuous
+                            dm->dmPaperSize = DMPAPER_USER;
+                            dm->dmPaperWidth = 2159;   // 8.5" in tenths of mm
+                            dm->dmPaperLength = 2794;  // 11" in tenths of mm (adjustable)
+                            dm->dmFields |= DM_PAPERSIZE | DM_PAPERLENGTH | DM_PAPERWIDTH;
+                            break;
+                        default: // Printer default (0) - don't change
+                            break;
+                    }
+
+                    // Duplex printing
+                    switch (ps.duplex) {
+                        case 1:  // Long Edge
+                            dm->dmDuplex = DMDUP_VERTICAL;
+                            dm->dmFields |= DM_DUPLEX;
+                            break;
+                        case 2:  // Short Edge
+                            dm->dmDuplex = DMDUP_HORIZONTAL;
+                            dm->dmFields |= DM_DUPLEX;
+                            break;
+                        default: // None (0)
+                            dm->dmDuplex = DMDUP_SIMPLEX;
+                            dm->dmFields |= DM_DUPLEX;
+                            break;
+                    }
+
                     GlobalUnlock(pdQuery.hDevMode);
                 }
                 pd.hDevMode = pdQuery.hDevMode;
@@ -379,6 +514,32 @@ void MainWindow::OnFilePrint() {
         if (pagesToPrint.empty()) {
             for (int i = 0; i < totalPages; ++i) pagesToPrint.push_back(i);
         }
+    }
+
+    // Apply page filter (Odd/Even pages only)
+    if (ps.pageFilter == 1) {
+        // Odd pages only (1, 3, 5, ...)
+        std::vector<int> filtered;
+        for (int p : pagesToPrint) {
+            if ((p + 1) % 2 == 1) filtered.push_back(p);  // p is 0-indexed, page 1 is odd
+        }
+        pagesToPrint = std::move(filtered);
+    } else if (ps.pageFilter == 2) {
+        // Even pages only (2, 4, 6, ...)
+        std::vector<int> filtered;
+        for (int p : pagesToPrint) {
+            if ((p + 1) % 2 == 0) filtered.push_back(p);
+        }
+        pagesToPrint = std::move(filtered);
+    }
+
+    if (pagesToPrint.empty()) {
+        MessageBoxW(m_hwnd, L"No pages match the selected page filter.", L"Print",
+                    MB_OK | MB_ICONINFORMATION);
+        DeleteDC(hdc);
+        if (pd.hDevMode) GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
+        return;
     }
 
     // Token expansion for headers/footers
@@ -476,6 +637,24 @@ void MainWindow::OnFilePrint() {
         lf.lfClipPrecision = CLIP_DEFAULT_PRECIS;
         lf.lfQuality = DEFAULT_QUALITY;
         lf.lfPitchAndFamily = DEFAULT_PITCH | FF_DONTCARE;
+
+        // Condensed mode: use a narrower font width to fit more chars per line
+        if (ps.condensed) {
+            // Set width to ~60% of normal for condensed printing
+            // This is especially useful for dot matrix printers
+            LOGFONTW tempLf = lf;
+            tempLf.lfWidth = 0;
+            wcscpy_s(tempLf.lfFaceName, pg.fontName.c_str());
+            HFONT hTempFont = CreateFontIndirectW(&tempLf);
+            SelectObject(hdc, hTempFont);
+            TEXTMETRICW tempMetrics;
+            GetTextMetricsW(hdc, &tempMetrics);
+            lf.lfWidth = MulDiv(tempMetrics.tmAveCharWidth, 60, 100);
+            if (lf.lfWidth < 1) lf.lfWidth = 1;
+            SelectObject(hdc, GetStockObject(SYSTEM_FONT));
+            DeleteObject(hTempFont);
+        }
+
         wcscpy_s(lf.lfFaceName, pg.fontName.c_str());
 
         HFONT hFont = CreateFontIndirectW(&lf);
@@ -678,6 +857,14 @@ void MainWindow::OnFilePrint() {
         if (hLineNumFont) DeleteObject(hLineNumFont);
         DeleteObject(hFont);
         EndPage(hdc);
+    }
+
+    // Send form feed after job if requested (useful for dot matrix / continuous feed)
+    if (ps.formFeed) {
+        // Start an extra blank page which triggers form feed on the printer
+        if (StartPage(hdc) > 0) {
+            EndPage(hdc);
+        }
     }
 
     // Cleanup

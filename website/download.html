@@ -6,7 +6,7 @@
     <title>QNote — Downloads</title>
     <meta name="description" content="Download QNote releases: small, fast, open-source notepad replacement for Windows. No telemetry, minimal footprint.">
     <meta name="keywords" content="QNote download, notepad download, windows text editor, releases">
-    <meta name="author" content="QNote contributors">
+    <meta name="author" content="Cooper Ransom">
     <meta name="robots" content="index,follow">
     <meta name="theme-color" content="#ffffff">
 
@@ -81,11 +81,13 @@
           }
         }
 
-        function createLink(href, text) {
+        function createLink(href, text, target = null) {
           const a = document.createElement("a");
           a.href = href;
           a.textContent = text;
-          a.target = "_blank";
+          if (target) {
+            a.target = target;
+          }
           return a;
         }
 
@@ -116,11 +118,13 @@
               meta.textContent = `Published: ${fmtDate(rel.published_at || rel.created_at || "")}`;
               card.appendChild(meta);
 
+              let wrapper;
+              const isLong = rel.body && rel.body.length > 600;
+
               if (rel.body) {
                 const CHAR_LIMIT = 600;
-                const isLong = rel.body.length > CHAR_LIMIT;
 
-                const wrapper = document.createElement("div");
+                wrapper = document.createElement("div");
                 wrapper.className = "release-notes";
 
                 const fullHtml = marked.parse(rel.body);
@@ -136,6 +140,7 @@
                   toggle.addEventListener("click", function () {
                     wrapper.innerHTML = fullHtml;
                     wrapper.classList.remove("collapsed");
+                    assets.insertBefore(ghLink, assets.firstChild);
                   });
                   wrapper.appendChild(toggle);
                 }
@@ -146,7 +151,20 @@
               const assets = document.createElement("div");
               assets.className = "release-assets";
 
+              const relUrl =
+                rel.html_url ||
+                `https://github.com/${owner}/${repoName}/releases/tag/${rel.tag_name}`;
+              const ghLink = createLink(relUrl, "View release on GitHub", "_blank");
+
+              if (!isLong) {
+                assets.insertBefore(ghLink, assets.firstChild);
+              }
+
               if (Array.isArray(rel.assets) && rel.assets.length) {
+                const dlHeader = document.createElement("h3");
+                dlHeader.textContent = "Downloads:";
+                assets.appendChild(dlHeader);
+
                 const ul = document.createElement("ul");
                 ul.className = "asset-list";
                 rel.assets.forEach((a) => {
@@ -154,17 +172,12 @@
                   const size = a.size ? ` (${(a.size / 1024).toFixed(1)} KB)` : "";
                   const link = createLink(
                     a.browser_download_url || a.url,
-                    a.name + size,
+                    a.name + size
                   );
                   li.appendChild(link);
                   ul.appendChild(li);
                 });
                 assets.appendChild(ul);
-              } else {
-                const relUrl =
-                  rel.html_url ||
-                  `https://github.com/${owner}/${repoName}/releases/tag/${rel.tag_name}`;
-                assets.appendChild(createLink(relUrl, "View release page"));
               }
 
               card.appendChild(assets);
@@ -186,7 +199,9 @@
 
     <hr />
 
-    <em>Tiny. Quick. Simple. Efficient.</em>
-    <sub>Never anything more. Never anything less.</sub>
+    <div class="footer">
+      <em>Tiny. Quick. Simple. Efficient.</em>
+      <sub>Never anything more. Never anything less.</sub>
+    </div>
   </body>
 </html>

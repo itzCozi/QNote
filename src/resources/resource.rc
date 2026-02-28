@@ -199,6 +199,9 @@ BEGIN
         MENUITEM SEPARATOR
         MENUITEM "&Auto-Save Options...",             IDM_TOOLS_AUTOSAVEOPTIONS
         MENUITEM "Customize &Keyboard Shortcuts...",  IDM_TOOLS_EDITSHORTCUTS
+        MENUITEM SEPARATOR
+        MENUITEM "C&haracter Map...",                  IDM_TOOLS_CHARMAP
+        MENUITEM "Clip&board History\tCtrl+Shift+V",  IDM_TOOLS_CLIPHISTORY
     END
     POPUP "&Help"
     BEGIN
@@ -269,6 +272,9 @@ BEGIN
     "S",        IDM_FILE_SAVEALL,    VIRTKEY, CONTROL, SHIFT, ALT
     VK_F11,     IDM_VIEW_FULLSCREEN, VIRTKEY
     VK_OEM_2,   IDM_EDIT_TOGGLECOMMENT, VIRTKEY, CONTROL
+
+    // Clipboard History
+    "V",        IDM_TOOLS_CLIPHISTORY,  VIRTKEY, CONTROL, SHIFT
 END
 
 //------------------------------------------------------------------------------
@@ -453,13 +459,13 @@ END
 //------------------------------------------------------------------------------
 // Print Preview Dialog
 //------------------------------------------------------------------------------
-IDD_PRINTPREVIEW DIALOGEX 0, 0, 690, 510
+IDD_PRINTPREVIEW DIALOGEX 0, 0, 690, 610
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "Print Preview"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     // Preview area (custom-painted static control)
-    CONTROL         "",IDC_PP_PREVIEW,"Static",SS_OWNERDRAW | SS_NOTIFY | WS_BORDER,7,7,360,490
+    CONTROL         "",IDC_PP_PREVIEW,"Static",SS_OWNERDRAW | SS_NOTIFY | WS_BORDER,7,7,360,590
 
     // ===== RIGHT COLUMN =====
 
@@ -557,18 +563,35 @@ BEGIN
     PUSHBUTTON      "Save Settings",IDC_PP_SAVE_SETTINGS,383,406,60,14
     PUSHBUTTON      "Load Settings",IDC_PP_LOAD_SETTINGS,448,406,60,14
 
+    // Printer group (Quality, Paper Source, Paper Size, Duplex, Page Filter)
+    GROUPBOX        "Printer",IDC_PP_GRP_PRINTER,375,429,308,100
+    LTEXT           "",IDC_PP_PRINTER_INFO,383,441,292,10
+    LTEXT           "Quality:",IDC_PP_LBL_PRINT_QUALITY,383,457,28,8
+    COMBOBOX        IDC_PP_PRINT_QUALITY,413,455,75,80,CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Source:",IDC_PP_LBL_PAPER_SOURCE,497,457,24,8
+    COMBOBOX        IDC_PP_PAPER_SOURCE,523,455,75,80,CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Duplex:",IDC_PP_LBL_DUPLEX,605,457,24,8
+    COMBOBOX        IDC_PP_DUPLEX,631,455,44,60,CBS_DROPDOWNLIST | WS_TABSTOP
+    LTEXT           "Paper:",IDC_PP_LBL_PAPER_SIZE,383,477,22,8
+    COMBOBOX        IDC_PP_PAPER_SIZE,407,475,113,120,CBS_DROPDOWNLIST | WS_VSCROLL | WS_TABSTOP
+    LTEXT           "Pages:",IDC_PP_LBL_PAGE_FILTER,527,477,24,8
+    COMBOBOX        IDC_PP_PAGE_FILTER,553,475,60,60,CBS_DROPDOWNLIST | WS_TABSTOP
+    AUTOCHECKBOX    "Condensed",IDC_PP_CONDENSED,620,477,55,10
+    AUTOCHECKBOX    "Form feed after job",IDC_PP_FORMFEED,383,500,90,10
+
     // Page selection
-    PUSHBUTTON      "< Prev",IDC_PP_PREVPAGE,375,429,40,14
-    LTEXT           "Page 1 of 1",IDC_PP_PAGEINFO,418,431,65,8
-    PUSHBUTTON      "Next >",IDC_PP_NEXTPAGE,483,429,40,14
-    PUSHBUTTON      "Apply to All Pages",IDC_PP_APPLYALL,375,447,100,14
+    PUSHBUTTON      "< Prev",IDC_PP_PREVPAGE,375,535,40,14
+    LTEXT           "Page 1 of 1",IDC_PP_PAGEINFO,418,537,65,8
+    PUSHBUTTON      "Next >",IDC_PP_NEXTPAGE,483,535,40,14
+    PUSHBUTTON      "Apply to All Pages",IDC_PP_APPLYALL,375,553,100,14
+    PUSHBUTTON      "Add Files...",IDC_PP_ADD_FILES,480,553,100,14
 
     // Hidden label for watermark font (repurposed)
     LTEXT           "",IDC_PP_WATERMARK_FONT_LABEL,0,0,0,0
 
     // Buttons
-    DEFPUSHBUTTON   "&Print...",IDC_PP_PRINT,535,485,68,17
-    PUSHBUTTON      "Cancel",IDCANCEL,610,485,68,17
+    DEFPUSHBUTTON   "&Print...",IDC_PP_PRINT,535,585,68,17
+    PUSHBUTTON      "Cancel",IDCANCEL,610,585,68,17
 END
 
 //------------------------------------------------------------------------------
@@ -617,7 +640,7 @@ END
 //------------------------------------------------------------------------------
 // About Dialog
 //------------------------------------------------------------------------------
-IDD_ABOUT DIALOGEX 0, 0, 200, 90
+IDD_ABOUT DIALOGEX 0, 0, 200, 100
 STYLE DS_SETFONT | DS_MODALFRAME | DS_FIXEDSYS | WS_POPUP | WS_CAPTION | WS_SYSMENU
 CAPTION "About QNote"
 FONT 8, "MS Shell Dlg", 400, 0, 0x1
@@ -626,8 +649,9 @@ BEGIN
     LTEXT           "QNote",IDC_STATIC,45,14,114,8
     LTEXT           "Version 1.0.0",IDC_STATIC,45,26,114,8
     LTEXT           "A Better Notepad for Windows",IDC_STATIC,45,38,140,8
-    LTEXT           "Copyright (c) 2026 - MIT License",IDC_STATIC,45,50,140,8
-    DEFPUSHBUTTON   "OK",IDOK,75,68,50,14,WS_GROUP
+    LTEXT           "By Cooper Ransom",IDC_STATIC,45,50,140,8
+    LTEXT           "Copyright (c) 2026 - MIT License",IDC_STATIC,45,62,140,8
+    DEFPUSHBUTTON   "OK",IDOK,75,80,50,14,WS_GROUP
 END
 
 //------------------------------------------------------------------------------
@@ -646,11 +670,11 @@ BEGIN
     BEGIN
         BLOCK "040904B0"
         BEGIN
-            VALUE "CompanyName",      "QNote Project (github.com/itzcozi/qnote)"
+            VALUE "CompanyName",      "Cooper Ransom"
             VALUE "FileDescription",  "QNote - A Better Notepad for Windows"
             VALUE "FileVersion",      VER_STRING
             VALUE "InternalName",     "QNote"
-            VALUE "LegalCopyright",   "Copyright (c) 2026 - MIT License"
+            VALUE "LegalCopyright",   "Copyright (c) 2026 Cooper Ransom - MIT License"
             VALUE "OriginalFilename", "QNote.exe"
             VALUE "ProductName",      "QNote"
             VALUE "ProductVersion",   VER_STRING

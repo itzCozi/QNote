@@ -49,7 +49,6 @@ a:hover {
   }
 }
 
-/* Header image inside h1 — keep it small and aligned with text */
 h1 img {
   max-height: 1.2em;
   width: auto;
@@ -57,7 +56,6 @@ h1 img {
   margin-right: 0.5rem;
 }
 
-/* Demo gif */
 .demo-gif {
   max-width: 80%;
   border-radius: 4px;
@@ -70,7 +68,6 @@ h1 img {
   }
 }
 
-/* Release notes markdown */
 .release-notes {
   margin: 0.5em 0;
   line-height: 1.6;
@@ -119,4 +116,9 @@ h1 img {
 
 .asset-list li {
   margin: 0.2em 0;
+}
+
+.footer {
+  text-align: center;
+  margin-bottom: 0.5em;
 }

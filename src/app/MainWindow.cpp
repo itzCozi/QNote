@@ -54,6 +54,8 @@ MainWindow::MainWindow()
     , m_lineNumbersGutter(std::make_unique<LineNumbersGutter>())
     , m_tabBar(std::make_unique<TabBar>())
     , m_documentManager(std::make_unique<DocumentManager>())
+    , m_characterMap(std::make_unique<CharacterMap>())
+    , m_clipboardHistory(std::make_unique<ClipboardHistory>())
     , m_noteStore(std::make_unique<NoteStore>())
     , m_hotkeyManager(std::make_unique<GlobalHotkeyManager>())
 {
@@ -167,6 +169,16 @@ int MainWindow::Run() {
     MSG msg = {};
     
     while (GetMessageW(&msg, nullptr, 0, 0)) {
+        // Check for clipboard history picker messages first
+        if (m_clipboardHistory && m_clipboardHistory->IsPickerMessage(&msg)) {
+            continue;
+        }
+        
+        // Check for character map messages
+        if (m_characterMap && m_characterMap->IsDialogMessage(&msg)) {
+            continue;
+        }
+        
         // Check for FindBar messages first
         if (m_findBar && m_findBar->IsDialogMessage(&msg)) {
             continue;
@@ -291,6 +303,12 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                 RestoreFromTray();
             } else if (lParam == WM_RBUTTONUP) {
                 ShowTrayContextMenu();
+            }
+            return 0;
+
+        case WM_CLIPBOARDUPDATE:
+            if (m_clipboardHistory) {
+                m_clipboardHistory->OnClipboardUpdate();
             }
             return 0;
 
@@ -476,15 +494,20 @@ void MainWindow::OnCreate() {
     }
     
     // Auto-update check on startup if enabled
+    // Use a one-shot timer so the window finishes rendering first
     if (settings.autoUpdate) {
-        // Trigger update check in background (non-blocking)
-        // For simplicity, we'll just do a quick check next time - not blocking startup
+        SetTimer(m_hwnd, TIMER_UPDATECHECK, 2000, nullptr);
     }
     
     // Initial resize
     RECT rc;
     GetClientRect(m_hwnd, &rc);
     OnSize(rc.right, rc.bottom);
+    
+    // Initialize clipboard history listener
+    if (m_clipboardHistory) {
+        m_clipboardHistory->Initialize(m_hwnd);
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -497,6 +520,7 @@ void MainWindow::OnDestroy() {
     KillTimer(m_hwnd, TIMER_FILEAUTOSAVE);
     KillTimer(m_hwnd, TIMER_FILEWATCH);
     KillTimer(m_hwnd, TIMER_REALSAVE);
+    KillTimer(m_hwnd, TIMER_UPDATECHECK);
     
     // Save session before destroying
     SaveSession();
@@ -517,6 +541,16 @@ void MainWindow::OnDestroy() {
     // Unregister global hotkey
     if (m_hotkeyManager) {
         m_hotkeyManager->Unregister();
+    }
+    
+    // Shut down clipboard history
+    if (m_clipboardHistory) {
+        m_clipboardHistory->Shutdown();
+    }
+    
+    // Close character map
+    if (m_characterMap) {
+        m_characterMap->Close();
     }
     
     // Save window position
@@ -774,6 +808,8 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_TOOLS_CONVERTEOL_SEL:   OnToolsConvertEolSelection(); break;
         case IDM_TOOLS_CHECKSUM:         OnToolsChecksum(); break;
         case IDM_TOOLS_RUNSELECTION:     OnToolsRunSelection(); break;
+        case IDM_TOOLS_CHARMAP:          OnToolsCharacterMap(); break;
+        case IDM_TOOLS_CLIPHISTORY:      OnToolsClipboardHistory(); break;
         
         // Notes menu (additional)
         case IDM_NOTES_EXPORT:           OnNotesExport(); break;
@@ -869,6 +905,10 @@ void MainWindow::OnTimer(UINT_PTR timerId) {
     } else if (timerId == TIMER_FILEWATCH) {
         // Check if the current file has been modified externally
         CheckFileChanged();
+    } else if (timerId == TIMER_UPDATECHECK) {
+        // One-shot startup update check
+        KillTimer(m_hwnd, TIMER_UPDATECHECK);
+        CheckForUpdates(true);
     } else if (timerId == TIMER_REALSAVE) {
         // Auto-save the actual file (not a backup) when save style is AutoSave
         if (!m_isNoteMode && m_editor && m_editor->IsModified() &&

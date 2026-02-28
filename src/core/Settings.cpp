@@ -171,6 +171,20 @@ bool SettingsManager::Load() {
     m_settings.alwaysOnTop = ParseBool(L"View", L"AlwaysOnTop", false);
     m_settings.menuBarVisible = ParseBool(L"View", L"MenuBarVisible", true);
     
+    // Print settings
+    m_settings.printQuality = ParseInt(L"Print", L"Quality", 0);
+    if (m_settings.printQuality < 0 || m_settings.printQuality > 3) m_settings.printQuality = 0;
+    m_settings.paperSource = ParseInt(L"Print", L"PaperSource", 0);
+    if (m_settings.paperSource < 0 || m_settings.paperSource > 5) m_settings.paperSource = 0;
+    m_settings.paperSize = ParseInt(L"Print", L"PaperSize", 0);
+    if (m_settings.paperSize < 0 || m_settings.paperSize > 11) m_settings.paperSize = 0;
+    m_settings.duplex = ParseInt(L"Print", L"Duplex", 0);
+    if (m_settings.duplex < 0 || m_settings.duplex > 2) m_settings.duplex = 0;
+    m_settings.pageFilter = ParseInt(L"Print", L"PageFilter", 0);
+    if (m_settings.pageFilter < 0 || m_settings.pageFilter > 2) m_settings.pageFilter = 0;
+    m_settings.condensed = ParseBool(L"Print", L"Condensed", false);
+    m_settings.formFeed = ParseBool(L"Print", L"FormFeed", false);
+    
     // Search section
     m_settings.searchMatchCase = ParseBool(L"Search", L"MatchCase", false);
     m_settings.searchWrapAround = ParseBool(L"Search", L"WrapAround", true);
@@ -244,6 +258,15 @@ bool SettingsManager::Save() {
     // View state
     WriteBool(L"View", L"AlwaysOnTop", m_settings.alwaysOnTop);
     WriteBool(L"View", L"MenuBarVisible", m_settings.menuBarVisible);
+    
+    // Print settings
+    WriteInt(L"Print", L"Quality", m_settings.printQuality);
+    WriteInt(L"Print", L"PaperSource", m_settings.paperSource);
+    WriteInt(L"Print", L"PaperSize", m_settings.paperSize);
+    WriteInt(L"Print", L"Duplex", m_settings.duplex);
+    WriteInt(L"Print", L"PageFilter", m_settings.pageFilter);
+    WriteBool(L"Print", L"Condensed", m_settings.condensed);
+    WriteBool(L"Print", L"FormFeed", m_settings.formFeed);
     
     // Search section
     WriteBool(L"Search", L"MatchCase", m_settings.searchMatchCase);

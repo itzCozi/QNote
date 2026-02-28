@@ -4,6 +4,7 @@
 //==============================================================================
 
 #include "PrintPreviewWindow.h"
+#include "FileIO.h"
 #include "resource.h"
 #include <CommCtrl.h>
 #include <Commdlg.h>
@@ -27,12 +28,28 @@ PrintSettings PrintPreviewWindow::Show(HWND parent, HINSTANCE hInstance,
                                        const std::wstring& fontName,
                                        int fontSize, int fontWeight, bool fontItalic,
                                        const PAGESETUPDLGW& pageSetup,
-                                       bool hasSelection) {
+                                       bool hasSelection,
+                                       int defaultPrintQuality,
+                                       int defaultPaperSource,
+                                       int defaultPaperSize,
+                                       int defaultDuplex,
+                                       int defaultPageFilter,
+                                       bool defaultCondensed,
+                                       bool defaultFormFeed) {
     PrintPreviewWindow instance;
     instance.m_hInstance = hInstance;
     instance.m_text      = text;
     instance.m_docName   = docName;
     instance.m_hasSelection = hasSelection;
+
+    // Load persistent printer settings as defaults
+    instance.m_printQuality = defaultPrintQuality;
+    instance.m_paperSource  = defaultPaperSource;
+    instance.m_paperSize    = defaultPaperSize;
+    instance.m_duplex       = defaultDuplex;
+    instance.m_pageFilter   = defaultPageFilter;
+    instance.m_condensed    = defaultCondensed;
+    instance.m_formFeed     = defaultFormFeed;
 
     // Seed the initial page-0 settings from editor font + page-setup margins
     PageSettings base;
@@ -107,6 +124,16 @@ PrintSettings PrintPreviewWindow::Show(HWND parent, HINSTANCE hInstance,
         // Read print options
         ps.copies  = instance.m_copies;
         ps.collate = instance.m_collate;
+
+        // Read printer settings
+        ps.printQuality = instance.m_printQuality;
+        ps.paperSource  = instance.m_paperSource;
+        ps.paperSize    = instance.m_paperSize;
+        ps.duplex       = instance.m_duplex;
+        ps.pageFilter   = instance.m_pageFilter;
+        ps.condensed    = instance.m_condensed;
+        ps.formFeed     = instance.m_formFeed;
+        ps.isDotMatrix  = instance.m_isDotMatrix;
     }
     return ps;
 }
@@ -251,6 +278,71 @@ void PrintPreviewWindow::OnInit(HWND hwnd) {
 
     // Default watermark text
     SetDlgItemTextW(m_hwnd, IDC_PP_WATERMARK_TEXT, L"DRAFT");
+
+    // Initialize printer controls
+    {
+        // Print quality combo
+        HWND hQuality = GetDlgItem(m_hwnd, IDC_PP_PRINT_QUALITY);
+        SendMessageW(hQuality, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Normal"));
+        SendMessageW(hQuality, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Draft"));
+        SendMessageW(hQuality, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"High"));
+        SendMessageW(hQuality, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Letter Quality"));
+        SendMessageW(hQuality, CB_SETCURSEL, 0, 0);
+
+        // Paper source combo
+        HWND hSource = GetDlgItem(m_hwnd, IDC_PP_PAPER_SOURCE);
+        SendMessageW(hSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Auto Select"));
+        SendMessageW(hSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Upper Tray"));
+        SendMessageW(hSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Lower Tray"));
+        SendMessageW(hSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Manual Feed"));
+        SendMessageW(hSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Tractor Feed"));
+        SendMessageW(hSource, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Continuous"));
+        SendMessageW(hSource, CB_SETCURSEL, 0, 0);
+
+        // Paper size combo
+        HWND hPaper = GetDlgItem(m_hwnd, IDC_PP_PAPER_SIZE);
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Printer Default"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Letter (8.5\" x 11\")"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Legal (8.5\" x 14\")"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"A4 (210 x 297mm)"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"A5 (148 x 210mm)"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"B5 (182 x 257mm)"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Envelope #10"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Envelope DL"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Envelope C5"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Fanfold US (14.875\" x 11\")"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Fanfold EU (8.5\" x 12\")"));
+        SendMessageW(hPaper, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Continuous Custom"));
+        SendMessageW(hPaper, CB_SETCURSEL, 0, 0);
+
+        // Duplex combo
+        HWND hDuplex = GetDlgItem(m_hwnd, IDC_PP_DUPLEX);
+        SendMessageW(hDuplex, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"None"));
+        SendMessageW(hDuplex, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Long"));
+        SendMessageW(hDuplex, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Short"));
+        SendMessageW(hDuplex, CB_SETCURSEL, 0, 0);
+
+        // Page filter combo
+        HWND hFilter = GetDlgItem(m_hwnd, IDC_PP_PAGE_FILTER);
+        SendMessageW(hFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"All"));
+        SendMessageW(hFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Odd"));
+        SendMessageW(hFilter, CB_ADDSTRING, 0, reinterpret_cast<LPARAM>(L"Even"));
+        SendMessageW(hFilter, CB_SETCURSEL, 0, 0);
+
+        // Default condensed and form feed checkboxes
+        CheckDlgButton(m_hwnd, IDC_PP_CONDENSED, m_condensed ? BST_CHECKED : BST_UNCHECKED);
+        CheckDlgButton(m_hwnd, IDC_PP_FORMFEED, m_formFeed ? BST_CHECKED : BST_UNCHECKED);
+
+        // Apply persistent settings to combos
+        SendMessageW(GetDlgItem(m_hwnd, IDC_PP_PRINT_QUALITY), CB_SETCURSEL, m_printQuality, 0);
+        SendMessageW(GetDlgItem(m_hwnd, IDC_PP_PAPER_SOURCE), CB_SETCURSEL, m_paperSource, 0);
+        SendMessageW(GetDlgItem(m_hwnd, IDC_PP_PAPER_SIZE), CB_SETCURSEL, m_paperSize, 0);
+        SendMessageW(GetDlgItem(m_hwnd, IDC_PP_DUPLEX), CB_SETCURSEL, m_duplex, 0);
+        SendMessageW(GetDlgItem(m_hwnd, IDC_PP_PAGE_FILTER), CB_SETCURSEL, m_pageFilter, 0);
+
+        // Detect printer type and update UI (may override quality/source for dot matrix)
+        DetectPrinterType();
+    }
 
     // Update title to indicate selection if applicable
     if (m_hasSelection) {
@@ -502,6 +594,59 @@ void PrintPreviewWindow::OnCommand(WORD id, WORD code) {
 
         case IDC_PP_LINENUM_FONT:
             OnLineNumberChooseFont();
+            break;
+
+        case IDC_PP_ADD_FILES:
+            OnAddFiles();
+            break;
+
+        // Printer settings combos
+        case IDC_PP_PRINT_QUALITY:
+            if (code == CBN_SELCHANGE && !m_suppressSync) {
+                m_printQuality = static_cast<int>(SendMessageW(
+                    GetDlgItem(m_hwnd, IDC_PP_PRINT_QUALITY), CB_GETCURSEL, 0, 0));
+            }
+            break;
+
+        case IDC_PP_PAPER_SOURCE:
+            if (code == CBN_SELCHANGE && !m_suppressSync) {
+                m_paperSource = static_cast<int>(SendMessageW(
+                    GetDlgItem(m_hwnd, IDC_PP_PAPER_SOURCE), CB_GETCURSEL, 0, 0));
+                UpdatePrinterControlStates();
+            }
+            break;
+
+        case IDC_PP_PAPER_SIZE:
+            if (code == CBN_SELCHANGE && !m_suppressSync) {
+                m_paperSize = static_cast<int>(SendMessageW(
+                    GetDlgItem(m_hwnd, IDC_PP_PAPER_SIZE), CB_GETCURSEL, 0, 0));
+            }
+            break;
+
+        case IDC_PP_DUPLEX:
+            if (code == CBN_SELCHANGE && !m_suppressSync) {
+                m_duplex = static_cast<int>(SendMessageW(
+                    GetDlgItem(m_hwnd, IDC_PP_DUPLEX), CB_GETCURSEL, 0, 0));
+            }
+            break;
+
+        case IDC_PP_PAGE_FILTER:
+            if (code == CBN_SELCHANGE && !m_suppressSync) {
+                m_pageFilter = static_cast<int>(SendMessageW(
+                    GetDlgItem(m_hwnd, IDC_PP_PAGE_FILTER), CB_GETCURSEL, 0, 0));
+            }
+            break;
+
+        case IDC_PP_CONDENSED:
+            if (!m_suppressSync) {
+                m_condensed = IsDlgButtonChecked(m_hwnd, IDC_PP_CONDENSED) == BST_CHECKED;
+            }
+            break;
+
+        case IDC_PP_FORMFEED:
+            if (!m_suppressSync) {
+                m_formFeed = IsDlgButtonChecked(m_hwnd, IDC_PP_FORMFEED) == BST_CHECKED;
+            }
             break;
     }
 }
@@ -2021,6 +2166,206 @@ void PrintPreviewWindow::UpdateLineNumberFontLabel() {
         label = buf;
     }
     SetDlgItemTextW(m_hwnd, IDC_PP_LINENUM_FONT_LABEL, label.c_str());
+}
+
+//------------------------------------------------------------------------------
+// Add external files to the print preview
+//------------------------------------------------------------------------------
+void PrintPreviewWindow::OnAddFiles() {
+    // Use a large buffer for multi-select (directory + null-separated filenames)
+    const DWORD bufSize = 32768;
+    std::vector<wchar_t> buf(bufSize, L'\0');
+
+    OPENFILENAMEW ofn = {};
+    ofn.lStructSize = sizeof(ofn);
+    ofn.hwndOwner = m_hwnd;
+    ofn.lpstrFile = buf.data();
+    ofn.nMaxFile = bufSize;
+    ofn.lpstrFilter = L"Text Files (*.txt)\0*.txt\0"
+                      L"Markdown (*.md;*.markdown)\0*.md;*.markdown\0"
+                      L"Source Code (*.cpp;*.c;*.h;*.hpp;*.cs;*.java;*.py;*.js;*.ts)\0*.cpp;*.c;*.h;*.hpp;*.cs;*.java;*.py;*.js;*.ts\0"
+                      L"Web Files (*.html;*.htm;*.css;*.xml;*.json)\0*.html;*.htm;*.css;*.xml;*.json\0"
+                      L"Log Files (*.log)\0*.log\0"
+                      L"All Files (*.*)\0*.*\0";
+    ofn.nFilterIndex = 6;  // Default to All Files
+    ofn.lpstrTitle = L"Add Files to Print Preview";
+    ofn.Flags = OFN_PATHMUSTEXIST | OFN_FILEMUSTEXIST | OFN_HIDEREADONLY
+              | OFN_ALLOWMULTISELECT | OFN_EXPLORER;
+
+    if (!GetOpenFileNameW(&ofn))
+        return;
+
+    // Parse selected files - multi-select returns:
+    //   directory\0file1\0file2\0\0   (multiple files)
+    //   fullpath\0\0                  (single file)
+    std::vector<std::wstring> filePaths;
+
+    const wchar_t* p = buf.data();
+    std::wstring first(p);
+    p += first.size() + 1;
+
+    if (*p == L'\0') {
+        // Single file selected
+        filePaths.push_back(first);
+    } else {
+        // Multiple files: first string is the directory
+        std::wstring dir = first;
+        if (!dir.empty() && dir.back() != L'\\')
+            dir += L'\\';
+        while (*p) {
+            std::wstring fname(p);
+            filePaths.push_back(dir + fname);
+            p += fname.size() + 1;
+        }
+    }
+
+    if (filePaths.empty())
+        return;
+
+    // Read each file and append to the current text
+    int filesAdded = 0;
+    for (const auto& path : filePaths) {
+        FileReadResult result = FileIO::ReadFile(path);
+        if (!result.success) {
+            std::wstring msg = L"Could not read file:\n" + path;
+            if (!result.errorMessage.empty())
+                msg += L"\n\n" + result.errorMessage;
+            MessageBoxW(m_hwnd, msg.c_str(), L"Add Files", MB_OK | MB_ICONWARNING);
+            continue;
+        }
+
+        if (result.content.empty())
+            continue;
+
+        // Append a separator and the file content
+        if (!m_text.empty())
+            m_text += L"\r\n";
+        m_text += result.content;
+        filesAdded++;
+    }
+
+    if (filesAdded == 0)
+        return;
+
+    // Re-paginate with the updated text and refresh the preview
+    Paginate();
+    if (m_selectedPage >= static_cast<int>(m_pages.size()))
+        m_selectedPage = static_cast<int>(m_pages.size()) - 1;
+    UpdatePageInfo();
+    InvalidatePreview();
+}
+
+//------------------------------------------------------------------------------
+// Detect the default printer type (dot matrix / impact vs laser/inkjet)
+//------------------------------------------------------------------------------
+void PrintPreviewWindow::DetectPrinterType() {
+    m_isDotMatrix = false;
+    std::wstring printerInfo;
+
+    PRINTDLGW pd = {};
+    pd.lStructSize = sizeof(pd);
+    pd.hwndOwner = m_hwnd;
+    pd.Flags = PD_RETURNDEFAULT | PD_RETURNDC;
+
+    if (PrintDlgW(&pd)) {
+        if (pd.hDC) {
+            // Check printer technology
+            int tech = GetDeviceCaps(pd.hDC, TECHNOLOGY);
+            int dpiX = GetDeviceCaps(pd.hDC, LOGPIXELSX);
+            int dpiY = GetDeviceCaps(pd.hDC, LOGPIXELSY);
+
+            // DT_CHARSTREAM (4) indicates a character-stream printer (dot matrix)
+            // Also check for very low DPI which is typical of dot matrix (72-180 DPI)
+            if (tech == DT_CHARSTREAM || (dpiX <= 180 && dpiY <= 180)) {
+                m_isDotMatrix = true;
+            }
+
+            DeleteDC(pd.hDC);
+        }
+
+        // Get printer name from DEVNAMES
+        if (pd.hDevNames) {
+            DEVNAMES* dn = reinterpret_cast<DEVNAMES*>(GlobalLock(pd.hDevNames));
+            if (dn) {
+                const wchar_t* deviceName = reinterpret_cast<const wchar_t*>(dn) + dn->wDeviceOffset;
+                printerInfo = deviceName;
+                GlobalUnlock(pd.hDevNames);
+            }
+        }
+
+        // Get additional info from DEVMODE
+        if (pd.hDevMode) {
+            DEVMODEW* dm = reinterpret_cast<DEVMODEW*>(GlobalLock(pd.hDevMode));
+            if (dm) {
+                // Check if printer name suggests dot matrix
+                std::wstring devName = dm->dmDeviceName;
+                // Common dot matrix printer keywords
+                if (devName.find(L"LX-") != std::wstring::npos ||
+                    devName.find(L"LQ-") != std::wstring::npos ||
+                    devName.find(L"FX-") != std::wstring::npos ||
+                    devName.find(L"DFX") != std::wstring::npos ||
+                    devName.find(L"PLQ") != std::wstring::npos ||
+                    devName.find(L"Dot Matrix") != std::wstring::npos ||
+                    devName.find(L"dot matrix") != std::wstring::npos ||
+                    devName.find(L"Impact") != std::wstring::npos ||
+                    devName.find(L"Passbook") != std::wstring::npos ||
+                    devName.find(L"OKI") != std::wstring::npos ||
+                    devName.find(L"ML-") != std::wstring::npos) {
+                    m_isDotMatrix = true;
+                }
+                GlobalUnlock(pd.hDevMode);
+            }
+            GlobalFree(pd.hDevMode);
+        }
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
+    }
+
+    // Update printer info label
+    if (!printerInfo.empty()) {
+        std::wstring info = L"Printer: " + printerInfo;
+        if (m_isDotMatrix) {
+            info += L"  [Dot Matrix / Impact]";
+        }
+        SetDlgItemTextW(m_hwnd, IDC_PP_PRINTER_INFO, info.c_str());
+    } else {
+        SetDlgItemTextW(m_hwnd, IDC_PP_PRINTER_INFO, L"Printer: (default)");
+    }
+
+    // Auto-configure for dot matrix if detected
+    if (m_isDotMatrix) {
+        // Suggest Draft quality for speed
+        m_printQuality = 1;  // Draft
+        SendMessageW(GetDlgItem(m_hwnd, IDC_PP_PRINT_QUALITY), CB_SETCURSEL, 1, 0);
+
+        // Suggest Tractor Feed
+        m_paperSource = 4;  // Tractor Feed
+        SendMessageW(GetDlgItem(m_hwnd, IDC_PP_PAPER_SOURCE), CB_SETCURSEL, 4, 0);
+
+        // Enable form feed by default for dot matrix
+        m_formFeed = true;
+        CheckDlgButton(m_hwnd, IDC_PP_FORMFEED, BST_CHECKED);
+    }
+
+    UpdatePrinterControlStates();
+}
+
+//------------------------------------------------------------------------------
+// Update printer control enable states based on paper source / type
+//------------------------------------------------------------------------------
+void PrintPreviewWindow::UpdatePrinterControlStates() {
+    // Enable condensed mode for all printers (useful for wide text)
+    // Tractor/continuous sources make condensed more relevant
+    bool isTractorOrContinuous = (m_paperSource == 4 || m_paperSource == 5);
+
+    // Show/hide condensed and form feed based on context
+    // (always enabled - useful for any printer, but especially dot matrix)
+    EnableWindow(GetDlgItem(m_hwnd, IDC_PP_CONDENSED), TRUE);
+    EnableWindow(GetDlgItem(m_hwnd, IDC_PP_FORMFEED), TRUE);
+
+    // If tractor feed selected, suggest Fanfold paper sizes
+    if (isTractorOrContinuous && m_paperSize == 0) {
+        // Don't auto-switch paper size, but it's available
+    }
 }
 
 } // namespace QNote

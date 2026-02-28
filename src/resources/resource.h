@@ -173,6 +173,10 @@
 #define IDM_TOOLS_CHECKSUM              10025
 #define IDM_TOOLS_RUNSELECTION          10026
 
+// Tools menu (Character Map & Clipboard History)
+#define IDM_TOOLS_CHARMAP               10030
+#define IDM_TOOLS_CLIPHISTORY           10031
+
 // Tools menu (Settings)
 #define IDM_TOOLS_SETTINGS              10020
 
@@ -357,6 +361,23 @@
 #define IDC_PP_COLLATE                  1403
 #define IDC_PP_SAVE_SETTINGS            1404
 #define IDC_PP_LOAD_SETTINGS            1405
+#define IDC_PP_ADD_FILES                1406
+
+// Print Preview - Printer group (Quality, Paper Source, Paper Size, Duplex, Page Filter)
+#define IDC_PP_GRP_PRINTER              1420
+#define IDC_PP_PRINT_QUALITY            1421
+#define IDC_PP_LBL_PRINT_QUALITY        1422
+#define IDC_PP_PAPER_SOURCE             1423
+#define IDC_PP_LBL_PAPER_SOURCE         1424
+#define IDC_PP_PAPER_SIZE               1425
+#define IDC_PP_LBL_PAPER_SIZE           1426
+#define IDC_PP_DUPLEX                   1427
+#define IDC_PP_LBL_DUPLEX               1428
+#define IDC_PP_PAGE_FILTER              1429
+#define IDC_PP_LBL_PAGE_FILTER          1430
+#define IDC_PP_PRINTER_INFO             1431
+#define IDC_PP_CONDENSED                1432
+#define IDC_PP_FORMFEED                 1433
 
 // Convert EOL selection dialog
 #define IDD_CONVERTEOL                  209
@@ -408,6 +429,7 @@
 #define TIMER_FILEAUTOSAVE              3
 #define TIMER_FILEWATCH                 4
 #define TIMER_REALSAVE                  5
+#define TIMER_UPDATECHECK               6
 
 // Global hotkey ID
 #define HOTKEY_QUICKCAPTURE             1

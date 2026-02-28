@@ -107,6 +107,18 @@ struct PrintSettings {
     // Print options
     int  copies  = 1;      // Number of copies (1-99)
     bool collate = true;   // Collate copies (1,2,3,1,2,3 vs 1,1,2,2,3,3)
+
+    // Printer settings (office/dot matrix features)
+    int  printQuality = 0;    // 0=Normal, 1=Draft, 2=High, 3=Letter Quality
+    int  paperSource  = 0;    // 0=Auto, 1=Upper, 2=Lower, 3=Manual, 4=Tractor, 5=Continuous
+    int  paperSize    = 0;    // 0=Default, 1=Letter, 2=Legal, 3=A4, 4=A5, 5=B5,
+                              // 6=Env#10, 7=EnvDL, 8=EnvC5, 9=Fanfold US, 10=Fanfold EU,
+                              // 11=Custom Continuous
+    int  duplex       = 0;    // 0=None, 1=Long Edge, 2=Short Edge
+    int  pageFilter   = 0;    // 0=All, 1=Odd Only, 2=Even Only
+    bool condensed    = false; // Condensed/compressed mode (more chars per line)
+    bool formFeed     = false; // Send form feed after job
+    bool isDotMatrix  = false; // Auto-detected: true if printer is dot matrix/impact
 };
 
 //------------------------------------------------------------------------------
@@ -128,7 +140,14 @@ public:
                               const std::wstring& fontName,
                               int fontSize, int fontWeight, bool fontItalic,
                               const PAGESETUPDLGW& pageSetup,
-                              bool hasSelection = false);
+                              bool hasSelection = false,
+                              int defaultPrintQuality = 0,
+                              int defaultPaperSource = 0,
+                              int defaultPaperSize = 0,
+                              int defaultDuplex = 0,
+                              int defaultPageFilter = 0,
+                              bool defaultCondensed = false,
+                              bool defaultFormFeed = false);
 
 private:
     // Dialog procedure
@@ -169,6 +188,9 @@ private:
     void OnLineNumberColorPick();
     void OnLineNumberChooseFont();
     void UpdateLineNumberFontLabel();
+    void OnAddFiles();
+    void DetectPrinterType();
+    void UpdatePrinterControlStates();
     std::vector<int> ParsePageRange(const std::wstring& range, int totalPages) const;
 
     // Helpers
@@ -232,6 +254,16 @@ private:
     // Print options
     int  m_copies  = 1;
     bool m_collate = true;
+
+    // Printer settings
+    int  m_printQuality = 0;   // 0=Normal, 1=Draft, 2=High, 3=Letter Quality
+    int  m_paperSource  = 0;   // 0=Auto, 1=Upper, 2=Lower, 3=Manual, 4=Tractor, 5=Continuous
+    int  m_paperSize    = 0;   // 0=Default
+    int  m_duplex       = 0;   // 0=None
+    int  m_pageFilter   = 0;   // 0=All
+    bool m_condensed    = false;
+    bool m_formFeed     = false;
+    bool m_isDotMatrix  = false;
 
     // Static instance for dialog-proc callback
     static PrintPreviewWindow* s_instance;
