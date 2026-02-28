@@ -653,6 +653,8 @@ void MainWindow::UpdateMenuState() {
                   MF_BYCOMMAND | (m_editor->IsShowWhitespace() ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(hMenu, IDM_VIEW_SPELLCHECK,
                   MF_BYCOMMAND | (m_settingsManager->GetSettings().spellCheckEnabled ? MF_CHECKED : MF_UNCHECKED));
+    CheckMenuItem(hMenu, IDM_VIEW_SYNTAXHIGHLIGHT,
+                  MF_BYCOMMAND | (m_settingsManager->GetSettings().syntaxHighlightEnabled ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(hMenu, IDM_VIEW_ALWAYSONTOP,
                   MF_BYCOMMAND | (m_settingsManager->GetSettings().alwaysOnTop ? MF_CHECKED : MF_UNCHECKED));
     CheckMenuItem(hMenu, IDM_VIEW_FULLSCREEN,

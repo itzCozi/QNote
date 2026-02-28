@@ -288,4 +288,15 @@ void MainWindow::OnViewSpellCheck() {
     }
 }
 
+//------------------------------------------------------------------------------
+// View -> Syntax Highlighting
+//------------------------------------------------------------------------------
+void MainWindow::OnViewSyntaxHighlight() {
+    auto& settings = m_settingsManager->GetSettings();
+    settings.syntaxHighlightEnabled = !settings.syntaxHighlightEnabled;
+    if (m_documentManager) {
+        m_documentManager->ApplySettingsToAllEditors(settings);
+    }
+}
+
 } // namespace QNote

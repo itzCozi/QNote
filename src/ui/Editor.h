@@ -20,6 +20,7 @@
 #include <set>
 #include "Settings.h"
 #include "SpellChecker.h"
+#include "SyntaxHighlighter.h"
 
 namespace QNote {
 
@@ -246,6 +247,13 @@ public:
     void SetAutoCompleteBraces(bool enable) noexcept { m_autoCompleteBraces = enable; }
     [[nodiscard]] bool IsAutoCompleteBracesEnabled() const noexcept { return m_autoCompleteBraces; }
     
+    // Syntax highlighting
+    void SetSyntaxHighlighting(bool enable);
+    [[nodiscard]] bool IsSyntaxHighlightingEnabled() const noexcept { return m_syntaxHighlightEnabled; }
+    void SetFilePath(std::wstring_view filePath);
+    void ApplySyntaxHighlighting();
+    void ScheduleSyntaxHighlighting();
+    
 private:
     // Recreate edit control (needed for word wrap toggle)
     void RecreateControl();
@@ -293,6 +301,13 @@ private:
     
     // Auto-complete braces/quotes
     bool m_autoCompleteBraces = true;
+    
+    // Syntax highlighting
+    bool m_syntaxHighlightEnabled = false;
+    bool m_syntaxDirty = true;
+    Language m_language = Language::None;
+    SyntaxHighlighter m_syntaxHighlighter;
+    std::wstring m_filePath;
     
     // Bookmarks
     std::set<int> m_bookmarks;

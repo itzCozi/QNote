@@ -782,6 +782,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         case IDM_VIEW_FULLSCREEN:        OnViewFullScreen(); break;
         case IDM_VIEW_TOGGLEMENUBAR:     OnViewToggleMenuBar(); break;
         case IDM_VIEW_SPELLCHECK:        OnViewSpellCheck(); break;
+        case IDM_VIEW_SYNTAXHIGHLIGHT:   OnViewSyntaxHighlight(); break;
         
         // Tools menu
         case IDM_TOOLS_EDITSHORTCUTS:    OnToolsEditShortcuts(); break;

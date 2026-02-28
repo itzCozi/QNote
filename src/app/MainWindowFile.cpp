@@ -151,6 +151,7 @@ bool MainWindow::OnFileSaveAs() {
         if (SaveFile(filePath)) {
             m_currentFile = filePath;
             m_isNewFile = false;
+            m_editor->SetFilePath(filePath);
             m_settingsManager->AddRecentFile(filePath);
             UpdateRecentFilesMenu();
             
@@ -310,6 +311,7 @@ bool MainWindow::LoadFile(const std::wstring& filePath) {
     m_editor->SetEncoding(result.detectedEncoding);
     m_editor->SetLineEnding(result.detectedLineEnding);
     m_editor->SetModified(false);
+    m_editor->SetFilePath(filePath);
     
     m_currentFile = filePath;
     m_isNewFile = false;

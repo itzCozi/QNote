@@ -62,6 +62,7 @@ std::unique_ptr<Editor> DocumentManager::CreateEditorForDocument() {
         // Apply current global settings
         editor->SetShowWhitespace(settings.showWhitespace);
         editor->SetSpellCheck(settings.spellCheckEnabled);
+        editor->SetSyntaxHighlighting(settings.syntaxHighlightEnabled);
     } else {
         AppSettings defaults;
         if (!editor->Create(m_parentHwnd, m_hInstance, defaults)) {
@@ -195,6 +196,7 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     editor->SetLineEnding(lineEnding);
     editor->SetModified(false);
     editor->SetSelection(0, 0);
+    editor->SetFilePath(filePath);
 
     // Show and focus the new editor
     ShowWindow(editor->GetHandle(), SW_SHOW);
@@ -558,6 +560,7 @@ void DocumentManager::ApplySettingsToAllEditors(const AppSettings& settings) {
         editor->SetRTL(settings.rightToLeft);
         editor->SetShowWhitespace(settings.showWhitespace);
         editor->SetSpellCheck(settings.spellCheckEnabled);
+        editor->SetSyntaxHighlighting(settings.syntaxHighlightEnabled);
         editor->ApplyZoom(settings.zoomLevel);
     }
 }

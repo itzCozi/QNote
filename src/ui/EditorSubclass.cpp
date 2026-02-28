@@ -77,6 +77,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 if (editor->m_scrollCallback) {
                     editor->m_scrollCallback(editor->m_scrollCallbackData);
                 }
+                editor->ScheduleSyntaxHighlighting();
                 return 0;
             }
             // Fall through to default handler, then notify scroll
@@ -84,6 +85,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (editor->m_scrollCallback) {
                 editor->m_scrollCallback(editor->m_scrollCallbackData);
             }
+            editor->ScheduleSyntaxHighlighting();
             return result;
         }
         
@@ -94,7 +96,18 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             if (editor->m_scrollCallback) {
                 editor->m_scrollCallback(editor->m_scrollCallbackData);
             }
+            // Schedule re-highlight after scrolling
+            editor->ScheduleSyntaxHighlighting();
             return result;
+        }
+        
+        case WM_TIMER: {
+            if (wParam == TIMER_SYNTAXHIGHLIGHT) {
+                KillTimer(hwnd, TIMER_SYNTAXHIGHLIGHT);
+                editor->ApplySyntaxHighlighting();
+                return 0;
+            }
+            return DefSubclassProc(hwnd, msg, wParam, lParam);
         }
         
         case WM_KEYDOWN: {
@@ -268,6 +281,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
                 editor->m_spellDirty = true;
                 editor->m_wordCountDirty = true;
+                editor->ScheduleSyntaxHighlighting();
                 if (editor->m_scrollCallback) {
                     editor->m_scrollCallback(editor->m_scrollCallbackData);
                 }
