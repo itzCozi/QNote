@@ -1081,5 +1081,154 @@ HFONT Editor::CreateEditorFont() {
     return font;
 }
 
+//------------------------------------------------------------------------------
+// Set syntax highlighting enabled
+//------------------------------------------------------------------------------
+void Editor::SetSyntaxHighlighting(bool enable) {
+    m_syntaxHighlightEnabled = enable;
+    m_syntaxDirty = true;
+    if (enable) {
+        m_language = SyntaxHighlighter::DetectLanguage(m_filePath);
+        ApplySyntaxHighlighting();
+    } else {
+        m_language = Language::None;
+        // Reset all text to default color
+        if (m_hwndEdit) {
+            DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+            SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+            ApplyCharFormat();
+            SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Set file path (for language detection)
+//------------------------------------------------------------------------------
+void Editor::SetFilePath(std::wstring_view filePath) {
+    m_filePath = filePath;
+    Language newLang = SyntaxHighlighter::DetectLanguage(m_filePath);
+    if (newLang != m_language) {
+        m_language = newLang;
+        m_syntaxDirty = true;
+        if (m_syntaxHighlightEnabled) {
+            ApplySyntaxHighlighting();
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Schedule syntax highlighting (debounced via timer)
+//------------------------------------------------------------------------------
+void Editor::ScheduleSyntaxHighlighting() {
+    if (!m_syntaxHighlightEnabled || m_language == Language::None || !m_hwndEdit) return;
+    m_syntaxDirty = true;
+    // Debounce: 150ms avoids re-highlighting on every keystroke
+    SetTimer(m_hwndEdit, TIMER_SYNTAXHIGHLIGHT, 150, nullptr);
+}
+
+//------------------------------------------------------------------------------
+// Apply syntax highlighting to visible text
+//------------------------------------------------------------------------------
+void Editor::ApplySyntaxHighlighting() {
+    if (!m_hwndEdit || !m_syntaxHighlightEnabled || m_language == Language::None) return;
+    if (!m_syntaxDirty) return;
+    m_syntaxDirty = false;
+
+    // Kill any pending timer
+    KillTimer(m_hwndEdit, TIMER_SYNTAXHIGHLIGHT);
+
+    // Suppress EN_CHANGE and redraw during formatting
+    DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, FALSE, 0);
+
+    // Save current selection and scroll position
+    CHARRANGE savedSel;
+    SendMessageW(m_hwndEdit, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&savedSel));
+    POINT savedScroll;
+    SendMessageW(m_hwndEdit, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&savedScroll));
+
+    // Get visible line range
+    int firstLine = GetFirstVisibleLine();
+    RECT clientRect;
+    GetClientRect(m_hwndEdit, &clientRect);
+    
+    HFONT hFont = m_font.get();
+    int lineHeight = 1;
+    if (hFont) {
+        HDC hdc = GetDC(m_hwndEdit);
+        HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, hFont));
+        TEXTMETRICW tm;
+        GetTextMetricsW(hdc, &tm);
+        lineHeight = tm.tmHeight;
+        SelectObject(hdc, oldFont);
+        ReleaseDC(m_hwndEdit, hdc);
+    }
+    int visibleLines = (clientRect.bottom - clientRect.top) / (std::max)(lineHeight, 1) + 2;
+    int totalLines = GetLineCount();
+    int lastLine = (std::min)(firstLine + visibleLines, totalLines - 1);
+
+    // Get text range for visible lines
+    int rangeStart = GetLineIndex(firstLine);
+    int rangeEnd = GetLineIndex(lastLine) + GetLineLength(lastLine);
+    if (rangeEnd <= rangeStart) {
+        SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+        return;
+    }
+
+    int textLen = rangeEnd - rangeStart;
+    std::vector<wchar_t> buf(textLen + 1, 0);
+    TEXTRANGEW tr = {};
+    tr.chrg.cpMin = rangeStart;
+    tr.chrg.cpMax = rangeEnd;
+    tr.lpstrText = buf.data();
+    SendMessageW(m_hwndEdit, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+
+    std::wstring_view visibleText(buf.data(), textLen);
+
+    // Reset visible range to default color first
+    CHARRANGE resetRange = { rangeStart, rangeEnd };
+    SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&resetRange));
+    
+    CHARFORMAT2W cfDefault = {};
+    cfDefault.cbSize = sizeof(cfDefault);
+    cfDefault.dwMask = CFM_COLOR;
+    cfDefault.dwEffects = 0; // clear CFE_AUTOCOLOR
+    cfDefault.crTextColor = DarkPlusColors::Default;
+    SendMessageW(m_hwndEdit, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cfDefault));
+
+    // Tokenize
+    auto tokens = m_syntaxHighlighter.Tokenize(visibleText, m_language, rangeStart);
+
+    // Apply colors for each token
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR;
+    cf.dwEffects = 0;
+
+    for (const auto& token : tokens) {
+        if (token.length <= 0) continue;
+        
+        CHARRANGE tokenRange = { token.start, token.start + token.length };
+        SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&tokenRange));
+        
+        cf.crTextColor = SyntaxHighlighter::GetTokenColor(token.type);
+        SendMessageW(m_hwndEdit, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+    }
+
+    // Restore selection and scroll position
+    SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&savedSel));
+    SendMessageW(m_hwndEdit, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&savedScroll));
+
+    // Re-enable redraw and repaint
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(m_hwndEdit, nullptr, FALSE);
+
+    // Re-enable EN_CHANGE
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+}
+
 } // namespace QNote
 

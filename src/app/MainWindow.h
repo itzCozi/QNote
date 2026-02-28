@@ -133,6 +133,7 @@ private:
     void OnViewFullScreen();
     void OnViewToggleMenuBar();
     void OnViewSpellCheck();
+    void OnViewSyntaxHighlight();
     
     // Encoding operations
     void OnEncodingChange(TextEncoding encoding);

@@ -164,6 +164,7 @@
 #define IDM_VIEW_FULLSCREEN             4009
 #define IDM_VIEW_TOGGLEMENUBAR          4010
 #define IDM_VIEW_SPELLCHECK             4011
+#define IDM_VIEW_SYNTAXHIGHLIGHT        4012
 
 // Tools menu (additional 2)
 #define IDM_TOOLS_CALCULATE             10021
@@ -430,6 +431,7 @@
 #define TIMER_FILEWATCH                 4
 #define TIMER_REALSAVE                  5
 #define TIMER_UPDATECHECK               6
+#define TIMER_SYNTAXHIGHLIGHT           7
 
 // Global hotkey ID
 #define HOTKEY_QUICKCAPTURE             1
