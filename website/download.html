@@ -25,6 +25,7 @@
 
     <link rel="icon" href="assets/icon.svg" type="image/svg+xml" />
     <link rel="stylesheet" type="text/css" href="styles.css" />
+    <script src="https://cdn.jsdelivr.net/npm/marked/marked.min.js"></script>
 
     <script type="application/ld+json">
     {
@@ -116,27 +117,49 @@
               card.appendChild(meta);
 
               if (rel.body) {
-                const notes = document.createElement("p");
-                notes.className = "release-notes";
-                notes.innerText =
-                  rel.body.length > 800
-                    ? rel.body.slice(0, 800) + "…"
-                    : rel.body;
-                card.appendChild(notes);
+                const CHAR_LIMIT = 600;
+                const isLong = rel.body.length > CHAR_LIMIT;
+
+                const wrapper = document.createElement("div");
+                wrapper.className = "release-notes";
+
+                const fullHtml = marked.parse(rel.body);
+                const truncatedHtml = marked.parse(rel.body.slice(0, CHAR_LIMIT) + "…");
+
+                wrapper.innerHTML = isLong ? truncatedHtml : fullHtml;
+
+                if (isLong) {
+                  wrapper.classList.add("collapsed");
+                  const toggle = document.createElement("button");
+                  toggle.className = "show-more-btn";
+                  toggle.textContent = "Show more";
+                  toggle.addEventListener("click", function () {
+                    wrapper.innerHTML = fullHtml;
+                    wrapper.classList.remove("collapsed");
+                  });
+                  wrapper.appendChild(toggle);
+                }
+
+                card.appendChild(wrapper);
               }
 
               const assets = document.createElement("div");
               assets.className = "release-assets";
 
               if (Array.isArray(rel.assets) && rel.assets.length) {
+                const ul = document.createElement("ul");
+                ul.className = "asset-list";
                 rel.assets.forEach((a) => {
+                  const li = document.createElement("li");
+                  const size = a.size ? ` (${(a.size / 1024).toFixed(1)} KB)` : "";
                   const link = createLink(
                     a.browser_download_url || a.url,
-                    `${a.name} (${a.size || 0} bytes)`,
+                    a.name + size,
                   );
-                  assets.appendChild(link);
-                  assets.appendChild(document.createTextNode(" "));
+                  li.appendChild(link);
+                  ul.appendChild(li);
                 });
+                assets.appendChild(ul);
               } else {
                 const relUrl =
                   rel.html_url ||
@@ -146,7 +169,11 @@
 
               card.appendChild(assets);
               list.appendChild(card);
+              list.appendChild(document.createElement("hr"));
             });
+            if (list.lastChild && list.lastChild.tagName === "HR") {
+              list.removeChild(list.lastChild);
+            }
 
             container.innerHTML = "";
             container.appendChild(list);

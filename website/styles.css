@@ -55,3 +55,54 @@ h1 img {
   vertical-align: middle;
   margin-right: 0.5rem;
 }
+
+/* Release notes markdown */
+.release-notes {
+  margin: 0.5em 0;
+  line-height: 1.6;
+}
+
+.release-notes pre {
+  background: #f4f4f4;
+  padding: 0.6em 0.8em;
+  border-radius: 4px;
+  overflow-x: auto;
+  font-size: 0.9em;
+}
+
+.release-notes code {
+  background: #f0f0f0;
+  padding: 0.1em 0.3em;
+  border-radius: 3px;
+  font-size: 0.9em;
+}
+
+.release-notes pre code {
+  background: none;
+  padding: 0;
+}
+
+.show-more-btn {
+  display: inline-block;
+  background: none;
+  border: none;
+  color: blue;
+  cursor: pointer;
+  padding: 0;
+  font-size: 0.85em;
+  margin-top: 0.25em;
+}
+
+.show-more-btn:hover {
+  text-decoration: underline;
+}
+
+/* Asset list */
+.asset-list {
+  padding-left: 1.2em;
+  margin: 0.4em 0;
+}
+
+.asset-list li {
+  margin: 0.2em 0;
+}
