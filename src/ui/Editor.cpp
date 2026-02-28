@@ -1123,6 +1123,7 @@ void Editor::SetFilePath(std::wstring_view filePath) {
 void Editor::ScheduleSyntaxHighlighting() {
     if (!m_syntaxHighlightEnabled || m_language == Language::None || !m_hwndEdit) return;
     m_syntaxDirty = true;
+    // Debounce: 150ms avoids re-highlighting on every keystroke
     SetTimer(m_hwndEdit, TIMER_SYNTAXHIGHLIGHT, 150, nullptr);
 }
 

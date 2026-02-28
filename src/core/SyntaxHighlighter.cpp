@@ -470,7 +470,7 @@ std::vector<SyntaxToken> SyntaxHighlighter::Tokenize(std::wstring_view text,
     std::vector<SyntaxToken> tokens;
     if (lang == Language::None || text.empty()) return tokens;
 
-    // Reserve a reasonable estimate
+    // Rough estimate: ~1 token per 4 characters on average
     tokens.reserve(text.size() / 4);
 
     switch (lang) {
@@ -556,17 +556,32 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
     while (i < len) {
         wchar_t ch = text[i];
 
-        // Preprocessor
-        if (hasPreprocessor && ch == L'#' && (i == 0 || text[i - 1] == L'\n' || text[i - 1] == L'\r')) {
-            int start = i;
-            i++; // skip #
-            // Skip whitespace after #
-            while (i < len && (text[i] == L' ' || text[i] == L'\t')) i++;
-            // Read directive name
-            int dirEnd = ReadIdentifier(text, i);
-            tokens.push_back({ baseOffset + start, dirEnd - start, TokenType::Preprocessor });
-            i = dirEnd;
-            continue;
+        // Preprocessor (# may have leading whitespace on the line)
+        if (hasPreprocessor && ch == L'#') {
+            // Verify only whitespace precedes # on this line
+            bool validPreproc = (i == 0);
+            if (!validPreproc) {
+                int j = i - 1;
+                validPreproc = true;
+                while (j >= 0 && text[j] != L'\n' && text[j] != L'\r') {
+                    if (text[j] != L' ' && text[j] != L'\t') {
+                        validPreproc = false;
+                        break;
+                    }
+                    j--;
+                }
+            }
+            if (validPreproc) {
+                int start = i;
+                i++; // skip #
+                // Skip whitespace after #
+                while (i < len && (text[i] == L' ' || text[i] == L'\t')) i++;
+                // Read directive name
+                int dirEnd = ReadIdentifier(text, i);
+                tokens.push_back({ baseOffset + start, dirEnd - start, TokenType::Preprocessor });
+                i = dirEnd;
+                continue;
+            }
         }
 
         // Line comment
@@ -999,11 +1014,11 @@ void SyntaxHighlighter::TokenizeShellLike(std::wstring_view text, int baseOffset
             bool atLineStart = (i == 0 || text[i - 1] == L'\n' || text[i - 1] == L'\r');
             if (atLineStart) {
                 // Check for REM (case-insensitive)
-                if (i + 3 < len &&
+                if (i + 2 < len &&
                     (text[i] == L'r' || text[i] == L'R') &&
                     (text[i + 1] == L'e' || text[i + 1] == L'E') &&
                     (text[i + 2] == L'm' || text[i + 2] == L'M') &&
-                    (text[i + 3] == L' ' || text[i + 3] == L'\t' || text[i + 3] == L'\r' || text[i + 3] == L'\n')) {
+                    (i + 3 >= len || text[i + 3] == L' ' || text[i + 3] == L'\t' || text[i + 3] == L'\r' || text[i + 3] == L'\n')) {
                     int start = i;
                     i = SkipLineComment(text, i);
                     tokens.push_back({ baseOffset + start, i - start, TokenType::Comment });
