@@ -349,6 +349,13 @@ void TabBar::ShowDragPreview(int tabId, int screenX, int screenY) {
 
     void* bits = nullptr;
     HBITMAP hBitmap = CreateDIBSection(memDC, &bmi, DIB_RGB_COLORS, &bits, nullptr, 0);
+    if (!hBitmap || !bits) {
+        DeleteDC(memDC);
+        ReleaseDC(nullptr, screenDC);
+        DestroyWindow(m_hwndDragPreview);
+        m_hwndDragPreview = nullptr;
+        return;
+    }
     HBITMAP oldBitmap = static_cast<HBITMAP>(SelectObject(memDC, hBitmap));
 
     // Draw preview background

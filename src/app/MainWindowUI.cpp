@@ -570,20 +570,7 @@ void MainWindow::UpdateStatusBar() {
     
     // Word and character count
     int textLen = m_editor->GetTextLength();
-    // Simple word count: count transitions from whitespace to non-whitespace
-    int wordCount = 0;
-    if (textLen > 0) {
-        std::wstring text = m_editor->GetText();
-        bool inWord = false;
-        for (wchar_t c : text) {
-            if (c == L' ' || c == L'\t' || c == L'\r' || c == L'\n') {
-                inWord = false;
-            } else if (!inWord) {
-                inWord = true;
-                wordCount++;
-            }
-        }
-    }
+    int wordCount = m_editor->GetWordCount();
     wchar_t countText[64];
     swprintf_s(countText, L"%d words, %d chars", wordCount, textLen);
     SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_COUNTS, reinterpret_cast<LPARAM>(countText));

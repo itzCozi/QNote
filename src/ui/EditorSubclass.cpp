@@ -267,6 +267,7 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
             {
                 LRESULT result = DefSubclassProc(hwnd, msg, wParam, lParam);
                 editor->m_spellDirty = true;
+                editor->m_wordCountDirty = true;
                 if (editor->m_scrollCallback) {
                     editor->m_scrollCallback(editor->m_scrollCallbackData);
                 }
@@ -339,6 +340,82 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 }
                 editor->m_spellDirty = true;
                 return result;
+            }
+
+            // Auto-complete braces, brackets, and quotes
+            if (editor->m_autoCompleteBraces && ch >= L' ') {
+                wchar_t closing = 0;
+                switch (ch) {
+                    case L'(':  closing = L')';  break;
+                    case L'[':  closing = L']';  break;
+                    case L'{':  closing = L'}';  break;
+                    case L'"':  closing = L'"';  break;
+                    case L'\'': closing = L'\''; break;
+                }
+                if (closing) {
+                    // For quotes, check if we're closing an existing pair
+                    if (ch == L'"' || ch == L'\'') {
+                        // If the character after the cursor is the same quote,
+                        // just skip over it instead of inserting a new pair.
+                        DWORD selS, selE;
+                        editor->GetSelection(selS, selE);
+                        if (selS == selE) {
+                            int textLen = editor->GetTextLength();
+                            if (static_cast<int>(selS) < textLen) {
+                                TEXTRANGEW tr = {};
+                                wchar_t nextCh[2] = {};
+                                tr.chrg.cpMin = selS;
+                                tr.chrg.cpMax = selS + 1;
+                                tr.lpstrText = nextCh;
+                                SendMessageW(hwnd, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+                                if (nextCh[0] == ch) {
+                                    // Skip over the existing closing quote
+                                    editor->SetSelection(selS + 1, selS + 1);
+                                    return 0;
+                                }
+                            }
+                        }
+                    }
+                    // For closing braces, skip over if the next char matches
+                    if (ch == L')' || ch == L']' || ch == L'}') {
+                        // This is handled below – don't auto-pair
+                    } else {
+                        // Insert the typed character, then the closing one,
+                        // then move the cursor back between them.
+                        LRESULT r = DefSubclassProc(hwnd, msg, wParam, lParam);
+                        wchar_t closeBuf[2] = { closing, 0 };
+                        SendMessageW(hwnd, EM_REPLACESEL, TRUE, reinterpret_cast<LPARAM>(closeBuf));
+                        // Move cursor back (between the pair)
+                        DWORD posAfter, dummy;
+                        editor->GetSelection(posAfter, dummy);
+                        editor->SetSelection(posAfter - 1, posAfter - 1);
+                        editor->m_spellDirty = true;
+                        if (editor->m_scrollCallback)
+                            editor->m_scrollCallback(editor->m_scrollCallbackData);
+                        return r;
+                    }
+                }
+                // Skip-over for closing characters: ), ], }
+                if (ch == L')' || ch == L']' || ch == L'}') {
+                    DWORD selS, selE;
+                    editor->GetSelection(selS, selE);
+                    if (selS == selE) {
+                        int textLen = editor->GetTextLength();
+                        if (static_cast<int>(selS) < textLen) {
+                            TEXTRANGEW tr = {};
+                            wchar_t nextCh[2] = {};
+                            tr.chrg.cpMin = selS;
+                            tr.chrg.cpMax = selS + 1;
+                            tr.lpstrText = nextCh;
+                            SendMessageW(hwnd, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+                            if (nextCh[0] == ch) {
+                                // Skip over the existing closing character
+                                editor->SetSelection(selS + 1, selS + 1);
+                                return 0;
+                            }
+                        }
+                    }
+                }
             }
 
             // Content change may affect line numbers

@@ -12,6 +12,7 @@ namespace QNote {
 // Format menu handlers
 //------------------------------------------------------------------------------
 void MainWindow::OnFormatWordWrap() {
+    if (!m_editor) return;
     bool newValue = !m_editor->IsWordWrapEnabled();
     m_settingsManager->GetSettings().wordWrap = newValue;
     if (m_documentManager) {
@@ -62,6 +63,7 @@ void MainWindow::OnFormatScrollLines() {
 }
 
 void MainWindow::OnFormatLineEnding(LineEnding ending) {
+    if (!m_editor) return;
     m_editor->SetLineEnding(ending);
     if (m_documentManager) {
         m_documentManager->SyncModifiedState();
@@ -74,6 +76,7 @@ void MainWindow::OnFormatLineEnding(LineEnding ending) {
 // Format -> Right-to-Left Reading Order
 //------------------------------------------------------------------------------
 void MainWindow::OnFormatRTL() {
+    if (!m_editor) return;
     bool newValue = !m_editor->IsRTL();
     m_settingsManager->GetSettings().rightToLeft = newValue;
     if (m_documentManager) {
@@ -96,7 +99,7 @@ void MainWindow::OnViewLineNumbers() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.showLineNumbers = !settings.showLineNumbers;
     
-    if (m_lineNumbersGutter) {
+    if (m_lineNumbersGutter && m_editor) {
         m_lineNumbersGutter->SetFont(m_editor->GetFont());
         m_lineNumbersGutter->Show(settings.showLineNumbers);
     }
@@ -124,9 +127,11 @@ void MainWindow::OnViewZoomReset() {
     UpdateStatusBar();
 }
 
-//------------------------------------------------------------------------------\n// View -> Show Whitespace
+//------------------------------------------------------------------------------
+// View -> Show Whitespace
 //------------------------------------------------------------------------------
 void MainWindow::OnViewShowWhitespace() {
+    if (!m_editor) return;
     bool newState = !m_editor->IsShowWhitespace();
     m_settingsManager->GetSettings().showWhitespace = newState;
     if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(m_settingsManager->GetSettings());
@@ -136,6 +141,7 @@ void MainWindow::OnViewShowWhitespace() {
 // Encoding change handler
 //------------------------------------------------------------------------------
 void MainWindow::OnEncodingChange(TextEncoding encoding) {
+    if (!m_editor) return;
     m_editor->SetEncoding(encoding);
     if (m_documentManager) {
         m_documentManager->SyncModifiedState();
@@ -152,6 +158,8 @@ void MainWindow::OnReopenWithEncoding(TextEncoding encoding) {
         MessageBoxW(m_hwnd, L"No file is currently open to reopen.", L"QNote", MB_OK | MB_ICONINFORMATION);
         return;
     }
+    
+    if (!m_editor) return;
     
     if (m_editor->IsModified()) {
         int result = MessageBoxW(m_hwnd, 

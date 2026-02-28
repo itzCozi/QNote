@@ -898,27 +898,24 @@ void PrintPreviewWindow::Paginate() {
         }
 
         while (!rawLine.empty()) {
+            // Use GetTextExtentExPointW to find max chars that fit in one call (O(1) instead of O(n))
+            int maxChars = 0;
             SIZE sz;
-            GetTextExtentPoint32W(hdc, rawLine.c_str(),
-                                  static_cast<int>(rawLine.length()), &sz);
-            if (sz.cx <= columnWidth) {
+            GetTextExtentExPointW(hdc, rawLine.c_str(),
+                                  static_cast<int>(rawLine.length()),
+                                  columnWidth, &maxChars, nullptr, &sz);
+            if (maxChars >= static_cast<int>(rawLine.length())) {
                 allLines.push_back(rawLine);
                 break;
             }
-            size_t breakPos = rawLine.length();
-            for (size_t i = rawLine.length(); i > 0; --i) {
-                GetTextExtentPoint32W(hdc, rawLine.c_str(),
-                                      static_cast<int>(i), &sz);
-                if (sz.cx <= columnWidth) {
-                    size_t lastSpace = rawLine.rfind(L' ', i - 1);
-                    if (lastSpace != std::wstring::npos && lastSpace > 0)
-                        breakPos = lastSpace + 1;
-                    else
-                        breakPos = i;
-                    break;
-                }
+            // Find a word boundary to break at
+            size_t breakPos = static_cast<size_t>(maxChars);
+            if (breakPos > 0) {
+                size_t lastSpace = rawLine.rfind(L' ', breakPos - 1);
+                if (lastSpace != std::wstring::npos && lastSpace > 0)
+                    breakPos = lastSpace + 1;
             }
-            if (breakPos >= rawLine.length()) breakPos = 1;
+            if (breakPos == 0) breakPos = 1;  // Ensure progress
             allLines.push_back(rawLine.substr(0, breakPos));
             rawLine = rawLine.substr(breakPos);
             size_t start = rawLine.find_first_not_of(L' ');

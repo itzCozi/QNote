@@ -233,6 +233,10 @@ void MainWindow::OnFileNewWindow() {
 // Prompt to save changes
 //------------------------------------------------------------------------------
 bool MainWindow::PromptSaveChanges() {
+    if (!m_editor) {
+        return true;
+    }
+    
     if (!m_editor->IsModified()) {
         return true;
     }
@@ -271,7 +275,23 @@ bool MainWindow::PromptSaveChanges() {
 // Load file
 //------------------------------------------------------------------------------
 bool MainWindow::LoadFile(const std::wstring& filePath) {
-    FileReadResult result = FileIO::ReadFile(filePath);
+    // Check file size to decide between normal and streamed read
+    FileReadResult result;
+    {
+        HandleGuard hf(CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+            nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
+        LARGE_INTEGER fsize = {};
+        bool isLarge = (hf.valid() && GetFileSizeEx(hf.get(), &fsize) &&
+                        fsize.QuadPart > 100LL * 1024 * 1024);
+        // Close the probe handle before reading
+        hf = HandleGuard();
+
+        if (isLarge) {
+            result = FileIO::ReadFileLarge(filePath, m_hwndStatus);
+        } else {
+            result = FileIO::ReadFile(filePath);
+        }
+    }
     
     if (!result.success) {
         MessageBoxW(m_hwnd, result.errorMessage.c_str(), L"Error Opening File", 
@@ -279,7 +299,14 @@ bool MainWindow::LoadFile(const std::wstring& filePath) {
         return false;
     }
     
-    m_editor->SetText(result.content);
+    // Use streamed (chunked) SetText for large content so the UI stays
+    // responsive while the RichEdit control ingests multi-GB text.
+    static constexpr size_t LARGE_TEXT_THRESHOLD = 100ULL * 1024 * 1024 / sizeof(wchar_t);
+    if (result.content.size() > LARGE_TEXT_THRESHOLD) {
+        m_editor->SetTextStreamed(result.content, m_hwndStatus);
+    } else {
+        m_editor->SetText(result.content);
+    }
     m_editor->SetEncoding(result.detectedEncoding);
     m_editor->SetLineEnding(result.detectedLineEnding);
     m_editor->SetModified(false);

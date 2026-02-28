@@ -49,6 +49,11 @@ public:
     // Read a file forcing a specific encoding (for "Reopen with Encoding")
     [[nodiscard]] static FileReadResult ReadFileWithEncoding(const std::wstring& filePath, TextEncoding encoding);
     
+    // Stream-read a large file in chunks without freezing (supports files >3GB).
+    // Reads and decodes in 8MB chunks, pumping the message queue between chunks
+    // so the UI stays responsive.  Never buffers the entire raw file in memory.
+    [[nodiscard]] static FileReadResult ReadFileLarge(const std::wstring& filePath, HWND hwndStatus = nullptr);
+    
     // Write a file with specified encoding and line endings
     [[nodiscard]] static FileWriteResult WriteFile(const std::wstring& filePath,
                                      const std::wstring& content,
@@ -80,6 +85,9 @@ public:
 private:
     // Decode bytes to wstring based on encoding
     static std::wstring DecodeToWString(const std::vector<uint8_t>& data, TextEncoding encoding);
+    
+    // Append decoded wide chars from a raw-byte span (used by ReadFileLarge)
+    static void AppendDecoded(std::wstring& out, const uint8_t* data, size_t size, TextEncoding encoding);
     
     // Encode wstring to bytes based on encoding
     static std::vector<uint8_t> EncodeFromWString(const std::wstring& text, TextEncoding encoding);

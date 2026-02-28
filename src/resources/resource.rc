@@ -72,6 +72,7 @@ BEGIN
             MENUITEM "Sort Lines (&Descending)",    IDM_EDIT_SORTLINES_DESC
             MENUITEM SEPARATOR
             MENUITEM "&Reverse Lines",              IDM_EDIT_REVERSELINES
+            MENUITEM "Reverse Se&lection",           IDM_EDIT_REVERSESELECTION
             MENUITEM "&Number Lines",               IDM_EDIT_NUMBERLINES
             MENUITEM SEPARATOR
             MENUITEM "&Trim Trailing Whitespace",   IDM_EDIT_TRIMWHITESPACE

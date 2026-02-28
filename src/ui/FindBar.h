@@ -163,6 +163,10 @@ private:
     // Font
     HFONT m_font = nullptr;
     
+    // Debounce timer for match count
+    static constexpr UINT_PTR MATCHCOUNT_TIMER_ID = 9901;
+    static constexpr DWORD MATCHCOUNT_DEBOUNCE_MS = 300;
+    
     // Layout constants
     static constexpr int FINDBAR_HEIGHT = 32;
     static constexpr int FINDBAR_HEIGHT_REPLACE = 64;

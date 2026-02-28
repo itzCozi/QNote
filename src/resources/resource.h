@@ -157,6 +157,7 @@
 #define IDM_EDIT_REVERSELINES           2027
 #define IDM_EDIT_NUMBERLINES            2028
 #define IDM_EDIT_TOGGLECOMMENT          2029
+#define IDM_EDIT_REVERSESELECTION       2034
 
 // View menu (additional 2)
 #define IDM_VIEW_ALWAYSONTOP            4008
@@ -359,9 +360,9 @@
 
 // Convert EOL selection dialog
 #define IDD_CONVERTEOL                  209
-#define IDC_EOL_CRLF                    1260
-#define IDC_EOL_LF                      1261
-#define IDC_EOL_CR                      1262
+#define IDC_EOL_CRLF                    1290
+#define IDC_EOL_LF                      1291
+#define IDC_EOL_CR                      1292
 
 // Checksum dialog
 #define IDD_CHECKSUM                    210

@@ -77,6 +77,7 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
     m_zoomPercent = settings.zoomLevel;
     m_rtl = settings.rightToLeft;
     m_scrollLines = settings.scrollLines;
+    m_autoCompleteBraces = settings.autoCompleteBraces;
     
     // Determine edit control style
     DWORD style = WS_CHILD | WS_VISIBLE | WS_VSCROLL | ES_MULTILINE | ES_AUTOVSCROLL | ES_NOHIDESEL;
@@ -201,6 +202,73 @@ void Editor::SetText(std::wstring_view text) {
 }
 
 //------------------------------------------------------------------------------
+// Stream-set large text in chunks so the UI stays responsive.
+// Clears the control, then appends text in ~2 MB wide-char slices with
+// message-loop pumping between each slice.
+//------------------------------------------------------------------------------
+void Editor::SetTextStreamed(const std::wstring& text, HWND hwndStatus) {
+    if (!m_hwndEdit) return;
+
+    // Suppress EN_CHANGE for the entire load
+    DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+
+    // Disable redraw during the load
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, FALSE, 0);
+
+    // Clear existing content
+    SetWindowTextW(m_hwndEdit, L"");
+
+    // Append in slices
+    static constexpr size_t SLICE_CHARS = 2 * 1024 * 1024 / sizeof(wchar_t); // ~2 MB
+    size_t totalChars = text.size();
+    size_t offset = 0;
+    int lastPercent = -1;
+
+    while (offset < totalChars) {
+        size_t len = (std::min)(SLICE_CHARS, totalChars - offset);
+
+        // Move caret to end
+        CHARRANGE cr;
+        cr.cpMin = -1;
+        cr.cpMax = -1;
+        SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&cr));
+
+        // Build a null-terminated slice
+        std::wstring slice(text.data() + offset, len);
+        SendMessageW(m_hwndEdit, EM_REPLACESEL, FALSE,
+                     reinterpret_cast<LPARAM>(slice.c_str()));
+        offset += len;
+
+        // Status bar progress
+        int pct = static_cast<int>(offset * 100 / totalChars);
+        if (hwndStatus && pct != lastPercent) {
+            lastPercent = pct;
+            wchar_t buf[64];
+            swprintf_s(buf, L"Rendering... %d%%", pct);
+            SendMessageW(hwndStatus, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(buf));
+        }
+
+        // Pump messages
+        MSG msg;
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
+    // Re-enable redraw and repaint
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(m_hwndEdit, nullptr, TRUE);
+
+    ApplyCharFormat();
+    SetModified(false);
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+
+    ClearUndoHistory();
+}
+
+//------------------------------------------------------------------------------
 // Clear text
 //------------------------------------------------------------------------------
 void Editor::Clear() noexcept {
@@ -308,7 +376,14 @@ void Editor::Undo() {
     current.text = GetText();
     GetSelection(current.selStart, current.selEnd);
     current.firstVisibleLine = GetFirstVisibleLine();
+    m_redoMemoryUsage += current.text.size() * sizeof(wchar_t);
     m_redoStack.push_back(std::move(current));
+
+    // Enforce redo stack memory cap
+    while (m_redoStack.size() > 1 && m_redoMemoryUsage > MAX_UNDO_MEMORY_BYTES) {
+        m_redoMemoryUsage -= m_redoStack.front().text.size() * sizeof(wchar_t);
+        m_redoStack.erase(m_redoStack.begin());
+    }
 
     // Pop from undo stack
     UndoCheckpoint& cp = m_undoStack.back();
@@ -336,6 +411,7 @@ void Editor::Undo() {
     // Mark modified (unless we're back to original text)
     SetModified(true);
 
+    m_undoMemoryUsage -= cp.text.size() * sizeof(wchar_t);
     m_undoStack.pop_back();
     m_lastEditAction = EditAction::None;
     m_suppressUndo = false;
@@ -359,6 +435,7 @@ void Editor::Redo() {
     current.text = GetText();
     GetSelection(current.selStart, current.selEnd);
     current.firstVisibleLine = GetFirstVisibleLine();
+    m_undoMemoryUsage += current.text.size() * sizeof(wchar_t);
     m_undoStack.push_back(std::move(current));
 
     // Pop from redo stack
@@ -386,6 +463,7 @@ void Editor::Redo() {
 
     SetModified(true);
 
+    m_redoMemoryUsage -= cp.text.size() * sizeof(wchar_t);
     m_redoStack.pop_back();
     m_lastEditAction = EditAction::None;
     m_suppressUndo = false;
@@ -454,6 +532,7 @@ void Editor::PushUndoCheckpoint(EditAction action, wchar_t ch) {
 
     // Clear redo stack on new edit
     m_redoStack.clear();
+    m_redoMemoryUsage = 0;
 }
 
 //------------------------------------------------------------------------------
@@ -470,6 +549,7 @@ void Editor::ClearUndoHistory() {
     m_undoStack.clear();
     m_redoStack.clear();
     m_undoMemoryUsage = 0;
+    m_redoMemoryUsage = 0;
     m_lastEditAction = EditAction::None;
     m_lastEditTime = 0;
 }
@@ -788,6 +868,45 @@ int Editor::GetTextLength() const noexcept {
         return GetWindowTextLengthW(m_hwndEdit);
     }
     return 0;
+}
+
+//------------------------------------------------------------------------------
+// Get cached word count (recomputes only when text has changed)
+//------------------------------------------------------------------------------
+int Editor::GetWordCount() {
+    if (!m_wordCountDirty) {
+        return m_cachedWordCount;
+    }
+    m_wordCountDirty = false;
+
+    if (!m_hwndEdit) {
+        m_cachedWordCount = 0;
+        return 0;
+    }
+
+    int lineCount = GetLineCount();
+    int wordCount = 0;
+    bool inWord = false;
+
+    for (int i = 0; i < lineCount; ++i) {
+        // EM_GETLINE: first word of buffer = max chars
+        wchar_t buf[4096];
+        *reinterpret_cast<WORD*>(buf) = static_cast<WORD>(sizeof(buf) / sizeof(wchar_t) - 1);
+        int len = static_cast<int>(SendMessageW(m_hwndEdit, EM_GETLINE, i, reinterpret_cast<LPARAM>(buf)));
+        for (int j = 0; j < len; ++j) {
+            wchar_t c = buf[j];
+            if (c == L' ' || c == L'\t' || c == L'\r' || c == L'\n') {
+                inWord = false;
+            } else if (!inWord) {
+                inWord = true;
+                ++wordCount;
+            }
+        }
+        inWord = false;  // line boundary = word break
+    }
+
+    m_cachedWordCount = wordCount;
+    return wordCount;
 }
 
 //------------------------------------------------------------------------------

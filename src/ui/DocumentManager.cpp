@@ -184,8 +184,13 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     auto& newDoc = m_documents.back();
     Editor* editor = newDoc.editor.get();
 
-    // Load into editor
-    editor->SetText(content);
+    // Load into editor – use streamed path for large content to keep UI responsive
+    static constexpr size_t LARGE_TEXT_THRESHOLD = 100ULL * 1024 * 1024 / sizeof(wchar_t);
+    if (content.size() > LARGE_TEXT_THRESHOLD) {
+        editor->SetTextStreamed(content);
+    } else {
+        editor->SetText(content);
+    }
     editor->SetEncoding(encoding);
     editor->SetLineEnding(lineEnding);
     editor->SetModified(false);
@@ -415,20 +420,9 @@ void DocumentManager::SyncModifiedState() {
 
     Editor* editor = doc->editor.get();
 
-    // Fast path: if RichEdit says not modified and we agree, skip hashing
-    if (!editor->IsModified() && !doc->isModified) {
-        return;
-    }
-
-    // Determine modified state by comparing current text hash against the
-    // clean (saved/loaded) text hash.
-    std::wstring currentText = editor->GetText();
-    bool modified = (std::hash<std::wstring>{}(currentText) != doc->cleanTextHash);
-
-    // Keep the RichEdit flag in sync with our content-based check
-    if (editor->IsModified() != modified) {
-        editor->SetModified(modified);
-    }
+    // Use the RichEdit EM_GETMODIFY flag as the primary modification indicator.
+    // This avoids hashing the entire document text on every timer tick.
+    bool modified = editor->IsModified();
 
     if (doc->isModified != modified) {
         doc->isModified = modified;

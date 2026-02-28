@@ -51,12 +51,13 @@ if(MSVC)
     # Runtime library (static for release, dynamic for debug)
     set(CMAKE_MSVC_RUNTIME_LIBRARY "MultiThreaded$<$<CONFIG:Debug>:Debug>")
     
-    # Optimization for release - maximize speed with full optimization
-    # /O2 = /Os- /Ot /Oy /Ob2 /GF /Gy /Gs (maximize speed)
+    # Optimization for release - minimize size with full optimization
+    # /O1 = /Os /Ot- /Oy /Ob2 /GF /Gy /Gs (minimize size)
     # /GL = whole program optimization
     # /Gw = optimize global data
     # /Oi = enable intrinsic functions
-    set(CMAKE_CXX_FLAGS_RELEASE "/O2 /GL /Gw /Oi /DNDEBUG")
+    # /EHsc = C++ exception handling only (no SEH overhead)
+    set(CMAKE_CXX_FLAGS_RELEASE "/O1 /GL /Gw /Oi /EHsc /DNDEBUG")
     set(CMAKE_EXE_LINKER_FLAGS_RELEASE "/LTCG /OPT:REF /OPT:ICF=5 /INCREMENTAL:NO /MERGE:.rdata=.text /MERGE:.pdata=.text /EMITTOOLVERSIONINFO:NO")
     
     # Remove unreferenced COMDAT data and enable string pooling

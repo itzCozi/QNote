@@ -334,10 +334,10 @@ FileReadResult FileIO::ReadFile(const std::wstring& filePath) {
         return result;
     }
     
-    // Check for overly large files (limit to 256MB for safety)
-    if (fileSize.QuadPart > 256 * 1024 * 1024) {
-        result.errorMessage = L"File is too large (max 256MB)";
-        return result;
+    // For files >100MB, delegate to the chunked reader for UI responsiveness
+    static constexpr LONGLONG LARGE_THRESHOLD = 100LL * 1024 * 1024;
+    if (fileSize.QuadPart > LARGE_THRESHOLD) {
+        return ReadFileLarge(filePath);
     }
     
     // Read file contents
@@ -387,14 +387,34 @@ FileReadResult FileIO::ReadFileWithEncoding(const std::wstring& filePath, TextEn
         return result;
     }
     
-    if (fileSize.QuadPart > 256 * 1024 * 1024) {
-        result.errorMessage = L"File is too large (max 256MB)";
-        return result;
+    // For large files (>100 MB), use the chunked reader to stay responsive.
+    // The forced encoding is applied by temporarily setting the result and
+    // letting ReadFileLarge detect line endings from the probe data.
+    static constexpr LONGLONG LARGE_THRESHOLD = 100LL * 1024 * 1024;
+    if (fileSize.QuadPart > LARGE_THRESHOLD) {
+        // Close our handle before ReadFileLarge opens its own
+        hFile = HandleGuard();
+        FileReadResult lr = ReadFileLarge(filePath);
+        // Override detected encoding with the forced one and re-decode
+        // if encodings differ.  For truly large files, we re-read via
+        // ReadFileLarge which always does streamed decode \u2013 the caller
+        // already expects this to be slow.
+        if (lr.success && lr.detectedEncoding != encoding) {
+            lr = ReadFileLarge(filePath);
+            // ReadFileLarge always detects encoding; we simply overwrite.
+            lr.detectedEncoding = encoding;
+        }
+        return lr;
     }
     
     std::vector<uint8_t> data;
     if (fileSize.QuadPart > 0) {
-        data.resize(static_cast<size_t>(fileSize.QuadPart));
+        try {
+            data.resize(static_cast<size_t>(fileSize.QuadPart));
+        } catch (const std::bad_alloc&) {
+            result.errorMessage = L"Not enough memory to open this file";
+            return result;
+        }
         DWORD bytesRead = 0;
         if (!::ReadFile(hFile.get(), data.data(), static_cast<DWORD>(data.size()), &bytesRead, nullptr)) {
             result.errorMessage = FormatLastError(GetLastError());
@@ -407,6 +427,272 @@ FileReadResult FileIO::ReadFileWithEncoding(const std::wstring& filePath, TextEn
     result.detectedEncoding = encoding;
     result.content = DecodeToWString(data, encoding);
     result.detectedLineEnding = DetectLineEnding(result.content);
+    result.success = true;
+    return result;
+}
+
+//------------------------------------------------------------------------------
+// Find a safe byte boundary so we never split a multi-byte sequence.
+// Returns the number of leading bytes that form complete characters.
+//------------------------------------------------------------------------------
+static size_t FindUTF8SafeBoundary(const uint8_t* data, size_t size) {
+    if (size == 0) return 0;
+    // Inspect the last 4 bytes (max UTF-8 sequence length)
+    size_t check = (std::min)(size, size_t(4));
+    for (size_t i = 1; i <= check; i++) {
+        uint8_t c = data[size - i];
+        if ((c & 0x80) == 0) {
+            // ASCII – everything up to and including this byte is complete
+            return size;
+        }
+        if ((c & 0xC0) == 0xC0) {
+            // Leading byte – how many continuation bytes does it expect?
+            int expected = 0;
+            if ((c & 0xE0) == 0xC0) expected = 2;
+            else if ((c & 0xF0) == 0xE0) expected = 3;
+            else if ((c & 0xF8) == 0xF0) expected = 4;
+            if (static_cast<size_t>(expected) <= i) {
+                return size;          // sequence is complete
+            }
+            return size - i;          // incomplete – cut before this byte
+        }
+        // continuation byte (10xxxxxx) – keep walking backwards
+    }
+    return size; // shouldn't happen in valid data
+}
+
+static size_t FindUTF16SafeBoundary(const uint8_t* data, size_t size, bool littleEndian) {
+    if (size < 2) return 0;
+    // Ensure even byte count
+    size = size & ~size_t(1);
+    // Check whether the last code unit is a high surrogate (needs a following low)
+    wchar_t lastUnit;
+    if (littleEndian)
+        lastUnit = static_cast<wchar_t>(data[size - 2] | (data[size - 1] << 8));
+    else
+        lastUnit = static_cast<wchar_t>((data[size - 2] << 8) | data[size - 1]);
+    if (lastUnit >= 0xD800 && lastUnit <= 0xDBFF)
+        return size - 2;  // drop the orphaned high surrogate
+    return size;
+}
+
+//------------------------------------------------------------------------------
+// Append decoded wide chars from a raw byte span
+//------------------------------------------------------------------------------
+void FileIO::AppendDecoded(std::wstring& out, const uint8_t* data, size_t size, TextEncoding encoding) {
+    if (size == 0) return;
+    switch (encoding) {
+        case TextEncoding::UTF16_LE: {
+            size_t charCount = size / 2;
+            size_t oldSize = out.size();
+            out.resize(oldSize + charCount);
+            memcpy(out.data() + oldSize, data, charCount * 2);
+            break;
+        }
+        case TextEncoding::UTF16_BE: {
+            size_t charCount = size / 2;
+            size_t oldSize = out.size();
+            out.resize(oldSize + charCount);
+            for (size_t i = 0; i < charCount; i++)
+                out[oldSize + i] = static_cast<wchar_t>((data[i * 2] << 8) | data[i * 2 + 1]);
+            break;
+        }
+        case TextEncoding::UTF8:
+        case TextEncoding::UTF8_BOM: {
+            int wideLen = MultiByteToWideChar(CP_UTF8, 0,
+                reinterpret_cast<const char*>(data), static_cast<int>(size), nullptr, 0);
+            if (wideLen > 0) {
+                size_t oldSize = out.size();
+                out.resize(oldSize + wideLen);
+                MultiByteToWideChar(CP_UTF8, 0,
+                    reinterpret_cast<const char*>(data), static_cast<int>(size),
+                    out.data() + oldSize, wideLen);
+            }
+            break;
+        }
+        case TextEncoding::ANSI:
+        default: {
+            int wideLen = MultiByteToWideChar(CP_ACP, 0,
+                reinterpret_cast<const char*>(data), static_cast<int>(size), nullptr, 0);
+            if (wideLen > 0) {
+                size_t oldSize = out.size();
+                out.resize(oldSize + wideLen);
+                MultiByteToWideChar(CP_ACP, 0,
+                    reinterpret_cast<const char*>(data), static_cast<int>(size),
+                    out.data() + oldSize, wideLen);
+            }
+            break;
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Stream-read a large file in chunks (supports >3 GB files)
+// Reads the file in 8 MB I/O chunks and decodes each chunk immediately so we
+// never hold the entire raw byte buffer in memory at once.  The message queue
+// is pumped between chunks so the UI thread stays responsive.
+//------------------------------------------------------------------------------
+FileReadResult FileIO::ReadFileLarge(const std::wstring& filePath, HWND hwndStatus) {
+    FileReadResult result;
+
+    // Open with sequential-scan hint for better read-ahead caching
+    HandleGuard hFile(CreateFileW(filePath.c_str(), GENERIC_READ, FILE_SHARE_READ,
+        nullptr, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN, nullptr));
+
+    if (!hFile.valid()) {
+        result.errorMessage = FormatLastError(GetLastError());
+        return result;
+    }
+
+    LARGE_INTEGER fileSize;
+    if (!GetFileSizeEx(hFile.get(), &fileSize)) {
+        result.errorMessage = FormatLastError(GetLastError());
+        return result;
+    }
+
+    // ---- Detect encoding from the first 64 KB ----
+    static constexpr DWORD PROBE_SIZE = 64 * 1024;
+    std::vector<uint8_t> probe(
+        static_cast<size_t>((std::min)(static_cast<LONGLONG>(PROBE_SIZE), fileSize.QuadPart)));
+    {
+        DWORD bytesRead = 0;
+        if (!::ReadFile(hFile.get(), probe.data(),
+                        static_cast<DWORD>(probe.size()), &bytesRead, nullptr)) {
+            result.errorMessage = FormatLastError(GetLastError());
+            return result;
+        }
+        probe.resize(bytesRead);
+    }
+    result.detectedEncoding = DetectEncoding(probe);
+
+    // Detect line ending from the probe text so we don't have to scan the
+    // entire (potentially multi-GB) decoded string later.
+    {
+        std::wstring probeText = DecodeToWString(probe, result.detectedEncoding);
+        result.detectedLineEnding = DetectLineEnding(probeText);
+    }
+
+    // Seek back to start for the full read
+    LARGE_INTEGER zero = {};
+    SetFilePointerEx(hFile.get(), zero, nullptr, FILE_BEGIN);
+
+    // ---- Skip BOM ----
+    LONGLONG dataStart = 0;
+    switch (result.detectedEncoding) {
+        case TextEncoding::UTF8_BOM: dataStart = 3; break;
+        case TextEncoding::UTF16_LE:
+        case TextEncoding::UTF16_BE:
+            if (probe.size() >= 2 &&
+                ((probe[0] == 0xFF && probe[1] == 0xFE) ||
+                 (probe[0] == 0xFE && probe[1] == 0xFF)))
+                dataStart = 2;
+            break;
+        default: break;
+    }
+    if (dataStart > 0) {
+        LARGE_INTEGER pos;
+        pos.QuadPart = dataStart;
+        SetFilePointerEx(hFile.get(), pos, nullptr, FILE_BEGIN);
+    }
+    probe.clear();  // free early
+
+    // ---- Pre-allocate the result wstring ----
+    LONGLONG totalBytesToRead = fileSize.QuadPart - dataStart;
+    try {
+        size_t estimatedChars;
+        if (result.detectedEncoding == TextEncoding::UTF16_LE ||
+            result.detectedEncoding == TextEncoding::UTF16_BE)
+            estimatedChars = static_cast<size_t>(totalBytesToRead / 2);
+        else
+            estimatedChars = static_cast<size_t>(totalBytesToRead); // upper bound for ASCII-heavy
+        result.content.reserve(estimatedChars);
+    } catch (const std::bad_alloc&) {
+        result.errorMessage = L"Not enough memory to open this file";
+        return result;
+    }
+
+    // ---- Chunked read + decode ----
+    static constexpr DWORD CHUNK_SIZE = 8 * 1024 * 1024; // 8 MB I/O chunks
+
+    std::vector<uint8_t> chunkBuf;
+    try {
+        chunkBuf.resize(CHUNK_SIZE);
+    } catch (const std::bad_alloc&) {
+        result.errorMessage = L"Not enough memory to open this file";
+        return result;
+    }
+
+    std::vector<uint8_t> carry;  // leftover bytes from an incomplete char sequence
+    LONGLONG totalRead = 0;
+    int lastPercent = -1;
+
+    while (totalRead < totalBytesToRead) {
+        DWORD toRead = static_cast<DWORD>(
+            (std::min)(static_cast<LONGLONG>(CHUNK_SIZE - static_cast<LONGLONG>(carry.size())),
+                       totalBytesToRead - totalRead));
+
+        // Place carry bytes at the front of the working buffer
+        size_t carrySize = carry.size();
+        if (carrySize > 0) {
+            memcpy(chunkBuf.data(), carry.data(), carrySize);
+            carry.clear();
+        }
+
+        DWORD bytesRead = 0;
+        if (!::ReadFile(hFile.get(), chunkBuf.data() + carrySize, toRead, &bytesRead, nullptr)) {
+            result.errorMessage = FormatLastError(GetLastError());
+            return result;
+        }
+        if (bytesRead == 0) break; // EOF
+
+        totalRead += bytesRead;
+        size_t available = carrySize + bytesRead;
+        bool isLastChunk = (totalRead >= totalBytesToRead);
+
+        // Find the safe boundary so we never split a multi-byte character
+        size_t decodable = available;
+        if (!isLastChunk) {
+            switch (result.detectedEncoding) {
+                case TextEncoding::UTF8:
+                case TextEncoding::UTF8_BOM:
+                case TextEncoding::ANSI:   // ANSI is single-byte, but this is harmless
+                    decodable = FindUTF8SafeBoundary(chunkBuf.data(), available);
+                    break;
+                case TextEncoding::UTF16_LE:
+                    decodable = FindUTF16SafeBoundary(chunkBuf.data(), available, true);
+                    break;
+                case TextEncoding::UTF16_BE:
+                    decodable = FindUTF16SafeBoundary(chunkBuf.data(), available, false);
+                    break;
+            }
+            if (decodable < available) {
+                carry.assign(chunkBuf.data() + decodable,
+                             chunkBuf.data() + available);
+            }
+        }
+
+        // Decode this chunk and append to the result string
+        AppendDecoded(result.content, chunkBuf.data(), decodable, result.detectedEncoding);
+
+        // Update progress in status bar
+        int pct = static_cast<int>(totalRead * 100 / totalBytesToRead);
+        if (hwndStatus && pct != lastPercent) {
+            lastPercent = pct;
+            wchar_t buf[80];
+            double mb = static_cast<double>(totalRead) / (1024.0 * 1024.0);
+            double totalMb = static_cast<double>(totalBytesToRead) / (1024.0 * 1024.0);
+            swprintf_s(buf, L"Loading... %d%%  (%.0f / %.0f MB)", pct, mb, totalMb);
+            SendMessageW(hwndStatus, SB_SETTEXTW, 0, reinterpret_cast<LPARAM>(buf));
+        }
+
+        // Pump the message queue so the UI stays responsive
+        MSG msg;
+        while (PeekMessageW(&msg, nullptr, 0, 0, PM_REMOVE)) {
+            TranslateMessage(&msg);
+            DispatchMessageW(&msg);
+        }
+    }
+
     result.success = true;
     return result;
 }

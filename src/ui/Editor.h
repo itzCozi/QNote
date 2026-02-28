@@ -117,6 +117,11 @@ public:
     // Text operations
     [[nodiscard]] std::wstring GetText() const;
     void SetText(std::wstring_view text);
+    
+    // Stream-set large text in chunks, pumping the message loop between
+    // chunks so the UI stays responsive.  Use for content >100 MB.
+    void SetTextStreamed(const std::wstring& text, HWND hwndStatus = nullptr);
+    
     void Clear() noexcept;
     
     // Selection
@@ -189,6 +194,9 @@ public:
     // Get character count
     [[nodiscard]] int GetTextLength() const noexcept;
     
+    // Get cached word count (only recomputed when text changes)
+    [[nodiscard]] int GetWordCount();
+    
     // Get font for line numbers gutter
     [[nodiscard]] HFONT GetFont() const noexcept { return m_font.get(); }
     
@@ -233,6 +241,10 @@ public:
     void IndentSelection();
     void UnindentSelection();
     void SmartHome(bool extendSelection);
+    
+    // Auto-complete braces/quotes
+    void SetAutoCompleteBraces(bool enable) noexcept { m_autoCompleteBraces = enable; }
+    [[nodiscard]] bool IsAutoCompleteBracesEnabled() const noexcept { return m_autoCompleteBraces; }
     
 private:
     // Recreate edit control (needed for word wrap toggle)
@@ -279,6 +291,9 @@ private:
     // Show whitespace
     bool m_showWhitespace = false;
     
+    // Auto-complete braces/quotes
+    bool m_autoCompleteBraces = true;
+    
     // Bookmarks
     std::set<int> m_bookmarks;
     
@@ -296,6 +311,10 @@ private:
     
     int m_scrollLines = 0;  // Lines per wheel notch (0 = system default)
     
+    // Cached word count
+    int m_cachedWordCount = 0;
+    bool m_wordCountDirty = true;
+    
     // Scroll notification callback
     ScrollCallback m_scrollCallback = nullptr;
     void* m_scrollCallbackData = nullptr;
@@ -309,6 +328,7 @@ private:
     static constexpr int MAX_UNDO_LEVELS = 100;
     static constexpr size_t MAX_UNDO_MEMORY_BYTES = 50 * 1024 * 1024;  // 50 MB cap
     size_t m_undoMemoryUsage = 0;
+    size_t m_redoMemoryUsage = 0;
     
     // RichEdit library handle
     static HMODULE s_hRichEditLib;

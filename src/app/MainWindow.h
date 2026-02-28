@@ -152,6 +152,7 @@ private:
     void OnEditTrimWhitespace();
     void OnEditRemoveDuplicateLines();
     void OnEditReverseLines();
+    void OnEditReverseSelection();
     void OnEditNumberLines();
     void OnEditToggleComment();
     

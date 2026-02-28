@@ -732,6 +732,7 @@ void MainWindow::OnCommand(WORD id, WORD code, HWND hwndCtl) {
         // Edit menu (additional 2)
         case IDM_EDIT_TITLECASE:         OnEditTitleCase(); break;
         case IDM_EDIT_REVERSELINES:      OnEditReverseLines(); break;
+        case IDM_EDIT_REVERSESELECTION:  OnEditReverseSelection(); break;
         case IDM_EDIT_NUMBERLINES:       OnEditNumberLines(); break;
         case IDM_EDIT_TOGGLECOMMENT:     OnEditToggleComment(); break;
         

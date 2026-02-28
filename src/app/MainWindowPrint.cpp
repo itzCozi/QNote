@@ -296,20 +296,27 @@ void MainWindow::OnFilePrint() {
         pdQuery.lStructSize = sizeof(pdQuery);
         pdQuery.hwndOwner = m_hwnd;
         pdQuery.Flags = PD_RETURNDEFAULT;
-        if (PrintDlgW(&pdQuery) && pdQuery.hDevMode) {
-            DEVMODEW* dm = reinterpret_cast<DEVMODEW*>(GlobalLock(pdQuery.hDevMode));
-            if (dm) {
-                dm->dmOrientation = DMORIENT_LANDSCAPE;
-                dm->dmFields |= DM_ORIENTATION;
-                GlobalUnlock(pdQuery.hDevMode);
+        if (PrintDlgW(&pdQuery)) {
+            if (pdQuery.hDevMode) {
+                DEVMODEW* dm = reinterpret_cast<DEVMODEW*>(GlobalLock(pdQuery.hDevMode));
+                if (dm) {
+                    dm->dmOrientation = DMORIENT_LANDSCAPE;
+                    dm->dmFields |= DM_ORIENTATION;
+                    GlobalUnlock(pdQuery.hDevMode);
+                }
+                pd.hDevMode = pdQuery.hDevMode;
+                if (pdQuery.hDevNames) pd.hDevNames = pdQuery.hDevNames;
+            } else {
+                // hDevMode is null but hDevNames may have been allocated - free it
+                if (pdQuery.hDevNames) GlobalFree(pdQuery.hDevNames);
             }
-            pd.hDevMode = pdQuery.hDevMode;
-            if (pdQuery.hDevNames) pd.hDevNames = pdQuery.hDevNames;
         }
     }
 
     if (!PrintDlgW(&pd)) {
         if (pd.hDC) DeleteDC(pd.hDC);
+        if (pd.hDevMode) GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
         return;
     }
 

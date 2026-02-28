@@ -167,6 +167,7 @@ void MainWindow::OnToolsAutoSaveOptions() {
 // Tools -> URL Encode Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsUrlEncode() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
     
@@ -202,6 +203,7 @@ void MainWindow::OnToolsUrlEncode() {
 // Tools -> URL Decode Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsUrlDecode() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
     
@@ -244,6 +246,7 @@ void MainWindow::OnToolsUrlDecode() {
 // Tools -> Base64 Encode Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsBase64Encode() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
     
@@ -275,6 +278,7 @@ void MainWindow::OnToolsBase64Encode() {
 // Tools -> Base64 Decode Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsBase64Decode() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
     
@@ -314,6 +318,7 @@ void MainWindow::OnToolsBase64Decode() {
 // Tools -> Insert Lorem Ipsum
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsInsertLorem() {
+    if (!m_editor) return;
     m_editor->ReplaceSelection(L"Lorem ipsum dolor sit amet, consectetur adipiscing elit.");
 }
 
@@ -351,6 +356,7 @@ INT_PTR CALLBACK MainWindow::SplitLinesDlgProc(HWND hDlg, UINT msg, WPARAM wPara
 }
 
 void MainWindow::OnToolsSplitLines() {
+    if (!m_editor) return;
     int maxWidth = 80;
     INT_PTR result = DialogBoxParamW(m_hInstance, MAKEINTRESOURCEW(IDD_SPLITLINES),
                                       m_hwnd, SplitLinesDlgProc, reinterpret_cast<LPARAM>(&maxWidth));
@@ -410,6 +416,7 @@ void MainWindow::OnToolsSplitLines() {
 // Tools -> Tabs to Spaces
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsTabsToSpaces() {
+    if (!m_editor) return;
     std::wstring text = m_editor->GetText();
     if (text.empty()) return;
     
@@ -436,6 +443,7 @@ void MainWindow::OnToolsTabsToSpaces() {
 // Tools -> Spaces to Tabs
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsSpacesToTabs() {
+    if (!m_editor) return;
     std::wstring text = m_editor->GetText();
     if (text.empty()) return;
     
@@ -484,6 +492,7 @@ void MainWindow::OnToolsSpacesToTabs() {
 // Tools -> Word Count
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsWordCount() {
+    if (!m_editor) return;
     std::wstring text = m_editor->GetText();
     
     int charCount = static_cast<int>(text.size());
@@ -561,6 +570,7 @@ void MainWindow::OnToolsWordCount() {
 // Tools -> Remove Blank Lines
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsRemoveBlankLines() {
+    if (!m_editor) return;
     std::wstring text = m_editor->GetText();
     if (text.empty()) return;
     
@@ -589,6 +599,7 @@ void MainWindow::OnToolsRemoveBlankLines() {
 // Tools -> Join Lines
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsJoinLines() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
     
@@ -616,6 +627,7 @@ void MainWindow::OnToolsJoinLines() {
 // Tools -> Format JSON (pretty-print)
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsFormatJson() {
+    if (!m_editor) return;
     // Operate on selection or whole document
     bool hasSelection = false;
     DWORD selStart, selEnd;
@@ -709,6 +721,7 @@ void MainWindow::OnToolsFormatJson() {
 // Tools -> Minify JSON
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsMinifyJson() {
+    if (!m_editor) return;
     bool hasSelection = false;
     DWORD selStart, selEnd;
     m_editor->GetSelection(selStart, selEnd);
@@ -841,6 +854,7 @@ void MainWindow::OnToolsSettings() {
 // Tools -> Calculate Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsCalculate() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
 
@@ -965,6 +979,7 @@ void MainWindow::OnToolsCalculate() {
 // Tools -> Insert GUID/UUID
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsInsertGuid() {
+    if (!m_editor) return;
     GUID guid;
     if (FAILED(CoCreateGuid(&guid))) {
         MessageBoxW(m_hwnd, L"Failed to generate GUID.", L"QNote", MB_OK | MB_ICONERROR);
@@ -984,6 +999,7 @@ void MainWindow::OnToolsInsertGuid() {
 // Tools -> Insert File Path (browse for a file)
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsInsertFilePath() {
+    if (!m_editor) return;
     wchar_t filePath[MAX_PATH] = {};
     OPENFILENAMEW ofn = { sizeof(ofn) };
     ofn.hwndOwner = m_hwnd;
@@ -1001,6 +1017,7 @@ void MainWindow::OnToolsInsertFilePath() {
 // Tools -> Convert Line Endings in Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsConvertEolSelection() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) {
         MessageBoxW(m_hwnd, L"Please select text first.", L"Convert Line Endings", MB_OK | MB_ICONINFORMATION);
@@ -1052,6 +1069,7 @@ void MainWindow::OnToolsConvertEolSelection() {
 // Tools -> Checksum (MD5/SHA-256 of selection or file)
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsChecksum() {
+    if (!m_editor) return;
     // Get text to hash - selection or whole file
     bool hasSelection = false;
     DWORD selStart, selEnd;
@@ -1145,6 +1163,7 @@ void MainWindow::OnToolsChecksum() {
 // Tools -> Run Selection as Command
 //------------------------------------------------------------------------------
 void MainWindow::OnToolsRunSelection() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
 

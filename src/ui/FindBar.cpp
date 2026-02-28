@@ -82,14 +82,20 @@ bool FindBar::Create(HWND parent, HINSTANCE hInstance, Editor* editor) {
 // Destroy the find bar
 //------------------------------------------------------------------------------
 void FindBar::Destroy() noexcept {
-    if (m_font) {
-        DeleteObject(m_font);
-        m_font = nullptr;
+    // Kill any pending debounce timer
+    if (m_hwndContainer) {
+        KillTimer(m_hwndContainer, MATCHCOUNT_TIMER_ID);
     }
-    
+
+    // Destroy window BEFORE deleting font, since child controls still reference it
     if (m_hwndContainer) {
         DestroyWindow(m_hwndContainer);
         m_hwndContainer = nullptr;
+    }
+
+    if (m_font) {
+        DeleteObject(m_font);
+        m_font = nullptr;
     }
     
     // Reset control handles
@@ -521,6 +527,14 @@ LRESULT CALLBACK FindBar::FindBarProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM
                 return 0;
             }
             break;
+
+        case WM_TIMER:
+            if (pThis && wParam == MATCHCOUNT_TIMER_ID) {
+                KillTimer(hwnd, MATCHCOUNT_TIMER_ID);
+                pThis->UpdateMatchCount();
+                return 0;
+            }
+            break;
             
         case WM_PAINT: {
             PAINTSTRUCT ps;
@@ -556,7 +570,10 @@ void FindBar::OnCommand(WORD id, WORD code, HWND hwndCtl) {
     switch (id) {
         case ID_SEARCH_EDIT:
             if (code == EN_CHANGE) {
-                UpdateMatchCount();
+                // Debounce match count update to avoid scanning entire document on every keystroke
+                if (m_hwndContainer) {
+                    SetTimer(m_hwndContainer, MATCHCOUNT_TIMER_ID, MATCHCOUNT_DEBOUNCE_MS, nullptr);
+                }
                 UpdateButtonStates();
             }
             break;

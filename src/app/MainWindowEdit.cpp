@@ -15,30 +15,37 @@ namespace QNote {
 // Edit menu handlers
 //------------------------------------------------------------------------------
 void MainWindow::OnEditUndo() {
+    if (!m_editor) return;
     m_editor->Undo();
 }
 
 void MainWindow::OnEditRedo() {
+    if (!m_editor) return;
     m_editor->Redo();
 }
 
 void MainWindow::OnEditCut() {
+    if (!m_editor) return;
     m_editor->Cut();
 }
 
 void MainWindow::OnEditCopy() {
+    if (!m_editor) return;
     m_editor->Copy();
 }
 
 void MainWindow::OnEditPaste() {
+    if (!m_editor) return;
     m_editor->Paste();
 }
 
 void MainWindow::OnEditDelete() {
+    if (!m_editor) return;
     m_editor->Delete();
 }
 
 void MainWindow::OnEditSelectAll() {
+    if (!m_editor) return;
     m_editor->SelectAll();
 }
 
@@ -64,6 +71,7 @@ void MainWindow::OnEditReplace() {
 }
 
 void MainWindow::OnEditGoTo() {
+    if (!m_editor) return;
     int lineNumber = m_editor->GetCurrentLine() + 1;
     
     if (m_dialogManager->ShowGoToDialog(lineNumber)) {
@@ -72,6 +80,7 @@ void MainWindow::OnEditGoTo() {
 }
 
 void MainWindow::OnEditDateTime() {
+    if (!m_editor) return;
     m_editor->InsertDateTime();
 }
 
@@ -79,6 +88,7 @@ void MainWindow::OnEditDateTime() {
 // Bookmark operations
 //------------------------------------------------------------------------------
 void MainWindow::OnEditToggleBookmark() {
+    if (!m_editor) return;
     m_editor->ToggleBookmark();
     if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
         m_lineNumbersGutter->Update();
@@ -86,14 +96,17 @@ void MainWindow::OnEditToggleBookmark() {
 }
 
 void MainWindow::OnEditNextBookmark() {
+    if (!m_editor) return;
     m_editor->NextBookmark();
 }
 
 void MainWindow::OnEditPrevBookmark() {
+    if (!m_editor) return;
     m_editor->PrevBookmark();
 }
 
 void MainWindow::OnEditClearBookmarks() {
+    if (!m_editor) return;
     m_editor->ClearBookmarks();
     if (m_lineNumbersGutter && m_lineNumbersGutter->IsVisible()) {
         m_lineNumbersGutter->Update();
@@ -104,6 +117,7 @@ void MainWindow::OnEditClearBookmarks() {
 // Edit -> Uppercase Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnEditUppercase() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
     
@@ -115,6 +129,7 @@ void MainWindow::OnEditUppercase() {
 // Edit -> Lowercase Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnEditLowercase() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
     
@@ -126,6 +141,7 @@ void MainWindow::OnEditLowercase() {
 // Edit -> Sort Lines (ascending or descending)
 //------------------------------------------------------------------------------
 void MainWindow::OnEditSortLines(bool ascending) {
+    if (!m_editor) return;
     std::wstring text = m_editor->GetText();
     if (text.empty()) return;
     
@@ -170,6 +186,7 @@ void MainWindow::OnEditSortLines(bool ascending) {
 // Edit -> Trim Trailing Whitespace
 //------------------------------------------------------------------------------
 void MainWindow::OnEditTrimWhitespace() {
+    if (!m_editor) return;
     std::wstring text = m_editor->GetText();
     if (text.empty()) return;
     
@@ -207,6 +224,7 @@ void MainWindow::OnEditTrimWhitespace() {
 // Edit -> Remove Duplicate Lines
 //------------------------------------------------------------------------------
 void MainWindow::OnEditRemoveDuplicateLines() {
+    if (!m_editor) return;
     std::wstring text = m_editor->GetText();
     if (text.empty()) return;
     
@@ -240,6 +258,7 @@ void MainWindow::OnEditRemoveDuplicateLines() {
 // Edit -> Title Case Selection
 //------------------------------------------------------------------------------
 void MainWindow::OnEditTitleCase() {
+    if (!m_editor) return;
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
 
@@ -262,6 +281,7 @@ void MainWindow::OnEditTitleCase() {
 // Edit -> Reverse Lines
 //------------------------------------------------------------------------------
 void MainWindow::OnEditReverseLines() {
+    if (!m_editor) return;
     // Operate on selection if present, otherwise whole document
     bool hasSelection = false;
     DWORD selStart, selEnd;
@@ -300,9 +320,22 @@ void MainWindow::OnEditReverseLines() {
 }
 
 //------------------------------------------------------------------------------
+// Edit -> Reverse Selection (reverse character order)
+//------------------------------------------------------------------------------
+void MainWindow::OnEditReverseSelection() {
+    if (!m_editor) return;
+    std::wstring sel = m_editor->GetSelectedText();
+    if (sel.empty()) return;
+
+    std::reverse(sel.begin(), sel.end());
+    m_editor->ReplaceSelection(sel);
+}
+
+//------------------------------------------------------------------------------
 // Edit -> Number Lines
 //------------------------------------------------------------------------------
 void MainWindow::OnEditNumberLines() {
+    if (!m_editor) return;
     // Operate on selection if present, otherwise whole document
     bool hasSelection = false;
     DWORD selStart, selEnd;
@@ -344,6 +377,7 @@ void MainWindow::OnEditNumberLines() {
 // Edit -> Toggle Comment (Ctrl+/)
 //------------------------------------------------------------------------------
 void MainWindow::OnEditToggleComment() {
+    if (!m_editor) return;
     // Detect comment style from file extension
     std::wstring commentPrefix = L"// ";
     if (!m_currentFile.empty()) {
