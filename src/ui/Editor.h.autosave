@@ -74,18 +74,13 @@ private:
 enum class EditAction { None, Typing, Deleting, Other };
 
 //------------------------------------------------------------------------------
-// Undo delta - stores only the changed range instead of the full document
+// Undo checkpoint - captures full editor state at a point in time
 //------------------------------------------------------------------------------
-struct UndoDelta {
-    DWORD changePos = 0;           // Position where the change starts
-    std::wstring oldText;          // Text before the edit (restored on undo)
-    std::wstring newText;          // Text after the edit  (restored on redo)
-    DWORD selStartBefore = 0;      // Selection before the edit
-    DWORD selEndBefore = 0;
-    int firstVisibleLineBefore = 0;
-    DWORD selStartAfter = 0;       // Selection after the edit
-    DWORD selEndAfter = 0;
-    int firstVisibleLineAfter = 0;
+struct UndoCheckpoint {
+    std::wstring text;
+    DWORD selStart = 0;
+    DWORD selEnd = 0;
+    int firstVisibleLine = 0;
 };
 
 //------------------------------------------------------------------------------
@@ -167,7 +162,6 @@ public:
     // Font
     void SetFont(std::wstring_view fontName, int fontSize, int fontWeight, bool italic);
     void ApplyZoom(int zoomPercent) noexcept;
-    [[nodiscard]] int GetZoomPercent() const noexcept { return m_zoomPercent; }
     
     // Word wrap
     void SetWordWrap(bool enable);
@@ -336,7 +330,6 @@ private:
     std::vector<std::wstring> m_rightClickSuggestions;
     
     int m_scrollLines = 0;  // Lines per wheel notch (0 = system default)
-    int m_wheelAccum = 0;     // Accumulated wheel delta for high-res mice
     
     // Cached word count
     int m_cachedWordCount = 0;
@@ -346,9 +339,9 @@ private:
     ScrollCallback m_scrollCallback = nullptr;
     void* m_scrollCallbackData = nullptr;
     
-    // Custom undo/redo system (incremental / diff-based)
-    std::vector<UndoDelta> m_undoStack;
-    std::vector<UndoDelta> m_redoStack;
+    // Custom undo/redo system
+    std::vector<UndoCheckpoint> m_undoStack;
+    std::vector<UndoCheckpoint> m_redoStack;
     EditAction m_lastEditAction = EditAction::None;
     DWORD m_lastEditTime = 0;
     bool m_suppressUndo = false;
@@ -356,24 +349,6 @@ private:
     static constexpr size_t MAX_UNDO_MEMORY_BYTES = 50 * 1024 * 1024;  // 50 MB cap
     size_t m_undoMemoryUsage = 0;
     size_t m_redoMemoryUsage = 0;
-
-    // Pending snapshot for lazy diff computation
-    // We capture the full text once when a new undo group starts, then
-    // compute the minimal diff when the group is finalized (next group
-    // starts, or undo/redo is triggered).
-    std::wstring m_pendingSnapshot;
-    DWORD m_pendingSelStart = 0;
-    DWORD m_pendingSelEnd = 0;
-    int m_pendingFirstVisibleLine = 0;
-    bool m_hasPendingSnapshot = false;
-
-    // Finalize the pending snapshot into a delta on the undo stack
-    void FinalizePendingSnapshot();
-
-    // Compute the minimal diff between two strings
-    static void ComputeDelta(const std::wstring& before, const std::wstring& after,
-                             DWORD& pos, std::wstring& removedText,
-                             std::wstring& insertedText);
     
     // RichEdit library handle
     static HMODULE s_hRichEditLib;

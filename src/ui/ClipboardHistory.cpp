@@ -385,6 +385,9 @@ void ClipboardHistory::PickerSelect(int index) {
                 wcscpy_s(pMem, text.size() + 1, text.c_str());
                 GlobalUnlock(hMem);
                 SetClipboardData(CF_UNICODETEXT, hMem);
+            } else {
+                // GlobalLock failed — free the allocation to avoid a leak
+                GlobalFree(hMem);
             }
         }
         CloseClipboard();

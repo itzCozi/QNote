@@ -328,25 +328,25 @@ Language SyntaxHighlighter::DetectLanguage(std::wstring_view filePath) {
 }
 
 //------------------------------------------------------------------------------
-// Get color for a token type (VS Code Dark+ theme)
+// Get color for a token type (VS Code Light+ theme)
 //------------------------------------------------------------------------------
 COLORREF SyntaxHighlighter::GetTokenColor(TokenType type) noexcept {
     switch (type) {
-        case TokenType::Keyword:      return DarkPlusColors::Keyword;
-        case TokenType::String:       return DarkPlusColors::String;
-        case TokenType::Comment:      return DarkPlusColors::Comment;
-        case TokenType::Number:       return DarkPlusColors::Number;
-        case TokenType::Preprocessor: return DarkPlusColors::Preprocessor;
-        case TokenType::Type:         return DarkPlusColors::Type;
-        case TokenType::Function:     return DarkPlusColors::Function;
-        case TokenType::Attribute:    return DarkPlusColors::Attribute;
-        case TokenType::Tag:          return DarkPlusColors::Tag;
-        case TokenType::Operator:     return DarkPlusColors::Operator;
-        case TokenType::Punctuation:  return DarkPlusColors::Punctuation;
-        case TokenType::Escape:       return DarkPlusColors::Escape;
-        case TokenType::Heading:      return DarkPlusColors::Heading;
-        case TokenType::Key:          return DarkPlusColors::Key;
-        default:                      return DarkPlusColors::Default;
+        case TokenType::Keyword:      return LightPlusColors::Keyword;
+        case TokenType::String:       return LightPlusColors::String;
+        case TokenType::Comment:      return LightPlusColors::Comment;
+        case TokenType::Number:       return LightPlusColors::Number;
+        case TokenType::Preprocessor: return LightPlusColors::Preprocessor;
+        case TokenType::Type:         return LightPlusColors::Type;
+        case TokenType::Function:     return LightPlusColors::Function;
+        case TokenType::Attribute:    return LightPlusColors::Attribute;
+        case TokenType::Tag:          return LightPlusColors::Tag;
+        case TokenType::Operator:     return LightPlusColors::Operator;
+        case TokenType::Punctuation:  return LightPlusColors::Punctuation;
+        case TokenType::Escape:       return LightPlusColors::Escape;
+        case TokenType::Heading:      return LightPlusColors::Heading;
+        case TokenType::Key:          return LightPlusColors::Key;
+        default:                      return LightPlusColors::Default;
     }
 }
 
@@ -553,35 +553,26 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
     int len = static_cast<int>(text.size());
     int i = 0;
 
+    // Track start-of-line and whether only whitespace seen since then.
+    // This turns the preprocessor check from O(n) backward scan to O(1).
+    int lineStart = 0;
+    bool lineOnlyWhitespace = true;
+
     while (i < len) {
         wchar_t ch = text[i];
 
         // Preprocessor (# may have leading whitespace on the line)
-        if (hasPreprocessor && ch == L'#') {
-            // Verify only whitespace precedes # on this line
-            bool validPreproc = (i == 0);
-            if (!validPreproc) {
-                int j = i - 1;
-                validPreproc = true;
-                while (j >= 0 && text[j] != L'\n' && text[j] != L'\r') {
-                    if (text[j] != L' ' && text[j] != L'\t') {
-                        validPreproc = false;
-                        break;
-                    }
-                    j--;
-                }
-            }
-            if (validPreproc) {
-                int start = i;
-                i++; // skip #
-                // Skip whitespace after #
-                while (i < len && (text[i] == L' ' || text[i] == L'\t')) i++;
-                // Read directive name
-                int dirEnd = ReadIdentifier(text, i);
-                tokens.push_back({ baseOffset + start, dirEnd - start, TokenType::Preprocessor });
-                i = dirEnd;
-                continue;
-            }
+        if (hasPreprocessor && ch == L'#' && lineOnlyWhitespace) {
+            int start = i;
+            i++; // skip #
+            // Skip whitespace after #
+            while (i < len && (text[i] == L' ' || text[i] == L'\t')) i++;
+            // Read directive name
+            int dirEnd = ReadIdentifier(text, i);
+            tokens.push_back({ baseOffset + start, dirEnd - start, TokenType::Preprocessor });
+            i = dirEnd;
+            lineOnlyWhitespace = false;
+            continue;
         }
 
         // Line comment
@@ -589,6 +580,7 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
             int start = i;
             i = SkipLineComment(text, i);
             tokens.push_back({ baseOffset + start, i - start, TokenType::Comment });
+            lineOnlyWhitespace = false;
             continue;
         }
 
@@ -597,6 +589,7 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
             int start = i;
             i = SkipBlockComment(text, i);
             tokens.push_back({ baseOffset + start, i - start, TokenType::Comment });
+            lineOnlyWhitespace = false;
             continue;
         }
 
@@ -605,6 +598,7 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
             int start = i;
             i = SkipString(text, i, ch);
             tokens.push_back({ baseOffset + start, i - start, TokenType::String });
+            lineOnlyWhitespace = false;
             continue;
         }
 
@@ -615,6 +609,7 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
             while (i < len && text[i] != L'`') i++;
             if (i < len) i++; // skip closing backtick
             tokens.push_back({ baseOffset + start, i - start, TokenType::String });
+            lineOnlyWhitespace = false;
             continue;
         }
 
@@ -623,6 +618,7 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
             int start = i;
             i = ReadNumber(text, i);
             tokens.push_back({ baseOffset + start, i - start, TokenType::Number });
+            lineOnlyWhitespace = false;
             continue;
         }
 
@@ -639,7 +635,26 @@ void SyntaxHighlighter::TokenizeCLike(std::wstring_view text, int baseOffset,
             } else if (i < len && text[i] == L'(') {
                 tokens.push_back({ baseOffset + start, i - start, TokenType::Function });
             }
+            lineOnlyWhitespace = false;
             continue;
+        }
+
+        // Track newlines for lineOnlyWhitespace
+        if (ch == L'\n' || ch == L'\r') {
+            // Skip \r\n as single newline
+            if (ch == L'\r' && i + 1 < len && text[i + 1] == L'\n') {
+                i += 2;
+            } else {
+                i++;
+            }
+            lineStart = i;
+            lineOnlyWhitespace = true;
+            continue;
+        }
+
+        // Non-whitespace character that wasn't handled above
+        if (ch != L' ' && ch != L'\t') {
+            lineOnlyWhitespace = false;
         }
 
         // Skip whitespace and other characters
@@ -672,15 +687,17 @@ void SyntaxHighlighter::TokenizePython(std::wstring_view text, int baseOffset,
             int start = i;
             wchar_t q = ch;
             i += 3; // skip opening triple quote
+            bool found = false;
             while (i + 2 < len) {
                 if (text[i] == L'\\') { i += 2; continue; }
                 if (text[i] == q && text[i + 1] == q && text[i + 2] == q) {
                     i += 3;
+                    found = true;
                     break;
                 }
                 i++;
             }
-            if (i >= len) i = len; // unclosed triple quote
+            if (!found) i = len; // unclosed triple quote, consume rest
             tokens.push_back({ baseOffset + start, i - start, TokenType::String });
             continue;
         }
@@ -704,15 +721,17 @@ void SyntaxHighlighter::TokenizePython(std::wstring_view text, int baseOffset,
             // Check for triple-quoted
             if (i + 2 < len && text[i + 1] == q && text[i + 2] == q) {
                 i += 3;
+                bool found = false;
                 while (i + 2 < len) {
                     if (text[i] == L'\\') { i += 2; continue; }
                     if (text[i] == q && text[i + 1] == q && text[i + 2] == q) {
                         i += 3;
+                        found = true;
                         break;
                     }
                     i++;
                 }
-                if (i >= len) i = len;
+                if (!found) i = len;
             } else {
                 i = SkipString(text, i, q);
             }
@@ -777,14 +796,16 @@ void SyntaxHighlighter::TokenizeHTML(std::wstring_view text, int baseOffset,
             text[i + 2] == L'-' && text[i + 3] == L'-') {
             int start = i;
             i += 4;
+            bool found = false;
             while (i + 2 < len) {
                 if (text[i] == L'-' && text[i + 1] == L'-' && text[i + 2] == L'>') {
                     i += 3;
+                    found = true;
                     break;
                 }
                 i++;
             }
-            if (i >= len) i = len;
+            if (!found) i = len;
             tokens.push_back({ baseOffset + start, i - start, TokenType::Comment });
             continue;
         }

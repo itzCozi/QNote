@@ -84,54 +84,26 @@ bool Editor::SearchText(std::wstring_view searchText, bool matchCase, bool wrapA
             return false;
         }
     } else {
-        // Plain text search
+        // Plain text search — create lowercase copies once to avoid redundant O(n) passes
+        std::wstring lowerText, lowerSearch;
+        if (!matchCase) {
+            lowerText = text;
+            lowerSearch = searchStr;
+            for (auto& c : lowerText) c = towlower(c);
+            for (auto& c : lowerSearch) c = towlower(c);
+        }
+        const std::wstring& findText = matchCase ? text : lowerText;
+        const std::wstring& findSearch = matchCase ? searchStr : lowerSearch;
+
         if (searchUp) {
-            if (matchCase) {
-                foundPos = text.rfind(searchStr, searchStart);
-            } else {
-                // Case-insensitive search backwards
-                std::wstring lowerText = text;
-                std::wstring lowerSearch = searchStr;
-                for (auto& c : lowerText) c = towlower(c);
-                for (auto& c : lowerSearch) c = towlower(c);
-                foundPos = lowerText.rfind(lowerSearch, searchStart);
-            }
-            
+            foundPos = findText.rfind(findSearch, searchStart);
             if (foundPos == std::wstring::npos && wrapAround) {
-                // Wrap to end
-                if (matchCase) {
-                    foundPos = text.rfind(searchStr);
-                } else {
-                    std::wstring lowerText = text;
-                    std::wstring lowerSearch = searchStr;
-                    for (auto& c : lowerText) c = towlower(c);
-                    for (auto& c : lowerSearch) c = towlower(c);
-                    foundPos = lowerText.rfind(lowerSearch);
-                }
+                foundPos = findText.rfind(findSearch);
             }
         } else {
-            if (matchCase) {
-                foundPos = text.find(searchStr, searchStart);
-            } else {
-                // Case-insensitive search
-                std::wstring lowerText = text;
-                std::wstring lowerSearch = searchStr;
-                for (auto& c : lowerText) c = towlower(c);
-                for (auto& c : lowerSearch) c = towlower(c);
-                foundPos = lowerText.find(lowerSearch, searchStart);
-            }
-            
+            foundPos = findText.find(findSearch, searchStart);
             if (foundPos == std::wstring::npos && wrapAround) {
-                // Wrap to beginning
-                if (matchCase) {
-                    foundPos = text.find(searchStr, 0);
-                } else {
-                    std::wstring lowerText = text;
-                    std::wstring lowerSearch = searchStr;
-                    for (auto& c : lowerText) c = towlower(c);
-                    for (auto& c : lowerSearch) c = towlower(c);
-                    foundPos = lowerText.find(lowerSearch, 0);
-                }
+                foundPos = findText.find(findSearch, 0);
             }
         }
     }

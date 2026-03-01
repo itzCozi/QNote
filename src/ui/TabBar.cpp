@@ -161,6 +161,10 @@ int TabBar::AddTab(const std::wstring& title, const std::wstring& filePath, bool
         m_tabs.push_back(tab);
     }
 
+    // Rebuild id→index map after insertion
+    RebuildTabIdIndex();
+    m_prefixDirty = true;
+
     EnsureTabVisible(tab.id);
     Redraw();
     return tab.id;
@@ -175,6 +179,10 @@ void TabBar::RemoveTab(int tabId) {
 
     bool wasActive = (tabId == m_activeTabId);
     m_tabs.erase(m_tabs.begin() + idx);
+
+    // Rebuild id→index map after removal
+    RebuildTabIdIndex();
+    m_prefixDirty = true;
 
     if (wasActive && !m_tabs.empty()) {
         // Select the tab at the same index or the last one
@@ -253,6 +261,10 @@ void TabBar::SetTabPinned(int tabId, bool pinned) {
         m_tabs.insert(m_tabs.begin() + insertPos, tab);
     }
 
+    // Rebuild id→index map after reorder
+    RebuildTabIdIndex();
+    m_prefixDirty = true;
+
     Redraw();
 }
 
@@ -292,6 +304,7 @@ void TabBar::Resize(int x, int y, int width) {
     if (m_hwnd) {
         m_cachedTabWidth = -1;
         m_cachedPinnedTabWidth = -1;
+        m_prefixDirty = true;
         MoveWindow(m_hwnd, x, y, width, m_tabBarHeight, TRUE);
         ClampScrollOffset();
     }
@@ -509,6 +522,7 @@ LRESULT TabBar::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
                                 TabItem temp = m_tabs[srcIdx];
                                 m_tabs.erase(m_tabs.begin() + srcIdx);
                                 m_tabs.insert(m_tabs.begin() + dstIdx, temp);
+                                RebuildTabIdIndex();
                                 Redraw();
                             }
                         }

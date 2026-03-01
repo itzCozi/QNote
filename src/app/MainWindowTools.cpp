@@ -89,6 +89,7 @@ void MainWindow::OnToolsCopyFilePath() {
     CloseClipboard();
     
     // Brief status bar notification
+    m_statusText[SB_PART_COUNTS] = L"Path copied to clipboard";
     SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_COUNTS,
                  reinterpret_cast<LPARAM>(L"Path copied to clipboard"));
 }
@@ -889,12 +890,13 @@ void MainWindow::OnToolsCalculate() {
         }
     };
 
-    auto evaluate = [&]() {
-        if (values.size() < 2 || ops.empty()) return;
+    auto evaluate = [&]() -> bool {
+        if (values.size() < 2 || ops.empty()) return false;
         double b = values.back(); values.pop_back();
         double a = values.back(); values.pop_back();
         char op = ops.back(); ops.pop_back();
         values.push_back(applyOp(a, b, op));
+        return true;
     };
 
     bool valid = true;
@@ -917,7 +919,10 @@ void MainWindow::OnToolsCalculate() {
             ops.push_back(ch);
             i++;
         } else if (ch == ')') {
-            while (!ops.empty() && ops.back() != '(') evaluate();
+            while (!ops.empty() && ops.back() != '(') {
+                if (!evaluate()) { valid = false; break; }
+            }
+            if (!valid) break;
             if (!ops.empty()) ops.pop_back(); // remove '('
             i++;
         } else if (ch == '+' || ch == '-' || ch == '*' || ch == '/') {
@@ -939,8 +944,9 @@ void MainWindow::OnToolsCalculate() {
             }
             while (!ops.empty() && ops.back() != '(' &&
                    precedence(ops.back()) >= precedence(ch)) {
-                evaluate();
+                if (!evaluate()) { valid = false; break; }
             }
+            if (!valid) break;
             ops.push_back(ch);
             i++;
         } else {
@@ -948,7 +954,9 @@ void MainWindow::OnToolsCalculate() {
         }
     }
 
-    while (!ops.empty() && valid) evaluate();
+    while (!ops.empty() && valid) {
+        if (!evaluate()) { valid = false; }
+    }
 
     if (!valid || values.size() != 1) {
         MessageBoxW(m_hwnd, L"Could not evaluate the selected expression.",

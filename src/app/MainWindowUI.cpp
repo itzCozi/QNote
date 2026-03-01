@@ -126,12 +126,39 @@ void MainWindow::LoadKeyboardShortcuts() {
         accels.push_back(accel);
     }
     
-    if (!accels.empty()) {
+    if (!accels.empty() && m_hAccel) {
+        // Merge customized shortcuts with existing accelerator table.
+        // First, copy all existing accelerators.
+        int existingCount = CopyAcceleratorTableW(m_hAccel, nullptr, 0);
+        std::vector<ACCEL> merged(existingCount);
+        CopyAcceleratorTableW(m_hAccel, merged.data(), existingCount);
+        
+        // Override matching command IDs with new bindings from the config file
+        for (const auto& customAccel : accels) {
+            bool replaced = false;
+            for (auto& existing : merged) {
+                if (existing.cmd == customAccel.cmd) {
+                    existing.fVirt = customAccel.fVirt;
+                    existing.key = customAccel.key;
+                    replaced = true;
+                    break;
+                }
+            }
+            if (!replaced) {
+                // New shortcut not in the existing table — add it
+                merged.push_back(customAccel);
+            }
+        }
+        
+        HACCEL hNewAccel = CreateAcceleratorTableW(merged.data(), static_cast<int>(merged.size()));
+        if (hNewAccel) {
+            DestroyAcceleratorTable(m_hAccel);
+            m_hAccel = hNewAccel;
+        }
+    } else if (!accels.empty()) {
+        // No existing table — create one from scratch
         HACCEL hNewAccel = CreateAcceleratorTableW(accels.data(), static_cast<int>(accels.size()));
         if (hNewAccel) {
-            if (m_hAccel) {
-                DestroyAcceleratorTable(m_hAccel);
-            }
             m_hAccel = hNewAccel;
         }
     }
@@ -560,31 +587,39 @@ void MainWindow::UpdateStatusBar() {
     wchar_t posText[128];
     if (selStart != selEnd) {
         DWORD selLen = (selEnd > selStart) ? (selEnd - selStart) : (selStart - selEnd);
-        swprintf_s(posText, L"Ln %d, Col %d  |  %lu sel", line, column, static_cast<unsigned long>(selLen));
+        swprintf_s(posText, L"Ln %d, Col %d  %lu sel", line, column, static_cast<unsigned long>(selLen));
     } else {
         swprintf_s(posText, L"Ln %d, Col %d", line, column);
     }
-    SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_POSITION, reinterpret_cast<LPARAM>(posText));
+    // Helper: only update a status bar part when text actually changes
+    auto setStatusPart = [this](int part, const wchar_t* text) {
+        if (m_statusText[part] != text) {
+            m_statusText[part] = text;
+            SendMessageW(m_hwndStatus, SB_SETTEXTW, part, reinterpret_cast<LPARAM>(text));
+        }
+    };
+
+    setStatusPart(SB_PART_POSITION, posText);
     
     // Encoding
     const wchar_t* encodingText = EncodingToString(m_editor->GetEncoding());
-    SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_ENCODING, reinterpret_cast<LPARAM>(encodingText));
+    setStatusPart(SB_PART_ENCODING, encodingText);
     
     // Line ending
     const wchar_t* eolText = LineEndingToString(m_editor->GetLineEnding());
-    SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_EOL, reinterpret_cast<LPARAM>(eolText));
+    setStatusPart(SB_PART_EOL, eolText);
     
     // Zoom
     wchar_t zoomText[32];
     swprintf_s(zoomText, L"%d%%", m_settingsManager->GetSettings().zoomLevel);
-    SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_ZOOM, reinterpret_cast<LPARAM>(zoomText));
+    setStatusPart(SB_PART_ZOOM, zoomText);
     
     // Word and character count
     int textLen = m_editor->GetTextLength();
     int wordCount = m_editor->GetWordCount();
     wchar_t countText[64];
     swprintf_s(countText, L"%d words, %d chars", wordCount, textLen);
-    SendMessageW(m_hwndStatus, SB_SETTEXTW, SB_PART_COUNTS, reinterpret_cast<LPARAM>(countText));
+    setStatusPart(SB_PART_COUNTS, countText);
 }
 
 //------------------------------------------------------------------------------
@@ -1064,6 +1099,10 @@ void MainWindow::LoadSession() {
                     doc->editor->SetLineEnding(lineEnding);
                     doc->editor->SetModified(doc->isModified);
                     doc->editor->SetBookmarks(bookmarks);
+                    // Set file path so syntax highlighting can detect language
+                    if (!filePath.empty()) {
+                        doc->editor->SetFilePath(filePath);
+                    }
                 }
                 // Use the editor's normalized text as cleanText so that
                 // the modified-state comparison works correctly. RichEdit
@@ -1087,6 +1126,18 @@ void MainWindow::LoadSession() {
                 m_isNewFile = isNewFile;
                 m_isNoteMode = isNoteMode;
                 m_currentNoteId = noteId;
+                
+                // Restore cursor position and scroll
+                if (doc->editor) {
+                    doc->editor->SetSelection(cursorStart, cursorEnd);
+                    if (firstVisibleLine > 0) {
+                        int currentFirst = doc->editor->GetFirstVisibleLine();
+                        if (firstVisibleLine != currentFirst) {
+                            SendMessageW(doc->editor->GetHandle(), EM_LINESCROLL, 0,
+                                         firstVisibleLine - currentFirst);
+                        }
+                    }
+                }
             }
         } else {
             int tabId = m_documentManager->OpenDocument(filePath, content, encoding, lineEnding);
@@ -1125,6 +1176,18 @@ void MainWindow::LoadSession() {
                 }
                 if (!customTitle.empty()) m_tabBar->SetTabTitle(tabId, customTitle);
                 if (isPinned) m_tabBar->SetTabPinned(tabId, true);
+                
+                // Restore cursor position and scroll
+                if (doc->editor) {
+                    doc->editor->SetSelection(cursorStart, cursorEnd);
+                    if (firstVisibleLine > 0) {
+                        int currentFirst = doc->editor->GetFirstVisibleLine();
+                        if (firstVisibleLine != currentFirst) {
+                            SendMessageW(doc->editor->GetHandle(), EM_LINESCROLL, 0,
+                                         firstVisibleLine - currentFirst);
+                        }
+                    }
+                }
             }
         }
     }
@@ -1137,6 +1200,15 @@ void MainWindow::LoadSession() {
     
     // Start monitoring the restored file
     StartFileMonitoring();
+    
+    // Ensure syntax highlighting is applied to the active editor.
+    // During session restore the initial tab may not go through
+    // RestoreState (SwitchToDocument short-circuits for the already-
+    // active tab), so syntax highlighting may not be visible.
+    if (m_editor && m_editor->IsSyntaxHighlightingEnabled()) {
+        m_editor->ScheduleSyntaxHighlighting();
+        m_editor->ApplySyntaxHighlighting(true);
+    }
     
     // Clean up sidecar files
     for (int i = 0; i < tabCount; i++) {

@@ -118,7 +118,10 @@ void LineNumbersGutter::Resize(int x, int y, int height) noexcept {
 void LineNumbersGutter::Update() noexcept {
     if (m_hwndGutter && m_visible) {
         CalculateWidth();
-        InvalidateRect(m_hwndGutter, nullptr, FALSE);
+        // Force immediate repaint so line numbers track scrolling in real time.
+        // InvalidateRect alone defers to WM_PAINT which is low-priority and
+        // starves during rapid scrollbar thumb dragging.
+        RedrawWindow(m_hwndGutter, nullptr, nullptr, RDW_INVALIDATE | RDW_UPDATENOW);
     }
 }
 
@@ -229,6 +232,39 @@ LRESULT LineNumbersGutter::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam)
 }
 
 //------------------------------------------------------------------------------
+// Count paragraph breaks (newline sequences) in editor text from fromPos
+// to toPos.  Handles \r\n, \r, and \n as a single break each.
+//------------------------------------------------------------------------------
+static int CountParagraphBreaks(HWND hwndEdit, int fromPos, int toPos) {
+    if (toPos <= fromPos) return 0;
+    int count = 0;
+    const int CHUNK = 4096;
+    wchar_t chunk[CHUNK + 1];
+    bool prevWasCR = false;
+    for (int pos = fromPos; pos < toPos; pos += CHUNK) {
+        int end = (std::min)(pos + CHUNK, toPos);
+        TEXTRANGEW tr = {};
+        tr.chrg.cpMin = pos;
+        tr.chrg.cpMax = end;
+        tr.lpstrText = chunk;
+        SendMessageW(hwndEdit, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+        int len = end - pos;
+        for (int j = 0; j < len; j++) {
+            if (chunk[j] == L'\r') {
+                count++;
+                prevWasCR = true;
+            } else if (chunk[j] == L'\n') {
+                if (!prevWasCR) count++;
+                prevWasCR = false;
+            } else {
+                prevWasCR = false;
+            }
+        }
+    }
+    return count;
+}
+
+//------------------------------------------------------------------------------
 // Paint the gutter
 //------------------------------------------------------------------------------
 void LineNumbersGutter::OnPaint() {
@@ -301,17 +337,70 @@ void LineNumbersGutter::OnPaint() {
         // Get bookmark set for marker drawing
         const auto& bookmarks = m_editor->GetBookmarks();
         
-        // Get the current cursor line (0-based) for highlighting
-        int currentLine = m_editor->GetCurrentLine();
+        // Compute the logical (paragraph) line number for the first visible
+        // display line.  RichEdit's EM_GETLINECOUNT / EM_GETFIRSTVISIBLELINE
+        // count display lines (including word-wrap continuations).  We
+        // determine paragraph boundaries by checking whether the character
+        // immediately before each display line's start is a newline.
+        int firstCharIdx = static_cast<int>(
+            SendMessageW(hwndEdit, EM_LINEINDEX, firstVisibleLine, 0));
+        int startingLogicalLine = CountParagraphBreaks(hwndEdit, 0, firstCharIdx);
+
+        // Compute cursor's logical (paragraph) line for highlighting.
+        // Reuse the count we already have when the cursor is at or past
+        // the first visible character (the common case).
+        CHARRANGE crSel = {};
+        SendMessageW(hwndEdit, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&crSel));
+        int cursorLogicalLine;
+        if (crSel.cpMin >= firstCharIdx) {
+            cursorLogicalLine = startingLogicalLine
+                + CountParagraphBreaks(hwndEdit, firstCharIdx, crSel.cpMin);
+        } else {
+            cursorLogicalLine = CountParagraphBreaks(hwndEdit, 0, crSel.cpMin);
+        }
         
-        // Draw line numbers
+        // Draw line numbers.
+        // Each display line's Y position is queried from the editor via
+        // EM_POSFROMCHAR so that the gutter aligns perfectly even when
+        // word-wrapped lines have different effective heights.
+        int logicalLine = startingLogicalLine;
         for (int i = 0; i < visibleLines && (firstVisibleLine + i) < totalLines; i++) {
-            int lineNum = firstVisibleLine + i + 1;  // 1-based line numbers
-            int lineIndex = firstVisibleLine + i;     // 0-based for bookmark check
-            int lineY = i * m_lineHeight + yOffset;   // pixel-accurate position
-            
-            // Draw bookmark marker (blue circle in left margin)
-            if (bookmarks.count(lineIndex)) {
+            int displayLine = firstVisibleLine + i;
+            int charIdx = static_cast<int>(
+                SendMessageW(hwndEdit, EM_LINEINDEX, displayLine, 0));
+
+            // Query the actual Y position of this display line from the editor
+            int lineY = i * m_lineHeight + yOffset; // fallback
+            if (charIdx >= 0) {
+                POINTL ptLine = {};
+                SendMessageW(hwndEdit, EM_POSFROMCHAR,
+                             reinterpret_cast<WPARAM>(&ptLine),
+                             static_cast<LPARAM>(charIdx));
+                lineY = ptLine.y;
+            }
+
+            // Detect wrap continuation: the character just before this display
+            // line's start is NOT a newline, meaning word-wrap split the
+            // paragraph rather than a hard return starting a new one.
+            bool isWrapContinuation = false;
+            if (charIdx > 0) {
+                wchar_t ch[2] = {};
+                TEXTRANGEW tr = {};
+                tr.chrg.cpMin = charIdx - 1;
+                tr.chrg.cpMax = charIdx;
+                tr.lpstrText = ch;
+                SendMessageW(hwndEdit, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+                isWrapContinuation = (ch[0] != L'\r' && ch[0] != L'\n');
+            }
+
+            // Advance logical line counter when a new paragraph starts
+            if (!isWrapContinuation && i > 0) {
+                logicalLine++;
+            }
+
+            // Draw bookmark marker (blue circle in left margin) on the first
+            // display row of a logical line only.
+            if (!isWrapContinuation && bookmarks.count(logicalLine)) {
                 int cy = lineY + m_lineHeight / 2;
                 int cx = m_leftPadding / 2 + 5;
                 int r = (std::min)(m_lineHeight / 2 - 2, 5);
@@ -325,9 +414,14 @@ void LineNumbersGutter::OnPaint() {
                 SelectObject(memDC, oldPen2);
                 DeleteObject(bmBrush);
             }
+
+            // Skip drawing a number for wrapped continuation lines
+            if (isWrapContinuation) continue;
+
+            int lineNum = logicalLine + 1;  // 1-based line numbers
             
             // Highlight current line number
-            if (lineIndex == currentLine) {
+            if (logicalLine == cursorLogicalLine) {
                 SetTextColor(memDC, RGB(30, 30, 30));
             } else {
                 SetTextColor(memDC, m_textColor);

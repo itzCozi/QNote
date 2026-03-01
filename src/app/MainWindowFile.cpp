@@ -346,6 +346,15 @@ bool MainWindow::LoadFile(const std::wstring& filePath) {
     m_editor->SetSelection(0, 0);
     m_editor->SetFocus();
     
+    // Force syntax highlighting to be visible. The SetFilePath() call above
+    // applied formatting, but the visual may not reflect it until the editor
+    // processes a full repaint (e.g. on scroll). Re-scheduling ensures the
+    // colors appear immediately.
+    if (m_editor->IsSyntaxHighlightingEnabled()) {
+        m_editor->ScheduleSyntaxHighlighting();
+        m_editor->ApplySyntaxHighlighting(true);
+    }
+    
     return true;
 }
 
@@ -506,6 +515,7 @@ void MainWindow::StartFileMonitoring() {
 
 void MainWindow::CheckFileChanged() {
     if (m_currentFile.empty() || m_isNewFile || m_isNoteMode) return;
+    if (!m_editor) return;
     if (m_ignoreNextFileChange) {
         m_ignoreNextFileChange = false;
         return;

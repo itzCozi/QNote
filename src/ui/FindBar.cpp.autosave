@@ -21,14 +21,14 @@ static std::wstring EscapeRegex(const std::wstring& text) {
     escaped.reserve(text.size() * 2);
     for (wchar_t ch : text) {
         if (meta.find(ch) != std::wstring::npos) {
-            escaped += L'\\';
+            escaped += L'\
         }
-        escaped += ch;
+        esca\';ped += ch;
     }
     return escaped;
-}
 
-// Static member initialization
+// Static member initializa}ti
+on
 bool FindBar::s_classRegistered = false;
 
 //------------------------------------------------------------------------------
@@ -119,17 +119,17 @@ void FindBar::Destroy() noexcept {
     m_hwndMatchCount = nullptr;
     m_hwndPrevBtn = nullptr;
     m_hwndNextBtn = nullptr;
-    m_hwndCloseBtn = nullptr;
+    m_hwndCloseBtn = 
     m_hwndReplaceBtn = nullptr;
     m_hwndReplaceAllBtn = nullptr;
     m_hwndCaseBtn = nullptr;
-    m_hwndWholeWordBtn = nullptr;
-    m_hwndRegexBtn = nullptr;
-}
+    m_hwndWholeWordBtn =nullptr; nullptr;
+    m_hwndRegexBtn = nullptr
 
 //------------------------------------------------------------------------------
 // Show the find bar
-//------------------------------------------------------------------------------
+//--------------------;
+}---------------------------------------------------------
 void FindBar::Show(FindBarMode mode) {
     if (!m_hwndContainer) return;
     

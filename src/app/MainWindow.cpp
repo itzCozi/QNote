@@ -279,6 +279,18 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             return 0;
             
         case WM_APP_UPDATESTATUS:
+            // Sync editor zoom level back to settings (e.g. after Ctrl+wheel)
+            if (m_editor && m_settingsManager) {
+                int editorZoom = m_editor->GetZoomPercent();
+                AppSettings& settings = m_settingsManager->GetSettings();
+                if (settings.zoomLevel != editorZoom) {
+                    settings.zoomLevel = editorZoom;
+                    if (m_lineNumbersGutter) {
+                        m_lineNumbersGutter->SetFont(m_editor->GetFont());
+                    }
+                    ResizeControls();
+                }
+            }
             UpdateStatusBar();
             return 0;
             

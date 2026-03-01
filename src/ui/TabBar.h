@@ -15,6 +15,7 @@
 #include <string>
 #include <vector>
 #include <functional>
+#include <unordered_map>
 
 namespace QNote {
 
@@ -153,6 +154,9 @@ private:
     // Find tab by id
     int FindTabIndex(int tabId) const;
 
+    // Rebuild the id→index map after structural changes to m_tabs
+    void RebuildTabIdIndex();
+
     // Invalidate for repaint
     void Redraw() noexcept;
 
@@ -176,9 +180,16 @@ private:
     int m_activeTabId = -1;
     int m_nextTabId = 1;
 
+    // O(1) tab id → index lookup map (kept in sync with m_tabs)
+    std::unordered_map<int, int> m_tabIdToIndex;
+
     // Cached tab widths to avoid redundant recalculation (mutable for const methods)
     mutable int m_cachedTabWidth = -1;
     mutable int m_cachedPinnedTabWidth = -1;
+
+    // Cached prefix sums for O(1) GetTabLeftOffset and O(log n) TabHitTest
+    mutable std::vector<int> m_prefixWidths;  // m_prefixWidths[i] = sum of widths of tabs [0..i)
+    mutable bool m_prefixDirty = true;
 
     // DPI scaling
     int m_dpi = 96;

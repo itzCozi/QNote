@@ -1308,7 +1308,7 @@ void PrintPreviewWindow::DrawSinglePage(HDC hdc, int pageIdx,
     int gutterWidth = 0;
     if (ps.lineNumbers) {
         SIZE gutterSz;
-        GetTextExtentPoint32W(hdc, L"9999 ", 5, &gutterSz);
+        GetTextExtentPoint32W(hdc, L"99999 ", 6, &gutterSz);
         gutterWidth = gutterSz.cx;
     }
 

@@ -417,7 +417,7 @@ static void LayoutEntries(const std::vector<CharCategory>& categories,
             fe.catIndex = ci;
             fe.entryIndex = ei;
             fe.cellRect.left = col * cellSize;
-            fe.cellRect.top = y + searchH;
+            fe.cellRect.top = y;
             fe.cellRect.right = fe.cellRect.left + cellSize;
             fe.cellRect.bottom = fe.cellRect.top + cellSize;
             flat.push_back(fe);
@@ -431,7 +431,7 @@ static void LayoutEntries(const std::vector<CharCategory>& categories,
         if (col > 0) y += cellSize;  // finish partial row
         y += 4;  // padding between categories
     }
-    contentHeight = y + searchH;
+    contentHeight = y;
 }
 
 //------------------------------------------------------------------------------
@@ -594,15 +594,15 @@ void CharacterMap::ScrollTo(int pos) {
 // HitTest - return flat entry index under (x, y) in client coords
 //------------------------------------------------------------------------------
 int CharacterMap::HitTest(int x, int y) const {
-    // Convert from client to content coords
-    int cy = y + m_scrollY - SEARCH_BAR_H;
+    // Convert from client to content coords.
+    // Cell rects are in content-space (starting at 0); client y = SEARCH_BAR_H
+    // maps to content y = 0 when m_scrollY == 0.
+    int cy = y - SEARCH_BAR_H + m_scrollY;
 
     for (int i = 0; i < static_cast<int>(m_flatEntries.size()); i++) {
         const auto& fe = m_flatEntries[i];
-        RECT r = fe.cellRect;
-        r.top -= SEARCH_BAR_H;
-        r.bottom -= SEARCH_BAR_H;
-        if (x >= r.left && x < r.right && cy >= (r.top) && cy < (r.bottom)) {
+        if (x >= fe.cellRect.left && x < fe.cellRect.right &&
+            cy >= fe.cellRect.top && cy < fe.cellRect.bottom) {
             return i;
         }
     }

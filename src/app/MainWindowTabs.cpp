@@ -180,7 +180,8 @@ void MainWindow::OnTabCloseAll() {
     m_documentManager->CloseAllDocuments();
     m_editor = nullptr;
     
-    // Create a fresh tab
+    // Create a fresh tab immediately to avoid any timer callbacks
+    // accessing m_editor while it is nullptr.
     OnTabNew();
 }
 

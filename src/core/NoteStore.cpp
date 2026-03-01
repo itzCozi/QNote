@@ -512,20 +512,26 @@ bool NoteStore::ParseJson(const std::wstring& json) {
         // Parse id
         size_t idPos = noteJson.find(L"\"id\"");
         if (idPos != std::wstring::npos) {
-            size_t valStart = noteJson.find(L"\"", idPos + 4) + 1;
-            size_t valEnd = findStringEnd(valStart);
-            if (valEnd != std::wstring::npos) {
-                summary.id = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            size_t quotePos = noteJson.find(L"\"", idPos + 4);
+            if (quotePos != std::wstring::npos) {
+                size_t valStart = quotePos + 1;
+                size_t valEnd = findStringEnd(valStart);
+                if (valEnd != std::wstring::npos) {
+                    summary.id = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+                }
             }
         }
         
         // Parse title
         size_t titlePos = noteJson.find(L"\"title\"");
         if (titlePos != std::wstring::npos) {
-            size_t valStart = noteJson.find(L"\"", titlePos + 7) + 1;
-            size_t valEnd = findStringEnd(valStart);
-            if (valEnd != std::wstring::npos) {
-                summary.title = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            size_t quotePos = noteJson.find(L"\"", titlePos + 7);
+            if (quotePos != std::wstring::npos) {
+                size_t valStart = quotePos + 1;
+                size_t valEnd = findStringEnd(valStart);
+                if (valEnd != std::wstring::npos) {
+                    summary.title = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+                }
             }
         }
         
@@ -568,10 +574,13 @@ bool NoteStore::ParseJson(const std::wstring& json) {
         // Parse contentPreview
         size_t previewPos = noteJson.find(L"\"contentPreview\"");
         if (previewPos != std::wstring::npos) {
-            size_t valStart = noteJson.find(L"\"", previewPos + 16) + 1;
-            size_t valEnd = findStringEnd(valStart);
-            if (valEnd != std::wstring::npos) {
-                summary.contentPreview = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            size_t quotePos = noteJson.find(L"\"", previewPos + 16);
+            if (quotePos != std::wstring::npos) {
+                size_t valStart = quotePos + 1;
+                size_t valEnd = findStringEnd(valStart);
+                if (valEnd != std::wstring::npos) {
+                    summary.contentPreview = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+                }
             }
         }
         
@@ -661,37 +670,46 @@ bool NoteStore::ParseLegacyJson(const std::wstring& json,
         // Parse id
         size_t idPos = noteJson.find(L"\"id\"");
         if (idPos != std::wstring::npos) {
-            size_t valStart = noteJson.find(L"\"", idPos + 4) + 1;
-            size_t valEnd = findStringEnd(valStart);
-            if (valEnd != std::wstring::npos) {
-                note.id = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            size_t quotePos = noteJson.find(L"\"", idPos + 4);
+            if (quotePos != std::wstring::npos) {
+                size_t valStart = quotePos + 1;
+                size_t valEnd = findStringEnd(valStart);
+                if (valEnd != std::wstring::npos) {
+                    note.id = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+                }
             }
         }
         
         // Parse content
         size_t contentPos = noteJson.find(L"\"content\"");
         if (contentPos != std::wstring::npos) {
-            size_t valStart = noteJson.find(L"\"", contentPos + 9) + 1;
-            size_t valEnd = valStart;
-            while (valEnd < noteJson.length()) {
-                if (noteJson[valEnd] == L'\\') {
-                    valEnd += 2;
-                } else if (noteJson[valEnd] == L'"') {
-                    break;
-                } else {
-                    valEnd++;
+            size_t quotePos = noteJson.find(L"\"", contentPos + 9);
+            if (quotePos != std::wstring::npos) {
+                size_t valStart = quotePos + 1;
+                size_t valEnd = valStart;
+                while (valEnd < noteJson.length()) {
+                    if (noteJson[valEnd] == L'\\') {
+                        valEnd += 2;
+                    } else if (noteJson[valEnd] == L'"') {
+                        break;
+                    } else {
+                        valEnd++;
+                    }
                 }
+                note.content = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
             }
-            note.content = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
         }
         
         // Parse title
         size_t titlePos = noteJson.find(L"\"title\"");
         if (titlePos != std::wstring::npos) {
-            size_t valStart = noteJson.find(L"\"", titlePos + 7) + 1;
-            size_t valEnd = findStringEnd(valStart);
-            if (valEnd != std::wstring::npos) {
-                note.title = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+            size_t quotePos = noteJson.find(L"\"", titlePos + 7);
+            if (quotePos != std::wstring::npos) {
+                size_t valStart = quotePos + 1;
+                size_t valEnd = findStringEnd(valStart);
+                if (valEnd != std::wstring::npos) {
+                    note.title = JsonUnescape(noteJson.substr(valStart, valEnd - valStart));
+                }
             }
         }
         

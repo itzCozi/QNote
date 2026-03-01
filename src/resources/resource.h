@@ -432,6 +432,7 @@
 #define TIMER_REALSAVE                  5
 #define TIMER_UPDATECHECK               6
 #define TIMER_SYNTAXHIGHLIGHT           7
+#define TIMER_ZOOM                      8
 
 // Global hotkey ID
 #define HOTKEY_QUICKCAPTURE             1

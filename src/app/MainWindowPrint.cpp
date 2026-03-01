@@ -459,6 +459,8 @@ void MainWindow::OnFilePrint() {
     if (!hdc) {
         MessageBoxW(m_hwnd, L"Failed to create printer device context.", L"Print Error",
                     MB_OK | MB_ICONERROR);
+        if (pd.hDevMode) GlobalFree(pd.hDevMode);
+        if (pd.hDevNames) GlobalFree(pd.hDevNames);
         return;
     }
 

@@ -1,6 +1,6 @@
 //==============================================================================
 // QNote - A Better Notepad for Windows
-// SyntaxHighlighter.h - Syntax highlighting with VS Code-like colors
+// SyntaxHighlighter.h - Syntax highlighting with VS Code Light+ colors
 //==============================================================================
 
 #pragma once
@@ -78,24 +78,24 @@ struct SyntaxToken {
 };
 
 //------------------------------------------------------------------------------
-// VS Code Dark+ color scheme (COLORREF = BGR)
+// VS Code Light+ color scheme (COLORREF = BGR)
 //------------------------------------------------------------------------------
-namespace DarkPlusColors {
-    constexpr COLORREF Default      = RGB(212, 212, 212); // #D4D4D4
-    constexpr COLORREF Keyword      = RGB( 86, 156, 214); // #569CD6
-    constexpr COLORREF String       = RGB(206, 145, 120); // #CE9178
-    constexpr COLORREF Comment      = RGB(106, 153,  85); // #6A9955
-    constexpr COLORREF Number       = RGB(181, 206, 168); // #B5CEA8
-    constexpr COLORREF Preprocessor = RGB(197, 134, 192); // #C586C0
-    constexpr COLORREF Type         = RGB( 78, 201, 176); // #4EC9B0
-    constexpr COLORREF Function     = RGB(220, 220, 170); // #DCDCAA
-    constexpr COLORREF Attribute    = RGB(156, 220, 254); // #9CDCFE
-    constexpr COLORREF Tag          = RGB( 86, 156, 214); // #569CD6
-    constexpr COLORREF Punctuation  = RGB(212, 212, 212); // #D4D4D4
-    constexpr COLORREF Operator     = RGB(212, 212, 212); // #D4D4D4
-    constexpr COLORREF Escape       = RGB(215, 186, 125); // #D7BA7D
-    constexpr COLORREF Heading      = RGB( 86, 156, 214); // #569CD6
-    constexpr COLORREF Key          = RGB(156, 220, 254); // #9CDCFE
+namespace LightPlusColors {
+    constexpr COLORREF Default      = RGB( 30,  30,  30); // #1E1E1E
+    constexpr COLORREF Keyword      = RGB(  0,   0, 255); // #0000FF
+    constexpr COLORREF String       = RGB(163,  21,  21); // #A31515
+    constexpr COLORREF Comment      = RGB(  0, 128,   0); // #008000
+    constexpr COLORREF Number       = RGB(  9, 134,  88); // #098658
+    constexpr COLORREF Preprocessor = RGB(175,   0, 219); // #AF00DB
+    constexpr COLORREF Type         = RGB( 38, 127, 153); // #267F99
+    constexpr COLORREF Function     = RGB(121,  94,  38); // #795E26
+    constexpr COLORREF Attribute    = RGB(  0,  16, 128); // #001080
+    constexpr COLORREF Tag          = RGB(128,   0,   0); // #800000
+    constexpr COLORREF Punctuation  = RGB( 30,  30,  30); // #1E1E1E
+    constexpr COLORREF Operator     = RGB( 30,  30,  30); // #1E1E1E
+    constexpr COLORREF Escape       = RGB(238,   0,   0); // #EE0000
+    constexpr COLORREF Heading      = RGB(128,   0,   0); // #800000
+    constexpr COLORREF Key          = RGB(  4,  81, 165); // #0451A5
 }
 
 //------------------------------------------------------------------------------

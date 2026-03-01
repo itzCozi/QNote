@@ -131,7 +131,7 @@ void TabBar::DrawTab(HDC hdc, const RECT& rc, const TabItem& tab, bool isActive,
         HBRUSH oldBrush = static_cast<HBRUSH>(SelectObject(hdc, dotBrush));
         HPEN oldPen2 = static_cast<HPEN>(SelectObject(hdc, dotPen));
         Ellipse(hdc, dotCenterX - dotRadius, dotCenterY - dotRadius,
-                     dotCenterX + dotRadius + Scale(1), dotCenterY + dotRadius + Scale(1));
+                     dotCenterX + dotRadius + 3, dotCenterY + dotRadius + 3);
         SelectObject(hdc, oldBrush);
         SelectObject(hdc, oldPen2);
         DeleteObject(dotBrush);
@@ -231,34 +231,13 @@ void TabBar::DrawNewTabButton(HDC hdc, const RECT& rc, bool isHovered) {
 
 //------------------------------------------------------------------------------
 // Hit testing - returns tab id at point, or -1
-// Optimized: uses binary search on prefix sums for O(log n) lookup
 //------------------------------------------------------------------------------
 int TabBar::TabHitTest(int x, int y) const {
-    if (m_tabs.empty()) return -1;
-
-    RECT clientRc;
-    GetClientRect(m_hwnd, &clientRc);
-    if (y < 0 || y >= clientRc.bottom) return -1;
-
-    // Convert x to pre-scroll content space
-    int contentX = x + m_scrollOffset;
-
-    // Ensure prefix sums are current
-    if (m_prefixDirty) {
-        GetTabLeftOffset(0);  // triggers rebuild
-    }
-
-    int n = static_cast<int>(m_tabs.size());
-    // Binary search: find the tab whose range [prefixWidths[i], prefixWidths[i+1]) contains contentX
-    int lo = 0, hi = n - 1;
-    while (lo <= hi) {
-        int mid = lo + (hi - lo) / 2;
-        if (contentX < m_prefixWidths[mid]) {
-            hi = mid - 1;
-        } else if (contentX >= m_prefixWidths[mid + 1]) {
-            lo = mid + 1;
-        } else {
-            return m_tabs[mid].id;
+    for (int i = 0; i < static_cast<int>(m_tabs.size()); i++) {
+        RECT rc = GetTabRect(i);
+        POINT pt = { x, y };
+        if (PtInRect(&rc, pt)) {
+            return m_tabs[i].id;
         }
     }
     return -1;
@@ -402,36 +381,25 @@ int TabBar::GetTabWidthByIndex(int index) const {
 }
 
 //------------------------------------------------------------------------------
-// Get the left offset of a tab by index — O(1) via cached prefix sums
+// Get the left offset of a tab by index (sum of all previous tab widths)
 //------------------------------------------------------------------------------
 int TabBar::GetTabLeftOffset(int index) const {
-    if (m_prefixDirty) {
-        // Rebuild prefix sums
-        int n = static_cast<int>(m_tabs.size());
-        m_prefixWidths.resize(n + 1);
-        m_prefixWidths[0] = 0;
-        for (int i = 0; i < n; ++i) {
-            m_prefixWidths[i + 1] = m_prefixWidths[i] + GetTabWidthByIndex(i);
-        }
-        m_prefixDirty = false;
+    int left = 0;
+    for (int i = 0; i < index && i < static_cast<int>(m_tabs.size()); ++i) {
+        left += GetTabWidthByIndex(i);
     }
-    if (index >= 0 && index < static_cast<int>(m_prefixWidths.size())) {
-        return m_prefixWidths[index];
-    }
-    // Fallback for out-of-range
-    return m_prefixWidths.empty() ? 0 : m_prefixWidths.back();
+    return left;
 }
 
 //------------------------------------------------------------------------------
-// Calculate total width of all tabs — O(1) via cached prefix sums
+// Calculate total width of all tabs
 //------------------------------------------------------------------------------
 int TabBar::CalcTotalTabsWidth() const {
-    if (m_tabs.empty()) return 0;
-    // Ensure prefix sums are up-to-date
-    if (m_prefixDirty) {
-        GetTabLeftOffset(0);  // triggers rebuild
+    int total = 0;
+    for (int i = 0; i < static_cast<int>(m_tabs.size()); ++i) {
+        total += GetTabWidthByIndex(i);
     }
-    return m_prefixWidths.back();
+    return total;
 }
 
 //------------------------------------------------------------------------------
