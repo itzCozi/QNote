@@ -7,7 +7,7 @@
 
 // Application name (used in window titles, message boxes, etc.)
 #define APP_NAME                        L"QNote"
-#define APP_VERSION                     L"1.0.0"
+#define APP_VERSION                     L"1.1.0"
 
 // Standard control identifier for static text (if not defined by system headers)
 #ifndef IDC_STATIC
@@ -439,7 +439,7 @@
 
 // Version info
 #define VER_MAJOR                       1
-#define VER_MINOR                       0
+#define VER_MINOR                       1
 #define VER_PATCH                       0
 #define VER_BUILD                       0
 

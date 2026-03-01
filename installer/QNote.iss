@@ -7,7 +7,7 @@
 ; ==============================================================================
 
 #define MyAppName "QNote"
-#define MyAppVersion "1.0.0"
+#define MyAppVersion "1.1.0"
 #define MyAppPublisher "Cooper Ransom"
 #define MyAppURL "https://github.com/itzcozi/qnote"
 #define MyAppExeName "QNote.exe"

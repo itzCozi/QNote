@@ -7,7 +7,7 @@
 cmake_minimum_required(VERSION 3.16)
 
 project(QNote
-    VERSION 1.0.0
+    VERSION 1.1.0
     DESCRIPTION "A Better Notepad for Windows"
     LANGUAGES CXX
 )
