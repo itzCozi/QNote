@@ -44,13 +44,14 @@
   </head>
 
   <body>
-    <h1>Downloads</h1>
-
-    <nav class="site-links" aria-label="Main navigation">
-      <a href="index.html" title="QNote home page">Home</a>
-      <a href="source.html" title="View QNote source code on GitHub">Source</a>
-      <a href="more.html" title="Learn more about QNote">Learn more</a>
-    </nav>
+    <div class="page-header">
+      <h1>Downloads</h1>
+      <nav class="site-links" aria-label="Main navigation">
+        <a href="index.html" title="QNote home page">Home</a>
+        <a href="source.html" title="View QNote source code on GitHub">Source</a>
+        <a href="more.html" title="Learn more about QNote">Learn more</a>
+      </nav>
+    </div>
 
     <div id="releases">Loading releases...</div>
 
@@ -105,7 +106,7 @@
             const list = document.createElement("div");
             list.className = "releases-list";
 
-            releases.forEach((rel) => {
+            function buildReleaseCard(rel) {
               const card = document.createElement("article");
               card.className = "release";
 
@@ -181,11 +182,25 @@
               }
 
               card.appendChild(assets);
-              list.appendChild(card);
-              list.appendChild(document.createElement("hr"));
-            });
-            if (list.lastChild && list.lastChild.tagName === "HR") {
-              list.removeChild(list.lastChild);
+              return card;
+            }
+
+            list.appendChild(buildReleaseCard(releases[0]));
+
+            if (releases.length > 1) {
+              const loadAllBtn = document.createElement("button");
+              loadAllBtn.className = "show-more-btn";
+              loadAllBtn.style.marginTop = "1rem";
+              loadAllBtn.textContent = "Load all releases";
+              list.appendChild(loadAllBtn);
+
+              loadAllBtn.addEventListener("click", function () {
+                loadAllBtn.remove();
+                for (let i = 1; i < releases.length; i++) {
+                  list.appendChild(document.createElement("hr"));
+                  list.appendChild(buildReleaseCard(releases[i]));
+                }
+              });
             }
 
             container.innerHTML = "";
