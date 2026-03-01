@@ -75,6 +75,7 @@ struct AppSettings {
     bool rightToLeft = false;  // Right-to-left reading order
     int scrollLines = 0;          // Lines per scroll wheel notch (0 = system default)
     bool autoCompleteBraces = true;  // Auto-complete braces, brackets, and quotes
+    bool syntaxHighlightEnabled = false; // Syntax highlighting for code files
     
     // Default encoding for new files
     TextEncoding defaultEncoding = TextEncoding::UTF8;

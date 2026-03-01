@@ -481,9 +481,8 @@ void SettingsWindow::OnApplyAssociations() {
     // Create the ProgId key
     HKEY hProgId = nullptr;
     std::wstring progIdPath = L"Software\\Classes\\" + progId;
-    RegCreateKeyExW(HKEY_CURRENT_USER, progIdPath.c_str(), 0, nullptr,
-                    REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hProgId, nullptr);
-    if (hProgId) {
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, progIdPath.c_str(), 0, nullptr,
+                    REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hProgId, nullptr) == ERROR_SUCCESS) {
         std::wstring desc = L"QNote Text File";
         RegSetValueExW(hProgId, nullptr, 0, REG_SZ,
                        reinterpret_cast<const BYTE*>(desc.c_str()),
@@ -494,9 +493,8 @@ void SettingsWindow::OnApplyAssociations() {
     // Set shell\open\command
     std::wstring cmdPath = progIdPath + L"\\shell\\open\\command";
     HKEY hCmd = nullptr;
-    RegCreateKeyExW(HKEY_CURRENT_USER, cmdPath.c_str(), 0, nullptr,
-                    REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hCmd, nullptr);
-    if (hCmd) {
+    if (RegCreateKeyExW(HKEY_CURRENT_USER, cmdPath.c_str(), 0, nullptr,
+                    REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hCmd, nullptr) == ERROR_SUCCESS) {
         RegSetValueExW(hCmd, nullptr, 0, REG_SZ,
                        reinterpret_cast<const BYTE*>(openCmd.c_str()),
                        static_cast<DWORD>((openCmd.size() + 1) * sizeof(wchar_t)));
@@ -511,9 +509,8 @@ void SettingsWindow::OnApplyAssociations() {
         if (checked) {
             // Associate
             HKEY hExtKey = nullptr;
-            RegCreateKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, nullptr,
-                            REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hExtKey, nullptr);
-            if (hExtKey) {
+            if (RegCreateKeyExW(HKEY_CURRENT_USER, extKeyPath.c_str(), 0, nullptr,
+                            REG_OPTION_NON_VOLATILE, KEY_WRITE, nullptr, &hExtKey, nullptr) == ERROR_SUCCESS) {
                 RegSetValueExW(hExtKey, nullptr, 0, REG_SZ,
                                reinterpret_cast<const BYTE*>(progId.c_str()),
                                static_cast<DWORD>((progId.size() + 1) * sizeof(wchar_t)));

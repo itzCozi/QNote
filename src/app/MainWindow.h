@@ -133,6 +133,7 @@ private:
     void OnViewFullScreen();
     void OnViewToggleMenuBar();
     void OnViewSpellCheck();
+    void OnViewSyntaxHighlight();
     
     // Encoding operations
     void OnEncodingChange(TextEncoding encoding);
@@ -322,6 +323,9 @@ private:
     // Status bar parts widths
     static constexpr int STATUS_PARTS = 5;
     int m_statusPartWidths[STATUS_PARTS] = { 200, 100, 80, 60, -1 };
+
+    // Cached status bar text to avoid redundant repaints
+    std::wstring m_statusText[STATUS_PARTS];
     
     // Auto-save timer interval (ms)
     static constexpr UINT AUTOSAVE_INTERVAL = 3000;

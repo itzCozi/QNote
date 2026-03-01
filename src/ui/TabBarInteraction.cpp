@@ -156,9 +156,13 @@ void TabBar::EndRename(bool accept) {
         }
     }
 
-    DestroyWindow(m_hwndRenameEdit);
+    // Save and null out the edit HWND *before* DestroyWindow, because
+    // DestroyWindow sends WM_KILLFOCUS synchronously which would re-enter
+    // EndRename and cause a double-destroy crash.
+    HWND editToDestroy = m_hwndRenameEdit;
     m_hwndRenameEdit = nullptr;
     m_renamingTabId = -1;
+    DestroyWindow(editToDestroy);
     Redraw();
 }
 
@@ -172,13 +176,23 @@ void TabBar::Notify(TabNotification notification, int tabId) {
 }
 
 //------------------------------------------------------------------------------
-// Find tab index by id
+// Find tab index by id — O(1) via hash map lookup
 //------------------------------------------------------------------------------
 int TabBar::FindTabIndex(int tabId) const {
-    for (int i = 0; i < static_cast<int>(m_tabs.size()); i++) {
-        if (m_tabs[i].id == tabId) return i;
-    }
+    auto it = m_tabIdToIndex.find(tabId);
+    if (it != m_tabIdToIndex.end()) return it->second;
     return -1;
+}
+
+//------------------------------------------------------------------------------
+// Rebuild the id→index map after any structural change to m_tabs
+//------------------------------------------------------------------------------
+void TabBar::RebuildTabIdIndex() {
+    m_tabIdToIndex.clear();
+    m_tabIdToIndex.reserve(m_tabs.size());
+    for (int i = 0; i < static_cast<int>(m_tabs.size()); i++) {
+        m_tabIdToIndex[m_tabs[i].id] = i;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -189,6 +203,7 @@ void TabBar::Redraw() noexcept {
         // Invalidate cached tab widths so they are recomputed next paint
         m_cachedTabWidth = -1;
         m_cachedPinnedTabWidth = -1;
+        m_prefixDirty = true;
         InvalidateRect(m_hwnd, nullptr, FALSE);
     }
 }

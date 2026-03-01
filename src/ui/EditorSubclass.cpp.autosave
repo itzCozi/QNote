@@ -738,8 +738,6 @@ void Editor::SetShowWhitespace(bool enable) noexcept {
 
 //------------------------------------------------------------------------------
 // Draw whitespace glyphs (dots for spaces, arrows for tabs)
-// Optimized: computes character positions from line-start offset + font metrics
-// instead of calling EM_POSFROMCHAR per whitespace char (O(n) vs O(n*m)).
 //------------------------------------------------------------------------------
 void Editor::DrawWhitespace(HDC hdc) {
     if (!m_hwndEdit || !m_font.get()) return;
@@ -748,10 +746,6 @@ void Editor::DrawWhitespace(HDC hdc) {
     
     RECT clientRect;
     GetClientRect(m_hwndEdit, &clientRect);
-
-    // Get the text area rect (accounts for left inset)
-    RECT textRect;
-    SendMessageW(m_hwndEdit, EM_GETRECT, 0, reinterpret_cast<LPARAM>(&textRect));
     
     // Get font metrics
     HFONT oldFont = static_cast<HFONT>(SelectObject(hdc, m_font.get()));
@@ -766,9 +760,6 @@ void Editor::DrawWhitespace(HDC hdc) {
     HPEN oldPen = static_cast<HPEN>(SelectObject(hdc, wsPen));
     HBRUSH dotBrush = CreateSolidBrush(wsColor);
     
-    // Precompute tab width in pixels
-    int tabWidthPx = tm.tmAveCharWidth * m_tabSize;
-    
     for (int i = 0; i < visibleLines && (firstLine + i) < totalLines; i++) {
         int line = firstLine + i;
         int lineStart = GetLineIndex(line);
@@ -781,32 +772,24 @@ void Editor::DrawWhitespace(HDC hdc) {
         *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
         SendMessageW(m_hwndEdit, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data()));
         
-        // Get position of the first character of the line (one Win32 call per line)
-        POINTL linePos = {};
-        SendMessageW(m_hwndEdit, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&linePos), lineStart);
-        
-        // Skip lines that are completely outside the client area
-        if (linePos.y + tm.tmHeight < clientRect.top || linePos.y > clientRect.bottom) continue;
-        
-        // Walk through the line, tracking x position using font metrics
-        // For each character, compute its x offset from the line start
-        int xPos = linePos.x;
-        
         for (int j = 0; j < lineLen; j++) {
             if (buf[j] == L' ' || buf[j] == L'\t') {
-                if (xPos >= clientRect.left && xPos < clientRect.right && 
-                    linePos.y >= clientRect.top && linePos.y < clientRect.bottom) {
+                POINTL pt = {};
+                SendMessageW(m_hwndEdit, EM_POSFROMCHAR, reinterpret_cast<WPARAM>(&pt), lineStart + j);
+                
+                if (pt.x >= clientRect.left && pt.x < clientRect.right && 
+                    pt.y >= clientRect.top && pt.y < clientRect.bottom) {
                     if (buf[j] == L' ') {
                         // Draw centered dot for space
-                        int dotX = xPos + tm.tmAveCharWidth / 2;
-                        int dotY = linePos.y + tm.tmHeight / 2;
+                        int dotX = pt.x + tm.tmAveCharWidth / 2;
+                        int dotY = pt.y + tm.tmHeight / 2;
                         RECT dotRect = { dotX - 1, dotY - 1, dotX + 1, dotY + 1 };
                         FillRect(hdc, &dotRect, dotBrush);
                     } else {
                         // Draw right arrow for tab
-                        int arrowY = linePos.y + tm.tmHeight / 2;
-                        int arrowStart = xPos + 2;
-                        int arrowEnd = xPos + tabWidthPx - 2;
+                        int arrowY = pt.y + tm.tmHeight / 2;
+                        int arrowStart = pt.x + 2;
+                        int arrowEnd = pt.x + tm.tmAveCharWidth * m_tabSize - 2;
                         if (arrowEnd > arrowStart + 4) {
                             MoveToEx(hdc, arrowStart, arrowY, nullptr);
                             LineTo(hdc, arrowEnd, arrowY);
@@ -818,20 +801,6 @@ void Editor::DrawWhitespace(HDC hdc) {
                         }
                     }
                 }
-            }
-            
-            // Advance x position based on character type
-            if (buf[j] == L'\t') {
-                // Tab advances to next tab stop
-                int tabStop = tabWidthPx;
-                if (tabStop > 0) {
-                    xPos = ((xPos - textRect.left + tabStop) / tabStop) * tabStop + textRect.left;
-                } else {
-                    xPos += tm.tmAveCharWidth;
-                }
-            } else {
-                // For monospace fonts, all chars are the same width
-                xPos += tm.tmAveCharWidth;
             }
         }
     }

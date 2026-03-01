@@ -133,6 +133,7 @@ bool SettingsManager::Load() {
     m_settings.rightToLeft = ParseBool(L"Editor", L"RightToLeft", false);
     m_settings.scrollLines = ParseInt(L"Editor", L"ScrollLines", 0);
     m_settings.autoCompleteBraces = ParseBool(L"Editor", L"AutoCompleteBraces", true);
+    m_settings.syntaxHighlightEnabled = ParseBool(L"Editor", L"SyntaxHighlight", false);
     
     // Validate zoom level (25-500%)
     if (m_settings.zoomLevel < 25) m_settings.zoomLevel = 25;
@@ -241,6 +242,7 @@ bool SettingsManager::Save() {
     WriteBool(L"Editor", L"RightToLeft", m_settings.rightToLeft);
     WriteInt(L"Editor", L"ScrollLines", m_settings.scrollLines);
     WriteBool(L"Editor", L"AutoCompleteBraces", m_settings.autoCompleteBraces);
+    WriteBool(L"Editor", L"SyntaxHighlight", m_settings.syntaxHighlightEnabled);
     
     // Encoding section
     WriteString(L"Encoding", L"Default", EncodingToString(m_settings.defaultEncoding));

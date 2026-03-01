@@ -128,6 +128,9 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
     // Set tab stops
     SetTabSize(m_tabSize);
     
+    // Add a small left inset so text doesn't sit flush against the gutter border
+    ApplyTextInset();
+    
     // Subclass for additional handling
     SetWindowSubclass(m_hwndEdit, EditSubclassProc, EDIT_SUBCLASS_ID, 
                       reinterpret_cast<DWORD_PTR>(this));
@@ -152,7 +155,25 @@ void Editor::Destroy() noexcept {
 void Editor::Resize(int x, int y, int width, int height) noexcept {
     if (m_hwndEdit) {
         SetWindowPos(m_hwndEdit, nullptr, x, y, width, height, SWP_NOZORDER);
+        // Re-apply left text inset after resize (EM_SETRECT is size-dependent)
+        ApplyTextInset();
+        // Re-highlight after resize since visible line range may have changed
+        if (m_syntaxHighlightEnabled && m_language != Language::None) {
+            m_syntaxDirty = true;
+            ApplySyntaxHighlighting();
+        }
     }
+}
+
+//------------------------------------------------------------------------------
+// Apply left text inset so text doesn't sit flush against the gutter border
+//------------------------------------------------------------------------------
+void Editor::ApplyTextInset() noexcept {
+    if (!m_hwndEdit) return;
+    RECT rc;
+    GetClientRect(m_hwndEdit, &rc);
+    rc.left += 6;   // 6 pixels of padding on the left
+    SendMessageW(m_hwndEdit, EM_SETRECT, 0, reinterpret_cast<LPARAM>(&rc));
 }
 
 //------------------------------------------------------------------------------
@@ -350,10 +371,10 @@ void Editor::ReplaceSelection(std::wstring_view text) {
 }
 
 //------------------------------------------------------------------------------
-// Can undo (custom stack)
+// Can undo (custom stack — incremental/diff-based)
 //------------------------------------------------------------------------------
 bool Editor::CanUndo() const noexcept {
-    return !m_undoStack.empty();
+    return !m_undoStack.empty() || m_hasPendingSnapshot;
 }
 
 //------------------------------------------------------------------------------
@@ -364,55 +385,152 @@ bool Editor::CanRedo() const noexcept {
 }
 
 //------------------------------------------------------------------------------
-// Undo - restore previous checkpoint
+// Compute the minimal diff between two strings.
+// Finds the common prefix and common suffix, yielding the changed region.
+//------------------------------------------------------------------------------
+void Editor::ComputeDelta(const std::wstring& before, const std::wstring& after,
+                          DWORD& pos, std::wstring& removedText,
+                          std::wstring& insertedText) {
+    size_t minLen = (std::min)(before.size(), after.size());
+
+    // Common prefix
+    size_t prefixLen = 0;
+    while (prefixLen < minLen && before[prefixLen] == after[prefixLen]) {
+        ++prefixLen;
+    }
+
+    // Common suffix (not overlapping with prefix)
+    size_t suffixLen = 0;
+    size_t maxSuffix = minLen - prefixLen;
+    while (suffixLen < maxSuffix &&
+           before[before.size() - 1 - suffixLen] == after[after.size() - 1 - suffixLen]) {
+        ++suffixLen;
+    }
+
+    pos = static_cast<DWORD>(prefixLen);
+    removedText = before.substr(prefixLen, before.size() - prefixLen - suffixLen);
+    insertedText = after.substr(prefixLen, after.size() - prefixLen - suffixLen);
+}
+
+//------------------------------------------------------------------------------
+// Finalize the pending snapshot: diff it against the current editor text
+// and push a compact UndoDelta onto the undo stack.
+//------------------------------------------------------------------------------
+void Editor::FinalizePendingSnapshot() {
+    if (!m_hasPendingSnapshot || !m_hwndEdit) return;
+
+    std::wstring currentText = GetText();
+
+    // If nothing changed, just discard the pending snapshot
+    if (currentText == m_pendingSnapshot) {
+        m_hasPendingSnapshot = false;
+        m_pendingSnapshot.clear();
+        m_pendingSnapshot.shrink_to_fit();
+        return;
+    }
+
+    // Compute the minimal diff
+    UndoDelta delta;
+    ComputeDelta(m_pendingSnapshot, currentText,
+                 delta.changePos, delta.oldText, delta.newText);
+
+    delta.selStartBefore = m_pendingSelStart;
+    delta.selEndBefore   = m_pendingSelEnd;
+    delta.firstVisibleLineBefore = m_pendingFirstVisibleLine;
+
+    // "After" state is the current editor state
+    GetSelection(delta.selStartAfter, delta.selEndAfter);
+    delta.firstVisibleLineAfter = GetFirstVisibleLine();
+
+    size_t deltaBytes = (delta.oldText.size() + delta.newText.size()) * sizeof(wchar_t);
+    m_undoMemoryUsage += deltaBytes;
+    m_undoStack.push_back(std::move(delta));
+
+    // Enforce max undo levels and memory cap
+    while (m_undoStack.size() > 1 &&
+           (static_cast<int>(m_undoStack.size()) > MAX_UNDO_LEVELS ||
+            m_undoMemoryUsage > MAX_UNDO_MEMORY_BYTES)) {
+        auto& front = m_undoStack.front();
+        m_undoMemoryUsage -= (front.oldText.size() + front.newText.size()) * sizeof(wchar_t);
+        m_undoStack.erase(m_undoStack.begin());
+    }
+
+    // Clear the pending snapshot — it's been consumed
+    m_hasPendingSnapshot = false;
+    m_pendingSnapshot.clear();
+    m_pendingSnapshot.shrink_to_fit();
+}
+
+//------------------------------------------------------------------------------
+// Undo - apply the top delta in reverse via targeted replacement
 //------------------------------------------------------------------------------
 void Editor::Undo() {
-    if (m_undoStack.empty() || !m_hwndEdit) return;
+    if (!m_hwndEdit) return;
+
+    // Finalize any pending snapshot so it becomes an undoable delta
+    FinalizePendingSnapshot();
+
+    if (m_undoStack.empty()) return;
 
     m_suppressUndo = true;
 
-    // Save current state to redo stack
-    UndoCheckpoint current;
-    current.text = GetText();
-    GetSelection(current.selStart, current.selEnd);
-    current.firstVisibleLine = GetFirstVisibleLine();
-    m_redoMemoryUsage += current.text.size() * sizeof(wchar_t);
-    m_redoStack.push_back(std::move(current));
-
-    // Enforce redo stack memory cap
-    while (m_redoStack.size() > 1 && m_redoMemoryUsage > MAX_UNDO_MEMORY_BYTES) {
-        m_redoMemoryUsage -= m_redoStack.front().text.size() * sizeof(wchar_t);
-        m_redoStack.erase(m_redoStack.begin());
-    }
-
     // Pop from undo stack
-    UndoCheckpoint& cp = m_undoStack.back();
+    UndoDelta delta = std::move(m_undoStack.back());
+    size_t deltaBytes = (delta.oldText.size() + delta.newText.size()) * sizeof(wchar_t);
+    m_undoMemoryUsage -= deltaBytes;
+    m_undoStack.pop_back();
 
-    // Suppress EN_CHANGE during text restoration
+    // Suppress EN_CHANGE during text restoration and prevent flicker
     DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
     SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, FALSE, 0);
 
-    SetWindowTextW(m_hwndEdit, cp.text.c_str());
-    ApplyCharFormat();
+    // Targeted replacement: select the range that was inserted, replace
+    // with the old text.  Positions from ComputeDelta are in GetText()
+    // string-index space which matches RichEdit 4.1 character positions
+    // (both use \r for line breaks).
+    DWORD replaceEnd = delta.changePos + static_cast<DWORD>(delta.newText.size());
+    SendMessageW(m_hwndEdit, EM_SETSEL, delta.changePos, replaceEnd);
+    SendMessageW(m_hwndEdit, EM_REPLACESEL, FALSE,
+                 reinterpret_cast<LPARAM>(delta.oldText.c_str()));
 
-    // Restore selection
-    SendMessageW(m_hwndEdit, EM_SETSEL, cp.selStart, cp.selEnd);
+    // Restore selection to "before" state
+    SendMessageW(m_hwndEdit, EM_SETSEL, delta.selStartBefore, delta.selEndBefore);
 
     // Restore scroll position
     int currentFirst = GetFirstVisibleLine();
-    if (cp.firstVisibleLine != currentFirst) {
-        SendMessageW(m_hwndEdit, EM_LINESCROLL, 0, cp.firstVisibleLine - currentFirst);
+    if (delta.firstVisibleLineBefore != currentFirst) {
+        SendMessageW(m_hwndEdit, EM_LINESCROLL, 0,
+                     delta.firstVisibleLineBefore - currentFirst);
     }
     SendMessageW(m_hwndEdit, EM_SCROLLCARET, 0, 0);
 
-    // Re-enable notifications
+    // Re-enable redraw and notifications
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(m_hwndEdit, nullptr, FALSE);
     SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
 
-    // Mark modified (unless we're back to original text)
     SetModified(true);
 
-    m_undoMemoryUsage -= cp.text.size() * sizeof(wchar_t);
-    m_undoStack.pop_back();
+    // Re-apply syntax highlighting around the changed region
+    if (m_syntaxHighlightEnabled && m_language != Language::None) {
+        m_syntaxDirty = true;
+        m_highlightedFirstLine = -1;
+        m_highlightedLastLine = -1;
+        ApplySyntaxHighlighting();
+    }
+
+    // Push to redo stack (same delta — direction is determined by the stack)
+    m_redoMemoryUsage += deltaBytes;
+    m_redoStack.push_back(std::move(delta));
+
+    // Enforce redo stack memory cap
+    while (m_redoStack.size() > 1 && m_redoMemoryUsage > MAX_UNDO_MEMORY_BYTES) {
+        auto& front = m_redoStack.front();
+        m_redoMemoryUsage -= (front.oldText.size() + front.newText.size()) * sizeof(wchar_t);
+        m_redoStack.erase(m_redoStack.begin());
+    }
+
     m_lastEditAction = EditAction::None;
     m_suppressUndo = false;
 
@@ -423,48 +541,60 @@ void Editor::Undo() {
 }
 
 //------------------------------------------------------------------------------
-// Redo - restore next checkpoint
+// Redo - apply the top delta forward via targeted replacement
 //------------------------------------------------------------------------------
 void Editor::Redo() {
     if (m_redoStack.empty() || !m_hwndEdit) return;
 
     m_suppressUndo = true;
 
-    // Save current state to undo stack
-    UndoCheckpoint current;
-    current.text = GetText();
-    GetSelection(current.selStart, current.selEnd);
-    current.firstVisibleLine = GetFirstVisibleLine();
-    m_undoMemoryUsage += current.text.size() * sizeof(wchar_t);
-    m_undoStack.push_back(std::move(current));
-
     // Pop from redo stack
-    UndoCheckpoint& cp = m_redoStack.back();
+    UndoDelta delta = std::move(m_redoStack.back());
+    size_t deltaBytes = (delta.oldText.size() + delta.newText.size()) * sizeof(wchar_t);
+    m_redoMemoryUsage -= deltaBytes;
+    m_redoStack.pop_back();
 
-    // Suppress EN_CHANGE during text restoration
+    // Suppress EN_CHANGE during text restoration and prevent flicker
     DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
     SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, FALSE, 0);
 
-    SetWindowTextW(m_hwndEdit, cp.text.c_str());
-    ApplyCharFormat();
+    // Targeted replacement: select the range with old text, replace with new
+    DWORD replaceEnd = delta.changePos + static_cast<DWORD>(delta.oldText.size());
+    SendMessageW(m_hwndEdit, EM_SETSEL, delta.changePos, replaceEnd);
+    SendMessageW(m_hwndEdit, EM_REPLACESEL, FALSE,
+                 reinterpret_cast<LPARAM>(delta.newText.c_str()));
 
-    // Restore selection
-    SendMessageW(m_hwndEdit, EM_SETSEL, cp.selStart, cp.selEnd);
+    // Restore selection to "after" state
+    SendMessageW(m_hwndEdit, EM_SETSEL, delta.selStartAfter, delta.selEndAfter);
 
     // Restore scroll position
     int currentFirst = GetFirstVisibleLine();
-    if (cp.firstVisibleLine != currentFirst) {
-        SendMessageW(m_hwndEdit, EM_LINESCROLL, 0, cp.firstVisibleLine - currentFirst);
+    if (delta.firstVisibleLineAfter != currentFirst) {
+        SendMessageW(m_hwndEdit, EM_LINESCROLL, 0,
+                     delta.firstVisibleLineAfter - currentFirst);
     }
     SendMessageW(m_hwndEdit, EM_SCROLLCARET, 0, 0);
 
-    // Re-enable notifications
+    // Re-enable redraw and notifications
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+    InvalidateRect(m_hwndEdit, nullptr, FALSE);
     SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
 
     SetModified(true);
 
-    m_redoMemoryUsage -= cp.text.size() * sizeof(wchar_t);
-    m_redoStack.pop_back();
+    // Re-apply syntax highlighting around the changed region
+    if (m_syntaxHighlightEnabled && m_language != Language::None) {
+        m_syntaxDirty = true;
+        m_highlightedFirstLine = -1;
+        m_highlightedLastLine = -1;
+        ApplySyntaxHighlighting();
+    }
+
+    // Push to undo stack (same delta)
+    m_undoMemoryUsage += deltaBytes;
+    m_undoStack.push_back(std::move(delta));
+
     m_lastEditAction = EditAction::None;
     m_suppressUndo = false;
 
@@ -475,11 +605,15 @@ void Editor::Redo() {
 }
 
 //------------------------------------------------------------------------------
-// Push undo checkpoint - captures state before a change
+// Push undo checkpoint - captures state before a change (lazy diff)
 // Groups consecutive same-type edits together like VSCode:
 // - Consecutive typing groups until: enter, pause >2s, or cursor jump
 // - Consecutive deleting groups until: pause >2s or cursor jump
 // - "Other" actions (paste, cut, line ops) always start a new group
+//
+// Instead of storing the full document text, we capture a pending snapshot.
+// The snapshot is later diffed against the post-edit text to produce a
+// compact UndoDelta (see FinalizePendingSnapshot).
 //------------------------------------------------------------------------------
 void Editor::PushUndoCheckpoint(EditAction action, wchar_t ch) {
     if (m_suppressUndo || !m_hwndEdit) return;
@@ -513,22 +647,15 @@ void Editor::PushUndoCheckpoint(EditAction action, wchar_t ch) {
 
     if (!newGroup) return;  // Extend current group, don't push new checkpoint
 
-    // Capture current state
-    UndoCheckpoint cp;
-    cp.text = GetText();
-    GetSelection(cp.selStart, cp.selEnd);
-    cp.firstVisibleLine = GetFirstVisibleLine();
+    // Finalize the previous pending snapshot into a delta before starting
+    // a new group (this diffs the old snapshot against the current text).
+    FinalizePendingSnapshot();
 
-    m_undoMemoryUsage += cp.text.size() * sizeof(wchar_t);
-    m_undoStack.push_back(std::move(cp));
-
-    // Enforce max undo levels and memory cap
-    while (m_undoStack.size() > 1 &&
-           (static_cast<int>(m_undoStack.size()) > MAX_UNDO_LEVELS ||
-            m_undoMemoryUsage > MAX_UNDO_MEMORY_BYTES)) {
-        m_undoMemoryUsage -= m_undoStack.front().text.size() * sizeof(wchar_t);
-        m_undoStack.erase(m_undoStack.begin());
-    }
+    // Capture a new pending snapshot (the "before" state for this group)
+    m_pendingSnapshot = GetText();
+    GetSelection(m_pendingSelStart, m_pendingSelEnd);
+    m_pendingFirstVisibleLine = GetFirstVisibleLine();
+    m_hasPendingSnapshot = true;
 
     // Clear redo stack on new edit
     m_redoStack.clear();
@@ -552,6 +679,9 @@ void Editor::ClearUndoHistory() {
     m_redoMemoryUsage = 0;
     m_lastEditAction = EditAction::None;
     m_lastEditTime = 0;
+    m_hasPendingSnapshot = false;
+    m_pendingSnapshot.clear();
+    m_pendingSnapshot.shrink_to_fit();
 }
 
 //------------------------------------------------------------------------------
@@ -748,13 +878,38 @@ void Editor::ApplyZoom(int zoomPercent) noexcept {
     // Recreate font with new zoom
     m_font.reset(CreateEditorFont());
     if (m_hwndEdit && m_font.get()) {
+        // Save scroll position so zoom doesn't jump to cursor
+        int firstVisibleLine = GetFirstVisibleLine();
+
         // Suppress EN_CHANGE so zoom changes don't mark the document modified
         DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
         SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
         bool wasModified = IsModified();
 
-        SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), TRUE);
+        // Suppress redraws to prevent the control from scrolling to the caret
+        SendMessageW(m_hwndEdit, WM_SETREDRAW, FALSE, 0);
+
+        SendMessageW(m_hwndEdit, WM_SETFONT, reinterpret_cast<WPARAM>(m_font.get()), FALSE);
         ApplyCharFormat();
+
+        // Re-apply syntax highlighting to visible text only (fast path).
+        // ApplyCharFormat resets all colors, so we just need to re-color
+        // what's on screen.  A full-file pass is too expensive during zoom.
+        if (m_syntaxHighlightEnabled && m_language != Language::None) {
+            m_syntaxDirty = true;
+            m_highlightedFirstLine = -1;
+            m_highlightedLastLine = -1;
+            ApplySyntaxHighlighting(false);  // visible chunk only
+        }
+
+        // Restore scroll position before re-enabling redraws
+        int currentFirst = GetFirstVisibleLine();
+        if (currentFirst != firstVisibleLine) {
+            SendMessageW(m_hwndEdit, EM_LINESCROLL, 0, firstVisibleLine - currentFirst);
+        }
+
+        SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+        InvalidateRect(m_hwndEdit, nullptr, TRUE);
 
         SetModified(wasModified);
         SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
@@ -1079,6 +1234,241 @@ HFONT Editor::CreateEditorFont() {
     }
     
     return font;
+}
+
+//------------------------------------------------------------------------------
+// Set syntax highlighting enabled
+//------------------------------------------------------------------------------
+void Editor::SetSyntaxHighlighting(bool enable) {
+    m_syntaxHighlightEnabled = enable;
+    m_syntaxDirty = true;
+    m_highlightedFirstLine = -1;
+    m_highlightedLastLine = -1;
+    if (enable) {
+        m_language = SyntaxHighlighter::DetectLanguage(m_filePath);
+        ApplySyntaxHighlighting(true);
+    } else {
+        m_language = Language::None;
+        // Reset all text to default color
+        if (m_hwndEdit) {
+            DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+            SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+
+            // Select all and clear syntax colors (restore auto-color)
+            CHARRANGE savedSel;
+            SendMessageW(m_hwndEdit, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&savedSel));
+            SendMessageW(m_hwndEdit, WM_SETREDRAW, FALSE, 0);
+
+            CHARRANGE allRange = { 0, -1 };
+            SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&allRange));
+
+            CHARFORMAT2W cf = {};
+            cf.cbSize = sizeof(cf);
+            cf.dwMask = CFM_COLOR;
+            cf.dwEffects = CFE_AUTOCOLOR;
+            SendMessageW(m_hwndEdit, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+
+            SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&savedSel));
+            SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+            InvalidateRect(m_hwndEdit, nullptr, FALSE);
+
+            SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Set file path (for language detection)
+//------------------------------------------------------------------------------
+void Editor::SetFilePath(std::wstring_view filePath) {
+    m_filePath = filePath;
+    Language newLang = SyntaxHighlighter::DetectLanguage(m_filePath);
+    if (newLang != m_language) {
+        m_language = newLang;
+        m_syntaxDirty = true;
+        m_highlightedFirstLine = -1;
+        m_highlightedLastLine = -1;
+        if (m_syntaxHighlightEnabled) {
+            ApplySyntaxHighlighting(true);
+        }
+    }
+}
+
+//------------------------------------------------------------------------------
+// Schedule syntax highlighting (debounced via timer)
+//------------------------------------------------------------------------------
+void Editor::ScheduleSyntaxHighlighting() {
+    if (!m_syntaxHighlightEnabled || m_language == Language::None || !m_hwndEdit) return;
+    m_syntaxDirty = true;
+    // Invalidate the line cache so the next pass re-highlights all visible text
+    m_highlightedFirstLine = -1;
+    m_highlightedLastLine = -1;
+    // Debounce: 50ms batches rapid events (keystrokes, thumb scrolling)
+    SetTimer(m_hwndEdit, TIMER_SYNTAXHIGHLIGHT, 50, nullptr);
+}
+
+//------------------------------------------------------------------------------
+// Apply syntax highlighting to visible text
+// Highlights in 100-line chunks with midpoint pre-fetch: when the viewport
+// scrolls past the halfway mark of the current chunk, the next chunk is loaded.
+//------------------------------------------------------------------------------
+static constexpr int HIGHLIGHT_CHUNK_LINES = 100;
+
+void Editor::ApplySyntaxHighlighting(bool fullFile) {
+    if (!m_hwndEdit || !m_syntaxHighlightEnabled || m_language == Language::None) return;
+    if (!m_syntaxDirty) return;
+    m_syntaxDirty = false;
+
+    // Kill any pending timer
+    KillTimer(m_hwndEdit, TIMER_SYNTAXHIGHLIGHT);
+
+    int firstLine = GetFirstVisibleLine();
+    int totalLines = GetLineCount();
+
+    int chunkFirst, chunkLast;
+
+    if (fullFile) {
+        // Highlight the entire file (used on open, tab switch, toggle)
+        chunkFirst = 0;
+        chunkLast = totalLines - 1;
+    } else {
+        // Chunked mode for scrolling: 100 lines from the current viewport
+        // with midpoint pre-fetch to reduce re-highlight frequency.
+        if (m_highlightedFirstLine >= 0 && m_highlightedLastLine >= 0) {
+            int chunkSize = m_highlightedLastLine - m_highlightedFirstLine + 1;
+            int midpoint = m_highlightedFirstLine + chunkSize / 2;
+            bool viewportCovered = (firstLine >= m_highlightedFirstLine && firstLine < midpoint);
+            if (viewportCovered) {
+                return;  // Still in the first half of the chunk — no work needed
+            }
+        }
+        chunkFirst = firstLine;
+        chunkLast = (std::min)(firstLine + HIGHLIGHT_CHUNK_LINES - 1, totalLines - 1);
+    }
+
+    // Suppress EN_CHANGE and redraw during formatting.
+    // Also save the modify flag — EM_SETCHARFORMAT marks the control as
+    // modified even though we're only changing colors, not text content.
+    DWORD oldMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask & ~ENM_CHANGE);
+    bool wasModified = IsModified();
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, FALSE, 0);
+
+    // Save current selection and scroll position
+    CHARRANGE savedSel;
+    SendMessageW(m_hwndEdit, EM_EXGETSEL, 0, reinterpret_cast<LPARAM>(&savedSel));
+    POINT savedScroll;
+    SendMessageW(m_hwndEdit, EM_GETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&savedScroll));
+
+    // Get text range for the chunk
+    int rangeStart = GetLineIndex(chunkFirst);
+    int rangeEnd = GetLineIndex(chunkLast) + GetLineLength(chunkLast);
+    if (rangeEnd <= rangeStart) {
+        SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+        SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+        return;
+    }
+
+    int textLen = rangeEnd - rangeStart;
+    std::vector<wchar_t> buf(textLen + 1, 0);
+    TEXTRANGEW tr = {};
+    tr.chrg.cpMin = rangeStart;
+    tr.chrg.cpMax = rangeEnd;
+    tr.lpstrText = buf.data();
+    SendMessageW(m_hwndEdit, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+
+    std::wstring_view visibleText(buf.data(), textLen);
+
+    // Reset chunk range to default color first
+    CHARRANGE resetRange = { rangeStart, rangeEnd };
+    SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&resetRange));
+    
+    CHARFORMAT2W cfDefault = {};
+    cfDefault.cbSize = sizeof(cfDefault);
+    cfDefault.dwMask = CFM_COLOR;
+    cfDefault.dwEffects = 0; // clear CFE_AUTOCOLOR
+    cfDefault.crTextColor = LightPlusColors::Default;
+    SendMessageW(m_hwndEdit, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cfDefault));
+
+    // Tokenize
+    auto tokens = m_syntaxHighlighter.Tokenize(visibleText, m_language, rangeStart);
+
+    // Apply colors, coalescing adjacent tokens with the same color into
+    // single EM_SETCHARFORMAT calls.  This reduces the number of Win32
+    // round-trips from O(tokens) to O(color-runs), a significant speedup
+    // on large files and slower machines.
+    CHARFORMAT2W cf = {};
+    cf.cbSize = sizeof(cf);
+    cf.dwMask = CFM_COLOR;
+    cf.dwEffects = 0;
+
+    // Sort tokens by position (they should already be in order, but ensure it)
+    // Then merge adjacent tokens with the same color.
+    COLORREF currentColor = 0;
+    int runStart = -1;
+    int runEnd = -1;
+
+    auto flushRun = [&]() {
+        if (runStart >= 0 && runEnd > runStart) {
+            CHARRANGE tokenRange = { runStart, runEnd };
+            SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&tokenRange));
+            cf.crTextColor = currentColor;
+            SendMessageW(m_hwndEdit, EM_SETCHARFORMAT, SCF_SELECTION, reinterpret_cast<LPARAM>(&cf));
+        }
+        runStart = -1;
+        runEnd = -1;
+    };
+
+    for (const auto& token : tokens) {
+        if (token.length <= 0) continue;
+        // Skip tokens that use the default color -- the chunk was
+        // already reset to Default above, so re-applying it is wasted work.
+        if (token.type == TokenType::Default || token.type == TokenType::Punctuation ||
+            token.type == TokenType::Operator) {
+            flushRun();
+            continue;
+        }
+
+        COLORREF color = SyntaxHighlighter::GetTokenColor(token.type);
+        int tokenEnd = token.start + token.length;
+
+        // Coalesce with current run if same color and adjacent/contiguous
+        if (color == currentColor && token.start == runEnd) {
+            runEnd = tokenEnd;
+        } else {
+            flushRun();
+            currentColor = color;
+            runStart = token.start;
+            runEnd = tokenEnd;
+        }
+    }
+    flushRun();
+
+    // Update cache with the chunk we just highlighted
+    m_highlightedFirstLine = chunkFirst;
+    m_highlightedLastLine = chunkLast;
+
+    // Restore selection and scroll position
+    SendMessageW(m_hwndEdit, EM_EXSETSEL, 0, reinterpret_cast<LPARAM>(&savedSel));
+    SendMessageW(m_hwndEdit, EM_SETSCROLLPOS, 0, reinterpret_cast<LPARAM>(&savedScroll));
+
+    // Re-enable redraw and repaint
+    SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
+    // Use RedrawWindow for a full repaint (erase + invalidate) after
+    // WM_SETREDRAW toggling.  Plain InvalidateRect(FALSE) can leave stale
+    // rendering artifacts in the RichEdit control, causing colors to not
+    // appear until scroll.
+    RedrawWindow(m_hwndEdit, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+
+    // Restore the modify flag so formatting-only changes don't mark the
+    // document as user-modified, then re-enable EN_CHANGE.
+    SetModified(wasModified);
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, oldMask);
+
+    // Sync line-number gutter after highlighting (scroll position is now final)
+    if (m_scrollCallback) {
+        m_scrollCallback(m_scrollCallbackData);
+    }
 }
 
 } // namespace QNote

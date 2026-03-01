@@ -327,8 +327,27 @@ void MainWindow::OnEditReverseSelection() {
     std::wstring sel = m_editor->GetSelectedText();
     if (sel.empty()) return;
 
-    std::reverse(sel.begin(), sel.end());
-    m_editor->ReplaceSelection(sel);
+    // Reverse at the code-point level to avoid corrupting UTF-16 surrogate pairs.
+    // Surrogate pairs (U+10000..U+10FFFF) are encoded as a high surrogate
+    // (0xD800-0xDBFF) followed by a low surrogate (0xDC00-0xDFFF).
+    // A naive per-wchar_t reverse would swap high/low, producing invalid text.
+    std::wstring reversed;
+    reversed.reserve(sel.size());
+    size_t i = sel.size();
+    while (i > 0) {
+        if (i >= 2 &&
+            sel[i - 1] >= 0xDC00 && sel[i - 1] <= 0xDFFF &&
+            sel[i - 2] >= 0xD800 && sel[i - 2] <= 0xDBFF) {
+            // Keep surrogate pair together
+            reversed += sel[i - 2];
+            reversed += sel[i - 1];
+            i -= 2;
+        } else {
+            reversed += sel[i - 1];
+            i -= 1;
+        }
+    }
+    m_editor->ReplaceSelection(reversed);
 }
 
 //------------------------------------------------------------------------------
@@ -380,6 +399,7 @@ void MainWindow::OnEditToggleComment() {
     if (!m_editor) return;
     // Detect comment style from file extension
     std::wstring commentPrefix = L"// ";
+    std::wstring commentSuffix;  // Non-empty for block-comment languages (HTML/XML)
     if (!m_currentFile.empty()) {
         size_t dot = m_currentFile.rfind(L'.');
         if (dot != std::wstring::npos) {
@@ -396,6 +416,7 @@ void MainWindow::OnEditToggleComment() {
                 commentPrefix = L"-- ";
             } else if (ext == L".html" || ext == L".xml" || ext == L".xaml") {
                 commentPrefix = L"<!-- ";
+                commentSuffix = L" -->";
             } else if (ext == L".lua") {
                 commentPrefix = L"-- ";
             }
@@ -443,10 +464,34 @@ void MainWindow::OnEditToggleComment() {
         // Skip blank lines
         size_t first = l.find_first_not_of(L" \t");
         if (first == std::wstring::npos) continue;
-        if (l.substr(first, commentPrefix.size()) != commentPrefix &&
-            l.substr(first, trimmedPrefix.size()) != trimmedPrefix) {
+        bool hasPrefix = (l.substr(first, commentPrefix.size()) == commentPrefix ||
+                          l.substr(first, trimmedPrefix.size()) == trimmedPrefix);
+        if (!hasPrefix) {
             allCommented = false;
             break;
+        }
+        // For block-comment languages, also check for closing suffix
+        if (!commentSuffix.empty()) {
+            std::wstring trimmedSuffix = commentSuffix;
+            while (!trimmedSuffix.empty() && trimmedSuffix.front() == L' ')
+                trimmedSuffix.erase(trimmedSuffix.begin());
+            size_t last = l.find_last_not_of(L" \t");
+            if (last == std::wstring::npos) { allCommented = false; break; }
+            size_t suffixLen = commentSuffix.size();
+            size_t trimmedSuffixLen = trimmedSuffix.size();
+            if (last + 1 < suffixLen && last + 1 < trimmedSuffixLen) {
+                allCommented = false;
+                break;
+            }
+            bool hasSuffix = false;
+            if (last + 1 >= suffixLen &&
+                l.substr(last + 1 - suffixLen, suffixLen) == commentSuffix) {
+                hasSuffix = true;
+            } else if (last + 1 >= trimmedSuffixLen &&
+                       l.substr(last + 1 - trimmedSuffixLen, trimmedSuffixLen) == trimmedSuffix) {
+                hasSuffix = true;
+            }
+            if (!hasSuffix) { allCommented = false; break; }
         }
     }
 
@@ -456,10 +501,27 @@ void MainWindow::OnEditToggleComment() {
             // Uncomment
             size_t first = lines[i].find_first_not_of(L" \t");
             if (first != std::wstring::npos) {
+                // Remove prefix
                 if (lines[i].substr(first, commentPrefix.size()) == commentPrefix) {
                     lines[i].erase(first, commentPrefix.size());
                 } else if (lines[i].substr(first, trimmedPrefix.size()) == trimmedPrefix) {
                     lines[i].erase(first, trimmedPrefix.size());
+                }
+                // Remove suffix for block-comment languages
+                if (!commentSuffix.empty()) {
+                    std::wstring trimmedSuffix = commentSuffix;
+                    while (!trimmedSuffix.empty() && trimmedSuffix.front() == L' ')
+                        trimmedSuffix.erase(trimmedSuffix.begin());
+                    size_t last = lines[i].find_last_not_of(L" \t");
+                    if (last != std::wstring::npos) {
+                        if (last + 1 >= commentSuffix.size() &&
+                            lines[i].substr(last + 1 - commentSuffix.size(), commentSuffix.size()) == commentSuffix) {
+                            lines[i].erase(last + 1 - commentSuffix.size(), commentSuffix.size());
+                        } else if (last + 1 >= trimmedSuffix.size() &&
+                                   lines[i].substr(last + 1 - trimmedSuffix.size(), trimmedSuffix.size()) == trimmedSuffix) {
+                            lines[i].erase(last + 1 - trimmedSuffix.size(), trimmedSuffix.size());
+                        }
+                    }
                 }
             }
         } else {
@@ -467,6 +529,9 @@ void MainWindow::OnEditToggleComment() {
             size_t first = lines[i].find_first_not_of(L" \t");
             if (first != std::wstring::npos) {
                 lines[i].insert(first, commentPrefix);
+                if (!commentSuffix.empty()) {
+                    lines[i] += commentSuffix;
+                }
             }
         }
         result += lines[i];

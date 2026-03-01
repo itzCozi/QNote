@@ -62,6 +62,7 @@ std::unique_ptr<Editor> DocumentManager::CreateEditorForDocument() {
         // Apply current global settings
         editor->SetShowWhitespace(settings.showWhitespace);
         editor->SetSpellCheck(settings.spellCheckEnabled);
+        editor->SetSyntaxHighlighting(settings.syntaxHighlightEnabled);
     } else {
         AppSettings defaults;
         if (!editor->Create(m_parentHwnd, m_hInstance, defaults)) {
@@ -104,6 +105,7 @@ int DocumentManager::NewDocument() {
     doc.tabId = tabId;
 
     m_documents.push_back(std::move(doc));
+    RebuildDocIndex();
 
     // Switch to the new document
     m_activeTabId = tabId;
@@ -176,6 +178,7 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     doc.tabId = tabId;
 
     m_documents.push_back(std::move(doc));
+    RebuildDocIndex();
 
     // Switch to the new document
     m_activeTabId = tabId;
@@ -195,9 +198,19 @@ int DocumentManager::OpenDocument(const std::wstring& filePath,
     editor->SetLineEnding(lineEnding);
     editor->SetModified(false);
     editor->SetSelection(0, 0);
+    editor->SetFilePath(filePath);
 
     // Show and focus the new editor
     ShowWindow(editor->GetHandle(), SW_SHOW);
+
+    // Re-apply syntax highlighting now that the editor is visible.
+    // The earlier SetFilePath() call applied formatting while the control
+    // was hidden, which can leave the RichEdit rendering cache stale.
+    if (editor->IsSyntaxHighlightingEnabled()) {
+        editor->ScheduleSyntaxHighlighting();
+        editor->ApplySyntaxHighlighting(true);
+    }
+
     editor->SetFocus();
 
     // Record clean hash for undo-to-clean detection
@@ -217,6 +230,7 @@ void DocumentManager::CloseDocument(int tabId) {
 
     // The document's unique_ptr<Editor> will be destroyed when erased
     m_documents.erase(m_documents.begin() + idx);
+    RebuildDocIndex();
 
     // Remove from tab bar
     m_tabBar->RemoveTab(tabId);
@@ -268,8 +282,8 @@ void DocumentManager::SaveCurrentState() {
 
     Editor* editor = doc->editor.get();
 
-    const std::wstring currentText = editor->GetText();
-    doc->isModified = (std::hash<std::wstring>{}(currentText) != doc->cleanTextHash);
+    // Use EM_GETMODIFY flag instead of hashing the full text — O(1) instead of O(n).
+    doc->isModified = editor->IsModified();
     doc->encoding = editor->GetEncoding();
     doc->lineEnding = editor->GetLineEnding();
 
@@ -300,7 +314,15 @@ void DocumentManager::RestoreState(int tabId) {
 
     Editor* editor = doc->editor.get();
 
-    // Show the editor for this tab
+    // Apply syntax highlighting before showing the editor so the user
+    // never sees a flash of unstyled text on tab switch.
+    if (editor->IsSyntaxHighlightingEnabled()) {
+        // Force a full re-highlight since the editor was hidden
+        editor->ScheduleSyntaxHighlighting();
+        editor->ApplySyntaxHighlighting(true);
+    }
+
+    // Now show the fully-highlighted editor
     ShowWindow(editor->GetHandle(), SW_SHOW);
     editor->SetFocus();
 }
@@ -558,6 +580,7 @@ void DocumentManager::ApplySettingsToAllEditors(const AppSettings& settings) {
         editor->SetRTL(settings.rightToLeft);
         editor->SetShowWhitespace(settings.showWhitespace);
         editor->SetSpellCheck(settings.spellCheckEnabled);
+        editor->SetSyntaxHighlighting(settings.syntaxHighlightEnabled);
         editor->ApplyZoom(settings.zoomLevel);
     }
 }
@@ -574,13 +597,23 @@ void DocumentManager::ApplyDefaults(DocumentState& doc) {
 }
 
 //------------------------------------------------------------------------------
-// Find document index by tab id
+// Find document index by tab id — O(1) via hash map
 //------------------------------------------------------------------------------
 int DocumentManager::FindDocumentIndex(int tabId) const {
-    for (int i = 0; i < static_cast<int>(m_documents.size()); i++) {
-        if (m_documents[i].tabId == tabId) return i;
-    }
+    auto it = m_docIdToIndex.find(tabId);
+    if (it != m_docIdToIndex.end()) return it->second;
     return -1;
+}
+
+//------------------------------------------------------------------------------
+// Rebuild tabId→index map after structural changes
+//------------------------------------------------------------------------------
+void DocumentManager::RebuildDocIndex() {
+    m_docIdToIndex.clear();
+    m_docIdToIndex.reserve(m_documents.size());
+    for (int i = 0; i < static_cast<int>(m_documents.size()); i++) {
+        m_docIdToIndex[m_documents[i].tabId] = i;
+    }
 }
 
 } // namespace QNote

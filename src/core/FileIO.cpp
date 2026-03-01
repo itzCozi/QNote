@@ -343,7 +343,12 @@ FileReadResult FileIO::ReadFile(const std::wstring& filePath) {
     // Read file contents
     std::vector<uint8_t> data;
     if (fileSize.QuadPart > 0) {
-        data.resize(static_cast<size_t>(fileSize.QuadPart));
+        try {
+            data.resize(static_cast<size_t>(fileSize.QuadPart));
+        } catch (const std::bad_alloc&) {
+            result.errorMessage = L"Not enough memory to open this file";
+            return result;
+        }
         DWORD bytesRead = 0;
         if (!::ReadFile(hFile.get(), data.data(), static_cast<DWORD>(data.size()), &bytesRead, nullptr)) {
             result.errorMessage = FormatLastError(GetLastError());

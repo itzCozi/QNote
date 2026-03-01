@@ -110,6 +110,7 @@ BEGIN
         MENUITEM "&Line Numbers",               IDM_VIEW_LINENUMBERS
         MENUITEM "Show &Whitespace",             IDM_VIEW_SHOWWHITESPACE
         MENUITEM "Spell &Check\tF7",            IDM_VIEW_SPELLCHECK
+        MENUITEM "Synta&x Highlighting",        IDM_VIEW_SYNTAXHIGHLIGHT
         MENUITEM SEPARATOR
         MENUITEM "&Always on Top",              IDM_VIEW_ALWAYSONTOP
         MENUITEM "&Full Screen\tF11",           IDM_VIEW_FULLSCREEN

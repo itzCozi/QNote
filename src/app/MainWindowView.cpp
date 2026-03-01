@@ -110,6 +110,10 @@ void MainWindow::OnViewZoomIn() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.zoomLevel = (std::min)(500, settings.zoomLevel + 10);
     if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(settings);
+    if (m_lineNumbersGutter && m_editor) {
+        m_lineNumbersGutter->SetFont(m_editor->GetFont());
+    }
+    ResizeControls();
     UpdateStatusBar();
 }
 
@@ -117,6 +121,10 @@ void MainWindow::OnViewZoomOut() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.zoomLevel = (std::max)(25, settings.zoomLevel - 10);
     if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(settings);
+    if (m_lineNumbersGutter && m_editor) {
+        m_lineNumbersGutter->SetFont(m_editor->GetFont());
+    }
+    ResizeControls();
     UpdateStatusBar();
 }
 
@@ -124,6 +132,10 @@ void MainWindow::OnViewZoomReset() {
     AppSettings& settings = m_settingsManager->GetSettings();
     settings.zoomLevel = 100;
     if (m_documentManager) m_documentManager->ApplySettingsToAllEditors(settings);
+    if (m_lineNumbersGutter && m_editor) {
+        m_lineNumbersGutter->SetFont(m_editor->GetFont());
+    }
+    ResizeControls();
     UpdateStatusBar();
 }
 
@@ -283,6 +295,17 @@ void MainWindow::OnViewToggleMenuBar() {
 void MainWindow::OnViewSpellCheck() {
     auto& settings = m_settingsManager->GetSettings();
     settings.spellCheckEnabled = !settings.spellCheckEnabled;
+    if (m_documentManager) {
+        m_documentManager->ApplySettingsToAllEditors(settings);
+    }
+}
+
+//------------------------------------------------------------------------------
+// View -> Syntax Highlighting
+//------------------------------------------------------------------------------
+void MainWindow::OnViewSyntaxHighlight() {
+    auto& settings = m_settingsManager->GetSettings();
+    settings.syntaxHighlightEnabled = !settings.syntaxHighlightEnabled;
     if (m_documentManager) {
         m_documentManager->ApplySettingsToAllEditors(settings);
     }
