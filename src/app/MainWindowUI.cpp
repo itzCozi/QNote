@@ -370,7 +370,7 @@ void MainWindow::CheckForUpdates(bool silent) {
         hRequest = WinHttpOpenRequest(
             hConnect,
             L"GET",
-            L"/repos/itzcozi/qnote/releases/latest",
+            L"/repos/itzcozi/qnote/releases",
             nullptr,
             WINHTTP_NO_REFERER,
             WINHTTP_DEFAULT_ACCEPT_TYPES,
@@ -450,7 +450,7 @@ void MainWindow::CheckForUpdates(bool silent) {
                         (remoteMajor == currentMajor && remoteMinor > currentMinor) ||
                         (remoteMajor == currentMajor && remoteMinor == currentMinor && remotePatch > currentPatch)) {
                         updateAvailable = true;
-                        downloadUrl = L"https://github.com/itzcozi/qnote/releases/latest";
+                        downloadUrl = L"https://github.com/itzcozi/qnote/releases";
                     }
                 }
             }
