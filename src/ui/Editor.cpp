@@ -1454,11 +1454,10 @@ void Editor::ApplySyntaxHighlighting(bool fullFile) {
 
     // Re-enable redraw and repaint
     SendMessageW(m_hwndEdit, WM_SETREDRAW, TRUE, 0);
-    // Use RedrawWindow for a full repaint (erase + invalidate) after
-    // WM_SETREDRAW toggling.  Plain InvalidateRect(FALSE) can leave stale
-    // rendering artifacts in the RichEdit control, causing colors to not
-    // appear until scroll.
-    RedrawWindow(m_hwndEdit, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE);
+    // Use RedrawWindow with RDW_UPDATENOW to force an immediate synchronous
+    // repaint after WM_SETREDRAW toggling.  Without RDW_UPDATENOW, RichEdit
+    // defers painting and colors don't appear until the next scroll event.
+    RedrawWindow(m_hwndEdit, nullptr, nullptr, RDW_INVALIDATE | RDW_ERASE | RDW_UPDATENOW);
 
     // Restore the modify flag so formatting-only changes don't mark the
     // document as user-modified, then re-enable EN_CHANGE.

@@ -9,6 +9,9 @@
 #include <Commdlg.h>
 #include <dwmapi.h>
 #include <shellapi.h>
+#include <shlobj.h>
+#include <shobjidl.h>
+#include <shlwapi.h>
 #include <uxtheme.h>
 #include <vssym32.h>
 #include <sstream>
@@ -16,10 +19,14 @@
 #include <cctype>
 #include <ctime>
 #include <set>
+#include <vector>
 #include <wincrypt.h>
 #include <winhttp.h>
 #include <objbase.h>
 #include <bcrypt.h>
+
+#pragma comment(lib, "shell32.lib")
+#pragma comment(lib, "shlwapi.lib")
 
 #pragma comment(lib, "comctl32.lib")
 #pragma comment(lib, "winhttp.lib")
@@ -36,6 +43,138 @@
 #endif
 
 namespace QNote {
+
+//------------------------------------------------------------------------------
+// COM IDropTarget implementation
+// Handles drag-drop from virtual shell namespaces such as ZIP folders.
+// Falls back to CF_HDROP for ordinary file drops (covers the same ground as
+// WM_DROPFILES, which Windows may suppress once a drop target is registered).
+//------------------------------------------------------------------------------
+class QNoteDropTarget : public IDropTarget {
+public:
+    explicit QNoteDropTarget(MainWindow* mainWindow) noexcept
+        : m_refCount(1), m_mainWindow(mainWindow) {}
+
+    // IUnknown
+    STDMETHODIMP QueryInterface(REFIID riid, void** ppv) override {
+        if (riid == IID_IUnknown || riid == IID_IDropTarget) {
+            *ppv = static_cast<IDropTarget*>(this);
+            AddRef();
+            return S_OK;
+        }
+        *ppv = nullptr;
+        return E_NOINTERFACE;
+    }
+    STDMETHODIMP_(ULONG) AddRef()  override { return InterlockedIncrement(&m_refCount); }
+    STDMETHODIMP_(ULONG) Release() override {
+        ULONG ref = InterlockedDecrement(&m_refCount);
+        if (ref == 0) delete this;
+        return ref;
+    }
+
+    // IDropTarget
+    STDMETHODIMP DragEnter(IDataObject* pDataObj, DWORD, POINTL, DWORD* pdwEffect) override {
+        *pdwEffect = CanAccept(pDataObj) ? DROPEFFECT_COPY : DROPEFFECT_NONE;
+        return S_OK;
+    }
+    STDMETHODIMP DragOver(DWORD, POINTL, DWORD* pdwEffect) override {
+        *pdwEffect = DROPEFFECT_COPY;
+        return S_OK;
+    }
+    STDMETHODIMP DragLeave() override { return S_OK; }
+
+    STDMETHODIMP Drop(IDataObject* pDataObj, DWORD, POINTL, DWORD* pdwEffect) override {
+        *pdwEffect = DROPEFFECT_COPY;
+        std::vector<std::wstring> paths;
+
+        // ── Method 1: CF_HDROP (regular files, and some ZIP contents on older Windows) ──
+        FORMATETC fmtHDrop = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        STGMEDIUM stg = {};
+        if (SUCCEEDED(pDataObj->GetData(&fmtHDrop, &stg))) {
+            HDROP hDrop = static_cast<HDROP>(stg.hGlobal);
+            UINT count = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
+            for (UINT i = 0; i < count; i++) {
+                UINT needed = DragQueryFileW(hDrop, i, nullptr, 0);
+                if (needed > 0) {
+                    std::wstring path(needed + 1, L'\0');
+                    DragQueryFileW(hDrop, i, &path[0], needed + 1);
+                    path.resize(needed);
+                    if (!path.empty()) paths.push_back(std::move(path));
+                }
+            }
+            // Do NOT call DragFinish – this HDROP came from IDataObject, not WM_DROPFILES
+            ReleaseStgMedium(&stg);
+        }
+
+        // ── Method 2: CFSTR_SHELLIDLIST / CIDA (virtual paths, e.g. ZIP folder contents) ──
+        // Uses only shlobj.h functions; no SHCreateItemArrayFromDataObject needed.
+        if (paths.empty()) {
+            UINT cfIDList = RegisterClipboardFormatW(CFSTR_SHELLIDLIST);
+            FORMATETC fmtIDList = { static_cast<CLIPFORMAT>(cfIDList), nullptr,
+                                    DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+            STGMEDIUM stgIDList = {};
+            if (SUCCEEDED(pDataObj->GetData(&fmtIDList, &stgIDList)) && stgIDList.hGlobal) {
+                const CIDA* pcida = static_cast<const CIDA*>(GlobalLock(stgIDList.hGlobal));
+                if (pcida) {
+                    auto PidlAt = [pcida](UINT idx) -> LPCITEMIDLIST {
+                        return reinterpret_cast<LPCITEMIDLIST>(
+                            reinterpret_cast<const BYTE*>(pcida) + pcida->aoffset[idx]);
+                    };
+                    LPCITEMIDLIST pidlFolder = PidlAt(0);
+                    for (UINT i = 0; i < pcida->cidl; i++) {
+                        PIDLIST_ABSOLUTE pidlFull = ILCombine(pidlFolder, PidlAt(i + 1));
+                        if (pidlFull) {
+                            wchar_t szPath[MAX_PATH * 2] = {};
+                            if (SHGetPathFromIDListW(pidlFull, szPath) && szPath[0]) {
+                                // Real filesystem path
+                                paths.emplace_back(szPath);
+                            } else {
+                                // Virtual item (e.g. inside a ZIP) – get the
+                                // parseable shell path so ReadFile can copy it
+                                IShellFolder* pDesktop = nullptr;
+                                if (SUCCEEDED(SHGetDesktopFolder(&pDesktop))) {
+                                    STRRET sr = {};
+                                    if (SUCCEEDED(pDesktop->GetDisplayNameOf(
+                                            pidlFull, SHGDN_FORPARSING, &sr))) {
+                                        wchar_t szName[MAX_PATH * 2] = {};
+                                        if (SUCCEEDED(StrRetToBufW(&sr, pidlFull,
+                                                                    szName, MAX_PATH * 2))
+                                            && szName[0]) {
+                                            paths.emplace_back(szName);
+                                        }
+                                    }
+                                    pDesktop->Release();
+                                }
+                            }
+                            ILFree(pidlFull);
+                        }
+                    }
+                    GlobalUnlock(stgIDList.hGlobal);
+                }
+                ReleaseStgMedium(&stgIDList);
+            }
+        }
+
+        if (!paths.empty()) {
+            m_mainWindow->OpenDroppedFiles(paths);
+        }
+        return S_OK;
+    }
+
+private:
+    bool CanAccept(IDataObject* pDataObj) const {
+        FORMATETC fmtHDrop = { CF_HDROP, nullptr, DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        if (SUCCEEDED(pDataObj->QueryGetData(&fmtHDrop))) return true;
+        // Also accept CFSTR_SHELLIDLIST (virtual/ZIP folder items)
+        UINT cfIDList = RegisterClipboardFormatW(CFSTR_SHELLIDLIST);
+        FORMATETC fmtIDList = { static_cast<CLIPFORMAT>(cfIDList), nullptr,
+                                DVASPECT_CONTENT, -1, TYMED_HGLOBAL };
+        return SUCCEEDED(pDataObj->QueryGetData(&fmtIDList));
+    }
+
+    LONG         m_refCount;
+    MainWindow*  m_mainWindow;
+};
 
 //------------------------------------------------------------------------------
 // Helper: check if a string is empty or contains only whitespace
@@ -489,6 +628,11 @@ void MainWindow::OnCreate() {
         SetTimer(m_hwnd, TIMER_REALSAVE, m_settingsManager->GetSettings().autoSaveDelayMs, nullptr);
     }
     
+    // Periodic crash-recovery session save (every 60 s).
+    // If the app crashes, the session file written by this timer will be found
+    // on the next launch and restored silently by LoadSession.
+    SetTimer(m_hwnd, TIMER_CRASHRECOVERY, CRASHRECOVERY_INTERVAL, nullptr);
+    
     // Initialize system tray
     InitializeSystemTray();
     
@@ -520,6 +664,15 @@ void MainWindow::OnCreate() {
     if (m_clipboardHistory) {
         m_clipboardHistory->Initialize(m_hwnd);
     }
+    
+    // Register COM IDropTarget so drags from virtual paths (e.g. ZIP folders)
+    // are handled in addition to the regular WM_DROPFILES mechanism.
+    m_pDropTarget = new QNoteDropTarget(this);
+    if (FAILED(RegisterDragDrop(m_hwnd, m_pDropTarget))) {
+        // OLE not fully initialized – release immediately; WM_DROPFILES still works
+        m_pDropTarget->Release();
+        m_pDropTarget = nullptr;
+    }
 }
 
 //------------------------------------------------------------------------------
@@ -533,6 +686,14 @@ void MainWindow::OnDestroy() {
     KillTimer(m_hwnd, TIMER_FILEWATCH);
     KillTimer(m_hwnd, TIMER_REALSAVE);
     KillTimer(m_hwnd, TIMER_UPDATECHECK);
+    KillTimer(m_hwnd, TIMER_CRASHRECOVERY);
+    
+    // Unregister COM IDropTarget
+    if (m_pDropTarget) {
+        RevokeDragDrop(m_hwnd);
+        m_pDropTarget->Release();
+        m_pDropTarget = nullptr;
+    }
     
     // Save session before destroying
     SaveSession();
@@ -929,6 +1090,10 @@ void MainWindow::OnTimer(UINT_PTR timerId) {
             m_ignoreNextFileChange = true;
             SaveFile(m_currentFile);
         }
+    } else if (timerId == TIMER_CRASHRECOVERY) {
+        // Silently checkpoint the session so a crash can be recovered on next launch.
+        // LoadSession() already handles the restore transparently on startup.
+        SaveSession();
     }
 }
 

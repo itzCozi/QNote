@@ -14,8 +14,10 @@
 #include <Windows.h>
 #include <Commdlg.h>
 #include <shellapi.h>
+#include <oleidl.h>
 #include <string>
 #include <memory>
+#include <vector>
 #include "Settings.h"
 #include "Editor.h"
 #include "FileIO.h"
@@ -56,6 +58,9 @@ public:
     
     // Get window handle
     [[nodiscard]] HWND GetHandle() const noexcept { return m_hwnd; }
+    
+    // Load a list of dragged/dropped file paths (called from IDropTarget and OnDropFiles)
+    void OpenDroppedFiles(const std::vector<std::wstring>& paths);
     
 private:
     // Window procedure
@@ -316,6 +321,9 @@ private:
     RECT m_preFullScreenRect = {};
     HMENU m_savedMenu = nullptr;
     
+    // COM IDropTarget for receiving drags from virtual shell paths (e.g. ZIP folders)
+    IDropTarget* m_pDropTarget = nullptr;
+    
     // File change monitoring
     FILETIME m_lastWriteTime = {};
     bool m_ignoreNextFileChange = false;
@@ -329,6 +337,9 @@ private:
     
     // Auto-save timer interval (ms)
     static constexpr UINT AUTOSAVE_INTERVAL = 3000;
+    
+    // Crash-recovery session save interval (ms) – every 60 s
+    static constexpr UINT CRASHRECOVERY_INTERVAL = 60000;
     
     // File auto-save timer interval (ms) - every 30 seconds
     static constexpr UINT FILEAUTOSAVE_INTERVAL = 30000;

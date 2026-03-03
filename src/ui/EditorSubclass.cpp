@@ -6,12 +6,44 @@
 #include "Editor.h"
 #include "../resources/resource.h"
 #include <CommCtrl.h>
+#include <shellapi.h>
 #include <windowsx.h>
 
 namespace QNote {
 
 // Subclass ID for edit control
 static constexpr UINT_PTR EDIT_SUBCLASS_ID = 1;
+
+//------------------------------------------------------------------------------
+// Percent-encode a wstring for use in a URL query parameter.
+// Converts to UTF-8 first then applies RFC 3986 percent-encoding.
+//------------------------------------------------------------------------------
+static std::wstring UrlEncodeQuery(const std::wstring& input) {
+    int utf8Len = WideCharToMultiByte(CP_UTF8, 0, input.c_str(),
+                                      static_cast<int>(input.size()),
+                                      nullptr, 0, nullptr, nullptr);
+    if (utf8Len <= 0) return L"";
+    std::string utf8(static_cast<size_t>(utf8Len), '\0');
+    WideCharToMultiByte(CP_UTF8, 0, input.c_str(), static_cast<int>(input.size()),
+                        &utf8[0], utf8Len, nullptr, nullptr);
+
+    std::wstring result;
+    result.reserve(utf8.size() * 3);
+    for (unsigned char c : utf8) {
+        if ((c >= 'A' && c <= 'Z') || (c >= 'a' && c <= 'z') ||
+            (c >= '0' && c <= '9') ||
+            c == '-' || c == '_' || c == '.' || c == '~') {
+            result += static_cast<wchar_t>(c);
+        } else if (c == ' ') {
+            result += L'+';
+        } else {
+            wchar_t buf[4];
+            swprintf_s(buf, 4, L"%%%02X", c);
+            result += buf;
+        }
+    }
+    return result;
+}
 
 //------------------------------------------------------------------------------
 // Edit control subclass procedure
@@ -575,6 +607,9 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED), IDM_EDIT_DELETE, L"&Delete");
                 AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
                 AppendMenuW(hMenu, MF_STRING, IDM_EDIT_SELECTALL, L"Select &All");
+                AppendMenuW(hMenu, MF_SEPARATOR, 0, nullptr);
+                AppendMenuW(hMenu, MF_STRING | (hasSelection ? 0 : MF_GRAYED),
+                            IDM_EDIT_BINGSEARCH, L"&Search");
             }
 
             int cmd = TrackPopupMenu(hMenu, TPM_RETURNCMD | TPM_RIGHTBUTTON,
@@ -608,6 +643,14 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                     case IDM_EDIT_PASTE: editor->Paste(); break;
                     case IDM_EDIT_DELETE: editor->Delete(); break;
                     case IDM_EDIT_SELECTALL: editor->SelectAll(); break;
+                    case IDM_EDIT_BINGSEARCH: {
+                        std::wstring sel = editor->GetSelectedText();
+                        if (!sel.empty()) {
+                            std::wstring url = L"https://www.google.com/search?q=" + UrlEncodeQuery(sel);
+                            ShellExecuteW(nullptr, L"open", url.c_str(), nullptr, nullptr, SW_SHOWNORMAL);
+                        }
+                        break;
+                    }
                 }
             }
             return 0;

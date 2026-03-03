@@ -6,7 +6,10 @@
 #include "MainWindow.h"
 #include "resource.h"
 #include <shellapi.h>
+#include <shlobj.h>
 #include <sstream>
+#include <algorithm>
+#include <vector>
 
 namespace QNote {
 
@@ -18,56 +21,130 @@ static bool IsWhitespaceOnly(const std::wstring& text) {
 }
 
 //------------------------------------------------------------------------------
+// Resolve a .lnk shortcut file to its target path via IShellLink.
+// Returns the target path or an empty string if resolution fails.
+//------------------------------------------------------------------------------
+static std::wstring ResolveShortcutTarget(const std::wstring& lnkPath) {
+    IShellLinkW* psl = nullptr;
+    if (FAILED(CoCreateInstance(CLSID_ShellLink, nullptr, CLSCTX_INPROC_SERVER,
+                                __uuidof(IShellLinkW), reinterpret_cast<void**>(&psl)))) {
+        return L"";
+    }
+    IPersistFile* ppf = nullptr;
+    HRESULT hr = psl->QueryInterface(__uuidof(IPersistFile), reinterpret_cast<void**>(&ppf));
+    if (FAILED(hr)) { psl->Release(); return L""; }
+
+    hr = ppf->Load(lnkPath.c_str(), STGM_READ);
+    ppf->Release();
+    if (FAILED(hr)) { psl->Release(); return L""; }
+
+    // Resolve without showing any UI (best-effort, short timeout)
+    psl->Resolve(nullptr, SLR_NO_UI);
+
+    wchar_t szTarget[MAX_PATH] = {};
+    hr = psl->GetPath(szTarget, MAX_PATH, nullptr, 0);
+    psl->Release();
+
+    return (SUCCEEDED(hr) && szTarget[0]) ? szTarget : L"";
+}
+
+//------------------------------------------------------------------------------
+// If `path` ends with .lnk (case-insensitive) prompt the user:
+//   YES    -> return the resolved target path
+//   NO     -> return path unchanged (open the .lnk binary itself)
+//   CANCEL -> return empty string (caller should abort)
+// For non-.lnk paths the original path is returned immediately.
+//------------------------------------------------------------------------------
+static std::wstring PromptResolveShortcut(HWND hwnd, const std::wstring& path) {
+    if (path.size() < 5) return path;
+    std::wstring ext = path.substr(path.size() - 4);
+    std::transform(ext.begin(), ext.end(), ext.begin(), towlower);
+    if (ext != L".lnk") return path;
+
+    std::wstring target = ResolveShortcutTarget(path);
+    if (target.empty()) return path;  // Can't resolve; let ReadFile handle it
+
+    std::wstring msg = L"This is a Windows shortcut (.lnk) file.\n\n"
+                       L"Target:\t" + target +
+                       L"\n\nDo you want to open the TARGET file instead?\n"
+                       L"(Click \"No\" to open the shortcut file itself)"
+    ;
+    int res = MessageBoxW(hwnd, msg.c_str(), L"Open Shortcut",
+                          MB_YESNOCANCEL | MB_ICONQUESTION);
+    if (res == IDCANCEL) return L"";  // abort
+    if (res == IDYES)    return target;
+    return path;  // NO -> open .lnk bytes as-is
+}
+
+//------------------------------------------------------------------------------
 // WM_DROPFILES handler
 //------------------------------------------------------------------------------
 void MainWindow::OnDropFiles(HDROP hDrop) {
-    wchar_t filePath[MAX_PATH] = {};
-    
-    // Get the number of dropped files
     UINT fileCount = DragQueryFileW(hDrop, 0xFFFFFFFF, nullptr, 0);
-    
-    // Open each dropped file in a new tab
+    std::vector<std::wstring> paths;
+    paths.reserve(fileCount);
+
     for (UINT i = 0; i < fileCount; i++) {
-        if (DragQueryFileW(hDrop, i, filePath, MAX_PATH) > 0) {
-            // Check if already open
-            int existingTab = m_documentManager->FindDocumentByPath(filePath);
-            if (existingTab >= 0) {
-                if (i == fileCount - 1) {
-                    OnTabSelected(existingTab);
-                }
-                continue;
-            }
-            
-            // For the first file, reuse current tab if empty/untitled
-            if (i == 0) {
-                auto* activeDoc = m_documentManager->GetActiveDocument();
-                if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
-                    m_editor && IsWhitespaceOnly(m_editor->GetText())) {
-                    LoadFile(filePath);
-                    continue;
-                }
-            }
-            
-            FileReadResult result = FileIO::ReadFile(filePath);
-            if (result.success) {
-                m_documentManager->OpenDocument(
-                    filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
-                UpdateActiveEditor();
-                m_currentFile = filePath;
-                m_isNewFile = false;
-                m_isNoteMode = false;
-                m_currentNoteId.clear();
-                m_settingsManager->AddRecentFile(filePath);
-                UpdateRecentFilesMenu();
-            }
+        UINT needed = DragQueryFileW(hDrop, i, nullptr, 0);
+        if (needed > 0) {
+            std::wstring p(needed + 1, L'\0');
+            DragQueryFileW(hDrop, i, &p[0], needed + 1);
+            p.resize(needed);
+            if (!p.empty()) paths.push_back(std::move(p));
         }
     }
-    
     DragFinish(hDrop);
+
+    OpenDroppedFiles(paths);
+}
+
+//------------------------------------------------------------------------------
+// Load multiple files that were dragged/dropped or received via IDropTarget.
+// Handles .lnk resolution, duplicate-tab detection, and ZIP virtual paths.
+//------------------------------------------------------------------------------
+void MainWindow::OpenDroppedFiles(const std::vector<std::wstring>& paths) {
+    for (size_t i = 0; i < paths.size(); i++) {
+        // Resolve .lnk shortcuts with a user prompt
+        std::wstring filePath = PromptResolveShortcut(m_hwnd, paths[i]);
+        if (filePath.empty()) continue;  // user cancelled
+
+        // Check if already open in another tab
+        int existingTab = m_documentManager->FindDocumentByPath(filePath);
+        if (existingTab >= 0) {
+            if (i == paths.size() - 1) OnTabSelected(existingTab);
+            continue;
+        }
+
+        // For the first file, reuse the current tab if it is empty and untitled
+        if (i == 0) {
+            auto* activeDoc = m_documentManager->GetActiveDocument();
+            if (activeDoc && activeDoc->isNewFile && !activeDoc->isModified &&
+                m_editor && IsWhitespaceOnly(m_editor->GetText())) {
+                LoadFile(filePath);
+                continue;
+            }
+        }
+
+        // Open in a new tab (FileIO::ReadFile handles virtual/ZIP paths automatically)
+        FileReadResult result = FileIO::ReadFile(filePath);
+        if (result.success) {
+            m_documentManager->OpenDocument(
+                filePath, result.content, result.detectedEncoding, result.detectedLineEnding);
+            UpdateActiveEditor();
+            m_currentFile = filePath;
+            m_isNewFile = false;
+            m_isNoteMode = false;
+            m_currentNoteId.clear();
+            m_settingsManager->AddRecentFile(filePath);
+            UpdateRecentFilesMenu();
+        } else if (!result.errorMessage.empty()) {
+            MessageBoxW(m_hwnd, result.errorMessage.c_str(), L"Error Opening File",
+                        MB_OK | MB_ICONERROR);
+        }
+    }
+
     UpdateTitle();
     UpdateStatusBar();
-    
-    // Bring window to front
     SetForegroundWindow(m_hwnd);
 }
 
@@ -85,6 +162,10 @@ void MainWindow::OnFileNew() {
 void MainWindow::OnFileOpen() {
     std::wstring filePath;
     if (FileIO::ShowOpenDialog(m_hwnd, filePath)) {
+        // Resolve .lnk shortcuts with a user prompt
+        filePath = PromptResolveShortcut(m_hwnd, filePath);
+        if (filePath.empty()) return;
+
         // Check if already open in another tab
         int existingTab = m_documentManager->FindDocumentByPath(filePath);
         if (existingTab >= 0) {
@@ -178,6 +259,10 @@ void MainWindow::OnFileOpenRecent(int index) {
     
     if (index >= 0 && index < static_cast<int>(recentFiles.size())) {
         std::wstring filePath = recentFiles[index];
+        
+        // Resolve .lnk shortcuts with a user prompt
+        filePath = PromptResolveShortcut(m_hwnd, filePath);
+        if (filePath.empty()) return;
         
         // Check if already open
         int existingTab = m_documentManager->FindDocumentByPath(filePath);

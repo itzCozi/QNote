@@ -19,6 +19,7 @@
 //==============================================================================
 
 #include <Windows.h>
+#include <ole2.h>
 #include <shellapi.h>
 #include <objbase.h>
 #include "MainWindow.h"
@@ -218,10 +219,10 @@ int WINAPI wWinMain(
     // Enable high DPI
     EnableHighDPI();
     
-    // Initialize COM (needed for file dialogs on some Windows versions)
-    HRESULT hr = CoInitializeEx(nullptr, COINIT_APARTMENTTHREADED | COINIT_DISABLE_OLE1DDE);
+    // Initialize OLE (required for drag-drop via RegisterDragDrop and for file dialogs)
+    HRESULT hr = OleInitialize(nullptr);
     if (FAILED(hr)) {
-        // COM init failed, but we can continue without it
+        // OLE init failed, drag-drop from ZIP folders will not work
     }
     
     // Initialize RichEdit library for multi-level undo/redo
@@ -246,7 +247,7 @@ int WINAPI wWinMain(
     
     // Cleanup
     QNote::Editor::UninitializeRichEdit();
-    CoUninitialize();
+    OleUninitialize();
     
     return result;
 }

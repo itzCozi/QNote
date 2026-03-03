@@ -158,6 +158,7 @@
 #define IDM_EDIT_NUMBERLINES            2028
 #define IDM_EDIT_TOGGLECOMMENT          2029
 #define IDM_EDIT_REVERSESELECTION       2034
+#define IDM_EDIT_BINGSEARCH             2040    // Search selected text with Bing
 
 // View menu (additional 2)
 #define IDM_VIEW_ALWAYSONTOP            4008
@@ -433,6 +434,7 @@
 #define TIMER_UPDATECHECK               6
 #define TIMER_SYNTAXHIGHLIGHT           7
 #define TIMER_ZOOM                      8
+#define TIMER_CRASHRECOVERY             9       // Periodic crash-recovery session save (every 60 s)
 
 // Global hotkey ID
 #define HOTKEY_QUICKCAPTURE             1

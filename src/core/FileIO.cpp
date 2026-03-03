@@ -6,9 +6,55 @@
 #include "FileIO.h"
 #include <commdlg.h>
 #include <shobjidl.h>
+#include <shellapi.h>
 #include <algorithm>
 
 namespace QNote {
+
+//------------------------------------------------------------------------------
+// Try to copy a file from a shell/virtual path (e.g. inside a ZIP folder) to
+// a unique temporary file using the shell copy API, which understands virtual
+// namespace paths.  Returns the temp file path on success, or an empty string
+// on failure.  The caller owns the temp file and its parent directory and must
+// delete both when done.
+//------------------------------------------------------------------------------
+static std::wstring TryCopyFromShellPath(const std::wstring& shellPath) {
+    // Obtain a temporary directory
+    wchar_t tempDir[MAX_PATH];
+    if (!GetTempPathW(MAX_PATH, tempDir)) return L"";
+
+    // GetTempFileName creates a uniquely-named file we repurpose as a directory
+    wchar_t tempBase[MAX_PATH];
+    if (!GetTempFileNameW(tempDir, L"QN_", 0, tempBase)) return L"";
+    DeleteFileW(tempBase);
+    if (!CreateDirectoryW(tempBase, nullptr)) return L"";
+
+    // Build destination path:  <tempBase>\<original filename>
+    size_t sep = shellPath.find_last_of(L"\\/");
+    std::wstring fileName = (sep != std::wstring::npos)
+        ? shellPath.substr(sep + 1) : shellPath;
+    if (fileName.empty()) {
+        RemoveDirectoryW(tempBase);
+        return L"";
+    }
+    std::wstring destPath = std::wstring(tempBase) + L"\\" + fileName;
+
+    // SHFileOperationW requires double-null-terminated source and destination
+    std::wstring src = shellPath; src.push_back(L'\0');
+    std::wstring dst = destPath;  dst.push_back(L'\0');
+
+    SHFILEOPSTRUCTW op = {};
+    op.wFunc  = FO_COPY;
+    op.pFrom  = src.c_str();
+    op.pTo    = dst.c_str();
+    op.fFlags = FOF_NOCONFIRMATION | FOF_NOERRORUI | FOF_SILENT | FOF_NORECURSION;
+
+    if (SHFileOperationW(&op) != 0 || op.fAnyOperationsAborted) {
+        RemoveDirectoryW(tempBase);
+        return L"";
+    }
+    return destPath;
+}
 
 //------------------------------------------------------------------------------
 // BOM (Byte Order Mark) signatures
@@ -323,6 +369,32 @@ FileReadResult FileIO::ReadFile(const std::wstring& filePath) {
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
     
     if (!hFile.valid()) {
+        // Check whether the file is a cloud-only placeholder (OneDrive, etc.).
+        // FILE_ATTRIBUTE_RECALL_ON_DATA_ACCESS (0x400000) and
+        // FILE_ATTRIBUTE_RECALL_ON_OPEN (0x40000) are both set on cloud stubs.
+        DWORD attrs = GetFileAttributesW(filePath.c_str());
+        if (attrs != INVALID_FILE_ATTRIBUTES &&
+            (attrs & 0x00400000u || attrs & 0x00040000u)) {
+            result.errorMessage =
+                L"This file is stored in the cloud (e.g. OneDrive) and is not currently "
+                L"downloaded to this device.\n\n"
+                L"Right-click the file in File Explorer and choose \u201cAlways keep on this device\u201d "
+                L"to download it, then try again.";
+            return result;
+        }
+
+        // Direct open failed – the path may be a virtual shell path (e.g. a
+        // file inside a ZIP folder browsed in Windows Explorer).  Try to copy
+        // it to a temp location via the shell, which understands such paths.
+        std::wstring tempPath = TryCopyFromShellPath(filePath);
+        if (!tempPath.empty()) {
+            FileReadResult tempResult = ReadFile(tempPath);
+            // Clean up the temp copy immediately after reading
+            DeleteFileW(tempPath.c_str());
+            std::wstring tempParent = tempPath.substr(0, tempPath.rfind(L'\\'));
+            RemoveDirectoryW(tempParent.c_str());
+            return tempResult;
+        }
         result.errorMessage = FormatLastError(GetLastError());
         return result;
     }
@@ -381,6 +453,26 @@ FileReadResult FileIO::ReadFileWithEncoding(const std::wstring& filePath, TextEn
         nullptr, OPEN_EXISTING, FILE_ATTRIBUTE_NORMAL, nullptr));
     
     if (!hFile.valid()) {
+        // Cloud-only placeholder check (same logic as ReadFile)
+        DWORD attrs = GetFileAttributesW(filePath.c_str());
+        if (attrs != INVALID_FILE_ATTRIBUTES &&
+            (attrs & 0x00400000u || attrs & 0x00040000u)) {
+            result.errorMessage =
+                L"This file is stored in the cloud (e.g. OneDrive) and is not currently "
+                L"downloaded to this device.\n\n"
+                L"Right-click the file in File Explorer and choose \u201cAlways keep on this device\u201d "
+                L"to download it, then try again.";
+            return result;
+        }
+        // Fall back to shell copy for virtual paths (e.g. inside a ZIP folder)
+        std::wstring tempPath = TryCopyFromShellPath(filePath);
+        if (!tempPath.empty()) {
+            FileReadResult tempResult = ReadFileWithEncoding(tempPath, encoding);
+            DeleteFileW(tempPath.c_str());
+            std::wstring tempParent = tempPath.substr(0, tempPath.rfind(L'\\'));
+            RemoveDirectoryW(tempParent.c_str());
+            return tempResult;
+        }
         result.errorMessage = FormatLastError(GetLastError());
         return result;
     }
