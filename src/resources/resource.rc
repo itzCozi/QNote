@@ -648,7 +648,7 @@ FONT 8, "MS Shell Dlg", 400, 0, 0x1
 BEGIN
     ICON            IDI_APP_ICON,IDC_STATIC,14,14,21,20
     LTEXT           "QNote",IDC_STATIC,45,14,114,8
-    LTEXT           "Version 1.1.0",IDC_STATIC,45,26,114,8
+    LTEXT           "Version 1.1.1",IDC_STATIC,45,26,114,8
     LTEXT           "A Better Notepad for Windows",IDC_STATIC,45,38,140,8
     LTEXT           "By Cooper Ransom",IDC_STATIC,45,50,140,8
     LTEXT           "Copyright (c) 2026 - MIT License",IDC_STATIC,45,62,140,8

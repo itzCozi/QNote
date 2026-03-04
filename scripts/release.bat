@@ -11,7 +11,7 @@ setlocal enabledelayedexpansion
 :: Navigate to project root (parent of scripts folder)
 cd /d "%~dp0.."
 
-set "VERSION=1.1.0"
+set "VERSION=1.1.1"
 if not "%~1"=="" set "VERSION=%~1"
 
 echo.
