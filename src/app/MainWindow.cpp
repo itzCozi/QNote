@@ -397,6 +397,38 @@ LRESULT MainWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
         case WM_COMMAND:
             OnCommand(LOWORD(wParam), HIWORD(wParam), reinterpret_cast<HWND>(lParam));
             return 0;
+
+        case WM_NOTIFY: {
+            auto* pnm = reinterpret_cast<NMHDR*>(lParam);
+            if (m_editor && pnm->hwndFrom == m_editor->GetHandle() && pnm->code == EN_LINK) {
+                auto* enl = reinterpret_cast<ENLINK*>(lParam);
+                if (enl->msg == WM_LBUTTONDOWN && (GetKeyState(VK_CONTROL) & 0x8000)) {
+                    // Extract the URL text from the link range
+                    int urlLen = enl->chrg.cpMax - enl->chrg.cpMin;
+                    if (urlLen > 0 && urlLen < 2048) {
+                        std::wstring url(urlLen + 1, L'\0');
+                        TEXTRANGEW tr = {};
+                        tr.chrg = enl->chrg;
+                        tr.lpstrText = url.data();
+                        SendMessageW(m_editor->GetHandle(), EM_GETTEXTRANGE, 0,
+                                     reinterpret_cast<LPARAM>(&tr));
+                        url.resize(static_cast<size_t>(urlLen));
+                        ShellExecuteW(m_hwnd, L"open", url.c_str(),
+                                      nullptr, nullptr, SW_SHOWNORMAL);
+                    }
+                    return 1;
+                }
+                if (enl->msg == WM_SETCURSOR) {
+                    if (GetKeyState(VK_CONTROL) & 0x8000) {
+                        SetCursor(LoadCursorW(nullptr, IDC_HAND));
+                    } else {
+                        SetCursor(LoadCursorW(nullptr, IDC_IBEAM));
+                    }
+                    return 1;
+                }
+            }
+            break;
+        }
             
         case WM_DROPFILES:
             OnDropFiles(reinterpret_cast<HDROP>(wParam));

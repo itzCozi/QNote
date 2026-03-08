@@ -114,9 +114,12 @@ bool Editor::Create(HWND parent, HINSTANCE hInstance, const AppSettings& setting
     // Disable built-in undo (we use our own multi-level system)
     SendMessageW(m_hwndEdit, EM_SETUNDOLIMIT, 0, 0);
     
-    // Enable EN_CHANGE notifications (required for RichEdit controls)
+    // Enable EN_CHANGE, EN_SCROLL, and EN_LINK notifications
     DWORD eventMask = static_cast<DWORD>(SendMessageW(m_hwndEdit, EM_GETEVENTMASK, 0, 0));
-    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, eventMask | ENM_CHANGE | ENM_SCROLL);
+    SendMessageW(m_hwndEdit, EM_SETEVENTMASK, 0, eventMask | ENM_CHANGE | ENM_SCROLL | ENM_LINK);
+
+    // Detect and underline URLs automatically
+    SendMessageW(m_hwndEdit, EM_AUTOURLDETECT, AURL_ENABLEURL, 0);
     
     // Create and set font
     m_font.reset(CreateEditorFont());
