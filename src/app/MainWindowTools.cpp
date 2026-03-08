@@ -802,10 +802,11 @@ void MainWindow::OnToolsSettings() {
     
     if (SettingsWindow::Show(m_hwnd, m_hInstance, settings)) {
         // Apply font changes
-        if (settings.fontName != oldSettings.fontName ||
-            settings.fontSize != oldSettings.fontSize ||
-            settings.fontWeight != oldSettings.fontWeight ||
-            settings.fontItalic != oldSettings.fontItalic) {
+        bool fontChanged = settings.fontName != oldSettings.fontName ||
+                           settings.fontSize != oldSettings.fontSize ||
+                           settings.fontWeight != oldSettings.fontWeight ||
+                           settings.fontItalic != oldSettings.fontItalic;
+        if (fontChanged) {
             // Apply to all editors (all tabs)
             if (m_documentManager) {
                 m_documentManager->ApplySettingsToAllEditors(settings);
@@ -813,15 +814,22 @@ void MainWindow::OnToolsSettings() {
         }
         
         // Apply editor behavior changes (to all tabs)
+        bool zoomChanged = settings.zoomLevel != oldSettings.zoomLevel;
         if (settings.wordWrap != oldSettings.wordWrap ||
             settings.tabSize != oldSettings.tabSize ||
             settings.scrollLines != oldSettings.scrollLines ||
             settings.rightToLeft != oldSettings.rightToLeft ||
             settings.showWhitespace != oldSettings.showWhitespace ||
-            settings.zoomLevel != oldSettings.zoomLevel) {
+            zoomChanged) {
             if (m_documentManager) {
                 m_documentManager->ApplySettingsToAllEditors(settings);
             }
+        }
+
+        // Sync gutter font whenever font face/size or zoom changes
+        if ((fontChanged || zoomChanged) && m_lineNumbersGutter && m_editor) {
+            m_lineNumbersGutter->SetFont(m_editor->GetFont());
+            ResizeControls();
         }
         
         // Apply view changes

@@ -94,7 +94,8 @@ private:
     HFONT m_font = nullptr;         // Owned by gutter - must be deleted
     bool m_ownsFont = false;          // Whether we created the font ourselves
     LOGFONTW m_logFont = {};          // Stored font properties for recreation
-    int m_baseFontHeight = 0;         // Unscaled font height (at 96 DPI)
+    int m_baseFontHeight = 0;         // Stored lfHeight (used as non-zero sentinel)
+    int m_baseFontPoints = 12;        // Font size in points (device-independent, includes zoom)
     int m_dpi = 96;                   // Current DPI
     int m_width = 50;                 // Current gutter width
     int m_charWidth = 8;              // Width of a single character

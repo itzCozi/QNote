@@ -135,13 +135,30 @@ void LineNumbersGutter::SetFont(HFONT font) noexcept {
     LOGFONTW lf = {};
     if (GetObjectW(font, sizeof(lf), &lf) == 0) return;
 
-    // Store the font properties
+    // Store font face/style properties and the raw lfHeight as a non-zero sentinel
     m_logFont = lf;
-
-    // Compute the base (unscaled) font height by reversing the DPI scaling
-    // lfHeight is typically negative = -(size * dpi / 72)
-    // We store it as-is so we can re-scale for our DPI
     m_baseFontHeight = lf.lfHeight;
+
+    // Derive the font size in points from the editor's CHARFORMAT yHeight
+    // (yHeight is in twips = 1/20 pt, fully device-independent).
+    // This is used in RecreateFont so the gutter scales correctly at any DPI,
+    // even when the editor's HFONT was created for a different DPI.
+    int pointSize = 0;
+    if (m_editor && m_editor->GetHandle()) {
+        CHARFORMAT2W cf = {};
+        cf.cbSize = sizeof(cf);
+        SendMessageW(m_editor->GetHandle(), EM_GETCHARFORMAT, SCF_DEFAULT,
+                     reinterpret_cast<LPARAM>(&cf));
+        if (cf.yHeight > 0)
+            pointSize = cf.yHeight / 20;  // twips → points
+    }
+
+    // Fallback: extract point size from lfHeight and current DPI
+    if (pointSize <= 0 && lf.lfHeight < 0 && m_dpi > 0)
+        pointSize = MulDiv(-lf.lfHeight, 72, m_dpi);
+
+    if (pointSize <= 0) pointSize = 12;
+    m_baseFontPoints = pointSize;
 
     // Create our own copy of the font, scaled for our DPI
     RecreateFont();
@@ -528,26 +545,17 @@ void LineNumbersGutter::RecreateFont() {
         m_ownsFont = false;
     }
 
-    // Create a new font using stored properties
-    // The lfHeight from the editor was created at the editor's DPI.
-    // We use it directly since the editor should already be DPI-aware.
-    // But if DPI has changed since font was set, we need to rescale.
+    // Build the font descriptor from stored face/style properties.
     LOGFONTW lf = m_logFont;
 
-    // Ensure the font height is properly scaled for our current DPI
-    // Extract the point size from the stored height and rescale
-    // lfHeight = -(pointSize * dpi / 72)
-    // We want to ensure the font matches what the editor displays
-    if (lf.lfHeight < 0) {
-        // Compute a DPI-aware height
-        // Use our DPI to create the font so it renders correctly in our DC
-        lf.lfHeight = -MulDiv(-lf.lfHeight, m_dpi, m_dpi);
-        // The above is identity, but what we really need is to ensure
-        // the font is created with the correct height for this DPI.
-        // Since the editor font may have been created at a different DPI,
-        // let's just use the LOGFONT as-is (the editor already DPI-scaled it)
-        lf.lfHeight = m_logFont.lfHeight;
+    // Compute the pixel height from the stored point size and current DPI.
+    // Using point size (device-independent) ensures the gutter numbers always
+    // match the editor text size regardless of which monitor/DPI is active.
+    // Formula: lfHeight = -(pointSize * dpi / 72)
+    if (m_baseFontPoints > 0) {
+        lf.lfHeight = -MulDiv(m_baseFontPoints, m_dpi, 72);
     }
+    // Else: m_logFont.lfHeight is used as-is (font not yet set via SetFont)
 
     lf.lfQuality = CLEARTYPE_QUALITY;
     m_font = CreateFontIndirectW(&lf);
