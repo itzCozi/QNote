@@ -39,6 +39,12 @@ static std::wstring TryCopyFromShellPath(const std::wstring& shellPath) {
     }
     std::wstring destPath = std::wstring(tempBase) + L"\\" + fileName;
 
+    // Guard against paths that exceed MAX_PATH for SHFileOperationW
+    if (destPath.size() >= MAX_PATH) {
+        RemoveDirectoryW(tempBase);
+        return L"";
+    }
+
     // SHFileOperationW requires double-null-terminated source and destination
     std::wstring src = shellPath; src.push_back(L'\0');
     std::wstring dst = destPath;  dst.push_back(L'\0');

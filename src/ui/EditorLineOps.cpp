@@ -15,10 +15,17 @@ std::wstring Editor::GetLineText(int line) const {
     int lineLen = GetLineLength(line);
     if (lineLen == 0) return L"";
     
-    std::vector<wchar_t> buf(lineLen + 2, 0);
-    *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
-    SendMessageW(m_hwndEdit, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data()));
-    return std::wstring(buf.data(), lineLen);
+    // Use EM_GETTEXTRANGE instead of EM_GETLINE to avoid the WORD buffer-size
+    // field truncating on lines longer than 65534 characters.
+    int lineStart = GetLineIndex(line);
+    std::wstring text(static_cast<size_t>(lineLen) + 1, L'\0');
+    TEXTRANGEW tr = {};
+    tr.chrg.cpMin = lineStart;
+    tr.chrg.cpMax = lineStart + lineLen;
+    tr.lpstrText = text.data();
+    SendMessageW(m_hwndEdit, EM_GETTEXTRANGE, 0, reinterpret_cast<LPARAM>(&tr));
+    text.resize(static_cast<size_t>(lineLen));
+    return text;
 }
 
 //------------------------------------------------------------------------------

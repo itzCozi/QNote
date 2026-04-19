@@ -72,6 +72,7 @@ struct AppSettings {
     bool showWhitespace = false;     // Show whitespace characters
     bool spellCheckEnabled = false;  // Spell check with wavy underlines
     bool fileAutoSave = true;      // Auto-save backup files (.autosave)
+    int fileAutoSaveIntervalMs = 30000; // Backup auto-save interval in milliseconds
     bool rightToLeft = false;  // Right-to-left reading order
     int scrollLines = 0;          // Lines per scroll wheel notch (0 = system default)
     bool autoCompleteBraces = true;  // Auto-complete braces, brackets, and quotes

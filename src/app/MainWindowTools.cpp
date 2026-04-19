@@ -84,6 +84,8 @@ void MainWindow::OnToolsCopyFilePath() {
             wcscpy_s(pMem, m_currentFile.size() + 1, m_currentFile.c_str());
             GlobalUnlock(hMem);
             SetClipboardData(CF_UNICODETEXT, hMem);
+        } else {
+            GlobalFree(hMem);
         }
     }
     CloseClipboard();
@@ -148,12 +150,13 @@ void MainWindow::OnToolsAutoSaveOptions() {
     AppSettings& settings = m_settingsManager->GetSettings();
     AutoSaveDialogData data;
     data.enabled = settings.fileAutoSave;
-    data.intervalSeconds = static_cast<int>(FILEAUTOSAVE_INTERVAL / 1000);
+    data.intervalSeconds = settings.fileAutoSaveIntervalMs / 1000;
     
     INT_PTR result = DialogBoxParamW(m_hInstance, MAKEINTRESOURCEW(IDD_AUTOSAVE),
                                       m_hwnd, AutoSaveDlgProc, reinterpret_cast<LPARAM>(&data));
     if (result == IDOK) {
         settings.fileAutoSave = data.enabled;
+        settings.fileAutoSaveIntervalMs = data.intervalSeconds * 1000;
         (void)m_settingsManager->Save();
         
         // Restart or stop the file auto-save timer
@@ -1117,10 +1120,12 @@ void MainWindow::OnToolsChecksum() {
                           sizeof(hashLen), &resultLen, 0);
         std::vector<BYTE> hashBuf(hashLen);
 
+        hHash = nullptr;
         if (BCRYPT_SUCCESS(BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0))) {
             BCryptHashData(hHash, utf8.data(), static_cast<ULONG>(utf8.size()), 0);
             BCryptFinishHash(hHash, hashBuf.data(), hashLen, 0);
             BCryptDestroyHash(hHash);
+            hHash = nullptr;
 
             // Convert to hex string
             for (DWORD i = 0; i < hashLen; ++i) {
@@ -1130,20 +1135,22 @@ void MainWindow::OnToolsChecksum() {
             }
         }
         BCryptCloseAlgorithmProvider(hAlg, 0);
+        hAlg = nullptr;
     }
 
     // MD5
-    hAlg = nullptr;
     if (BCRYPT_SUCCESS(BCryptOpenAlgorithmProvider(&hAlg, BCRYPT_MD5_ALGORITHM, nullptr, 0))) {
         DWORD hashLen = 0, resultLen = 0;
         BCryptGetProperty(hAlg, BCRYPT_HASH_LENGTH, reinterpret_cast<PUCHAR>(&hashLen),
                           sizeof(hashLen), &resultLen, 0);
         std::vector<BYTE> hashBuf(hashLen);
 
+        hHash = nullptr;
         if (BCRYPT_SUCCESS(BCryptCreateHash(hAlg, &hHash, nullptr, 0, nullptr, 0, 0))) {
             BCryptHashData(hHash, utf8.data(), static_cast<ULONG>(utf8.size()), 0);
             BCryptFinishHash(hHash, hashBuf.data(), hashLen, 0);
             BCryptDestroyHash(hHash);
+            hHash = nullptr;
 
             for (DWORD i = 0; i < hashLen; ++i) {
                 wchar_t hex[4];
@@ -1166,9 +1173,13 @@ void MainWindow::OnToolsChecksum() {
             HGLOBAL hMem = GlobalAlloc(GMEM_MOVEABLE, (sha256Str.size() + 1) * sizeof(wchar_t));
             if (hMem) {
                 wchar_t* pMem = static_cast<wchar_t*>(GlobalLock(hMem));
-                wcscpy_s(pMem, sha256Str.size() + 1, sha256Str.c_str());
-                GlobalUnlock(hMem);
-                SetClipboardData(CF_UNICODETEXT, hMem);
+                if (pMem) {
+                    wcscpy_s(pMem, sha256Str.size() + 1, sha256Str.c_str());
+                    GlobalUnlock(hMem);
+                    SetClipboardData(CF_UNICODETEXT, hMem);
+                } else {
+                    GlobalFree(hMem);
+                }
             }
             CloseClipboard();
         }
@@ -1219,7 +1230,11 @@ void MainWindow::OnToolsRunSelection() {
             output += buf;
         }
 
-        WaitForSingleObject(pi.hProcess, 10000); // 10 second timeout
+        DWORD waitResult = WaitForSingleObject(pi.hProcess, 10000); // 10 second timeout
+        if (waitResult == WAIT_TIMEOUT) {
+            TerminateProcess(pi.hProcess, 1);
+            WaitForSingleObject(pi.hProcess, 1000);
+        }
         CloseHandle(pi.hProcess);
         CloseHandle(pi.hThread);
     }

@@ -405,12 +405,10 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
 
                 std::wstring whitespace;
                 if (lineLen > 0) {
-                    std::vector<wchar_t> buf(lineLen + 2, 0);
-                    *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
-                    SendMessageW(hwnd, EM_GETLINE, curLine, reinterpret_cast<LPARAM>(buf.data()));
-                    for (int j = 0; j < lineLen; ++j) {
-                        if (buf[j] == L' ' || buf[j] == L'\t') {
-                            whitespace += buf[j];
+                    std::wstring lineText = editor->GetLineText(curLine);
+                    for (size_t j = 0; j < lineText.size(); ++j) {
+                        if (lineText[j] == L' ' || lineText[j] == L'\t') {
+                            whitespace += lineText[j];
                         } else {
                             break;
                         }
@@ -550,22 +548,20 @@ LRESULT CALLBACK Editor::EditSubclassProc(HWND hwnd, UINT msg, WPARAM wParam,
                 int lineLen = static_cast<int>(SendMessageW(hwnd, EM_LINELENGTH, lineStart, 0));
 
                 if (lineLen > 0) {
-                    std::vector<wchar_t> buf(lineLen + 2, 0);
-                    *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
-                    SendMessageW(hwnd, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data()));
+                    std::wstring lineText = editor->GetLineText(line);
 
                     int posInLine = charIndex - lineStart;
-                    if (posInLine >= 0 && posInLine < lineLen && iswalpha(buf[posInLine])) {
+                    if (posInLine >= 0 && posInLine < static_cast<int>(lineText.size()) && iswalpha(lineText[posInLine])) {
                         // Walk backward to find word start
                         int ws = posInLine;
-                        while (ws > 0 && (iswalpha(buf[ws - 1]) || buf[ws - 1] == L'\''))
+                        while (ws > 0 && (iswalpha(lineText[ws - 1]) || lineText[ws - 1] == L'\''))
                             ws--;
                         // Walk forward to find word end
                         int we = posInLine;
-                        while (we < lineLen - 1 && (iswalpha(buf[we + 1]) || buf[we + 1] == L'\''))
+                        while (we < static_cast<int>(lineText.size()) - 1 && (iswalpha(lineText[we + 1]) || lineText[we + 1] == L'\''))
                             we++;
 
-                        std::wstring word(buf.data() + ws, we - ws + 1);
+                        std::wstring word(lineText.data() + ws, we - ws + 1);
                         if (!word.empty() && !editor->m_spellChecker.CheckWord(word)) {
                             editor->m_rightClickWord = word;
                             editor->m_rightClickStart = static_cast<DWORD>(lineStart + ws);
@@ -819,10 +815,8 @@ void Editor::DrawWhitespace(HDC hdc) {
         
         if (lineLen == 0) continue;
         
-        // Get line text
-        std::vector<wchar_t> buf(lineLen + 2, 0);
-        *reinterpret_cast<WORD*>(buf.data()) = static_cast<WORD>(lineLen + 1);
-        SendMessageW(m_hwndEdit, EM_GETLINE, line, reinterpret_cast<LPARAM>(buf.data()));
+        // Get line text using EM_GETTEXTRANGE to avoid WORD truncation on long lines
+        std::wstring lineText = GetLineText(line);
         
         // Get position of the first character of the line (one Win32 call per line)
         POINTL linePos = {};
@@ -836,10 +830,10 @@ void Editor::DrawWhitespace(HDC hdc) {
         int xPos = linePos.x;
         
         for (int j = 0; j < lineLen; j++) {
-            if (buf[j] == L' ' || buf[j] == L'\t') {
+            if (lineText[j] == L' ' || lineText[j] == L'\t') {
                 if (xPos >= clientRect.left && xPos < clientRect.right && 
                     linePos.y >= clientRect.top && linePos.y < clientRect.bottom) {
-                    if (buf[j] == L' ') {
+                    if (lineText[j] == L' ') {
                         // Draw centered dot for space
                         int dotX = xPos + tm.tmAveCharWidth / 2;
                         int dotY = linePos.y + tm.tmHeight / 2;
@@ -864,7 +858,7 @@ void Editor::DrawWhitespace(HDC hdc) {
             }
             
             // Advance x position based on character type
-            if (buf[j] == L'\t') {
+            if (lineText[j] == L'\t') {
                 // Tab advances to next tab stop
                 int tabStop = tabWidthPx;
                 if (tabStop > 0) {

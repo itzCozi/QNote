@@ -650,7 +650,10 @@ void MainWindow::OnCreate() {
     SetTimer(m_hwnd, TIMER_AUTOSAVE, AUTOSAVE_INTERVAL, nullptr);
     
     // Start file auto-save timer
-    SetTimer(m_hwnd, TIMER_FILEAUTOSAVE, FILEAUTOSAVE_INTERVAL, nullptr);
+    if (m_settingsManager->GetSettings().fileAutoSave) {
+        SetTimer(m_hwnd, TIMER_FILEAUTOSAVE,
+                 static_cast<UINT>(m_settingsManager->GetSettings().fileAutoSaveIntervalMs), nullptr);
+    }
     
     // Start file change monitoring timer
     SetTimer(m_hwnd, TIMER_FILEWATCH, FILEWATCH_INTERVAL, nullptr);
